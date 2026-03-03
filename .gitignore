@@ -1,0 +1,111 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+MANIFEST
+
+# Virtual environments
+.venv*/
+venv*/
+env*/
+ENV/
+
+# PyInstaller output
+dist/
+dist_portable/
+dist_installer/
+*.spec.bak
+
+# Conda build output
+packaging/conda/bld/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── AI coding assistant files ──────────────────────────────────────────────
+
+# Claude Code (Anthropic)
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+
+# Cursor
+.cursor/
+.cursorignore
+.cursorrules
+
+# Windsurf / Codeium
+.windsurf/
+.windsurfrules
+.codeiumignore
+
+# Roo Code / Roo Cline
+.roo/
+.roomodes
+
+# Aider
+.aider*
+.aider.tags.cache.v3/
+
+# Continue.dev
+.continue/
+
+# Cody (Sourcegraph)
+.cody/
+
+# Amazon Q / CodeWhisperer
+.amazonq/
+
+# Tabnine
+.tabnine/
+
+# GitHub Copilot
+.github/copilot-workspace/
+.github/copilot-instructions.md
+
+# Gemini CLI
+.gemini/
+GEMINI.md
+
+# Andere LLM-Instruktionsdateien
+AGENTS.md
+AGENTS.local.md
+copilot-instructions.md
+
+# Generic AI context / memory dumps
+ai-context.md
+ai-context.txt
+.ai/
+llm-context/
+
+# Project runtime data (user-specific, not part of source)
+*.gguf
+*.ggml
+*.bin
+*.safetensors
+
+# Logs
+*.log
+logs/
+
+# Test artefacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+*.pdf
+tmp/
+runs/
