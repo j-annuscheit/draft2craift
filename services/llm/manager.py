@@ -1,0 +1,1812 @@
+"""
+LLM Manager
+===========
+Two classes:
+
+  LLMWorker  – QThread that owns the llama_cpp.Llama instance.
+               Emits streamed tokens via signals.
+
+  LLMManager – High-level QObject that builds context-aware prompts,
+               tracks generation timing, and exposes a clean API to
+               the rest of the app.  Accepts an optional AppLogger
+               for detailed debug output.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+from PySide6.QtCore import QThread, QObject, Signal
+from features.canvas.structured_graph import extract_graph_spec, spec_to_markdown
+
+CANVAS_REWRITE_OPEN = "[[CANVAS_REWRITE]]"
+CANVAS_REWRITE_CLOSE = "[[/CANVAS_REWRITE]]"
+GROUNDING_INSUFFICIENT_MESSAGE = (
+    "Nicht genug Informationen in den ausgewählten Dokumenten/RAG-Quellen."
+)
+REQUIRED_STYLE_RULES = (
+    "Verbindliche Stilregel:\n"
+    "- Verwende keinen Gedankenstrich als Satzzeichen "
+    "(—, –, ‒, ― oder ' - ').\n"
+    "- Nutze stattdessen je nach Satz Komma, Punkt, Doppelpunkt "
+    "oder Klammern.\n"
+    "- Bindestriche innerhalb von Wörtern sind erlaubt "
+    "(z. B. 3D-Datensatz)."
+)
+
+def _runtime_app_root() -> Path:
+    """
+    Return the directory that contains bundled data files.
+
+    - Source run: project root (repository root)
+    - PyInstaller: sys._MEIPASS (onefile temp dir or onedir _internal)
+    """
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    # manager.py -> services/llm/manager.py, project root is parents[2]
+    return Path(__file__).resolve().parents[2]
+
+
+# ── Worker ────────────────────────────────────────────────────────────────────
+
+class LLMWorker(QThread):
+    """
+    Runs llama_cpp.Llama inside a dedicated thread so the UI never blocks.
+
+    Usage
+    -----
+    1. Call ``load_model(path, …)`` → start() → waits for ``model_loaded``
+    2. Call ``generate(prompt, …)``  → start() → streams ``token_received``
+                                                 → emits ``generation_complete``
+    """
+
+    token_received      = Signal(str)
+    generation_complete = Signal(str)
+    error_occurred      = Signal(str)
+    model_loaded        = Signal(bool, str)
+
+    def __init__(self, parent: QObject | None = None):
+        super().__init__(parent)
+        self._model: Any = None
+        self._task: str  = ""           # "load" | "generate"
+        self._stop: bool = False
+
+        self._model_path: str = ""
+        self._load_params: dict = {}
+
+        self._prompt: str = ""
+        self._gen_params: dict = {}
+        self._forbidden_chars: tuple[str, ...] = ()
+        self._forbidden_bias_cache_model: tuple[str, int] | None = None
+        self._forbidden_bias_cache: dict[tuple[str, ...], dict[int, float]] = {}
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def load_model(
+        self,
+        model_path: str,
+        n_ctx: int = 4096,
+        n_gpu_layers: int = 0,
+        n_threads: int = 0,
+    ):
+        self._task       = "load"
+        self._model_path = model_path
+        self._load_params = {
+            "n_ctx":        n_ctx,
+            "n_gpu_layers": n_gpu_layers,
+            "n_threads":    n_threads or (os.cpu_count() or 4),
+            "verbose":      False,
+        }
+        if not self.isRunning():
+            self.start()
+
+    def generate(
+        self,
+        prompt: str,
+        max_tokens: int   = 1024,
+        temperature: float = 0.7,
+        top_p: float       = 0.9,
+        repeat_penalty: float = 1.1,
+        forbidden_chars: tuple[str, ...] | None = None,
+    ):
+        if self._model is None:
+            self.error_occurred.emit("No model loaded.")
+            return
+        self._task      = "generate"
+        self._prompt    = prompt
+        self._gen_params = {
+            "max_tokens":     max_tokens,
+            "temperature":    temperature,
+            "top_p":          top_p,
+            "repeat_penalty": repeat_penalty,
+            "stream":         True,
+            "stop":           ["<|"],
+        }
+        self._forbidden_chars = tuple(sorted(set(forbidden_chars or ())))
+        self._stop = False
+        if not self.isRunning():
+            self.start()
+
+    def request_stop(self):
+        self._stop = True
+
+    # ── Thread entry ──────────────────────────────────────────────────────────
+
+    def run(self):
+        if self._task == "load":
+            self._do_load()
+        elif self._task == "generate":
+            self._do_generate()
+
+    def _do_load(self):
+        try:
+            from llama_cpp import Llama  # type: ignore
+            self._model = Llama(model_path=self._model_path, **self._load_params)
+            self._forbidden_bias_cache_model = None
+            self._forbidden_bias_cache.clear()
+            self.model_loaded.emit(True, f"✓ {os.path.basename(self._model_path)}")
+        except ImportError:
+            self.model_loaded.emit(
+                False,
+                "llama-cpp-python not installed.\nRun: pip install llama-cpp-python",
+            )
+        except Exception as exc:
+            self.model_loaded.emit(False, f"Load failed: {exc}")
+
+    def _build_forbidden_logit_bias(self) -> dict[int, float]:
+        """
+        Build a token-bias map that suppresses tokens containing forbidden chars.
+
+        Uses llama.cpp sampling (`logit_bias`) directly and caches results per
+        loaded model + forbidden-char set to avoid repeated full-vocab scans.
+        """
+        if self._model is None or not self._forbidden_chars:
+            return {}
+
+        model_key = (self._model_path, int(self._model.n_vocab()))
+        if self._forbidden_bias_cache_model != model_key:
+            self._forbidden_bias_cache_model = model_key
+            self._forbidden_bias_cache.clear()
+
+        key = self._forbidden_chars
+        cached = self._forbidden_bias_cache.get(key)
+        if cached is not None:
+            return cached
+
+        forbidden_bytes = [ch.encode("utf-8") for ch in key if ch]
+        logit_bias: dict[int, float] = {}
+        n_vocab = int(self._model.n_vocab())
+
+        for tid in range(n_vocab):
+            piece: bytes
+            try:
+                piece = self._model.detokenize([tid], special=True)
+            except TypeError:
+                try:
+                    piece = self._model.detokenize([tid])
+                except Exception:
+                    continue
+            except Exception:
+                continue
+
+            if not piece:
+                continue
+
+            if any(fb and fb in piece for fb in forbidden_bytes):
+                logit_bias[tid] = -100.0
+                continue
+
+            text = piece.decode("utf-8", errors="ignore")
+            if text and any(ch in text for ch in key):
+                logit_bias[tid] = -100.0
+
+        self._forbidden_bias_cache[key] = logit_bias
+        return logit_bias
+
+    def _do_generate(self):
+        """Stream tokens, cutting off at the first '<|' sentinel.
+
+        llama_cpp's ``stop`` parameter handles the common case, but the
+        sentinel can arrive split across two tokens (e.g. '<' then '|').
+        The one-character look-behind buffer below catches that edge case
+        without delaying any visible output.
+        """
+        STOP = "<|"
+        keep = len(STOP) - 1   # 1 char held back to detect split sentinel
+        try:
+            full = ""
+            buf  = ""
+            gen_params = dict(self._gen_params)
+            if self._forbidden_chars:
+                bias = self._build_forbidden_logit_bias()
+                if bias:
+                    gen_params["logit_bias"] = bias
+
+            for chunk in self._model(self._prompt, **gen_params):
+                if self._stop:
+                    break
+                token = chunk["choices"][0].get("text", "")
+                if not token:
+                    continue
+
+                buf += token
+
+                if STOP in buf:
+                    safe = buf[: buf.index(STOP)]
+                    if safe:
+                        full += safe
+                        self.token_received.emit(safe)
+                    break
+
+                # Flush everything except the last `keep` chars, which might
+                # be the start of a split '<|' sequence.
+                if len(buf) > keep:
+                    emit = buf[:-keep]
+                    full += emit
+                    self.token_received.emit(emit)
+                    buf = buf[-keep:]
+
+            else:
+                # Loop completed without hitting a stop — flush the buffer.
+                if buf:
+                    full += buf
+                    self.token_received.emit(buf)
+
+            self.generation_complete.emit(full)
+        except Exception as exc:
+            self.error_occurred.emit(f"Generation error: {exc}")
+
+
+# ── Manager ───────────────────────────────────────────────────────────────────
+
+class LLMManager(QObject):
+    """
+    High-level manager.  Builds context-aware prompts, tracks timing, and
+    delegates execution to LLMWorker.
+
+    Parameters
+    ----------
+    logger:
+        Optional AppLogger instance.  When provided, LLM calls, timing,
+        errors, and query expansion are written to the debug log.
+
+    Prompt layout
+    -------------
+    <system>
+    [optional context block: attached files, RAG excerpts, selected text]
+    [chat history]
+    <user>
+    <assistant>
+    """
+
+    token_received      = Signal(str)
+    generation_complete = Signal(str)
+    error_occurred      = Signal(str)
+    model_loaded        = Signal(bool, str)
+    is_generating       = Signal(bool)
+
+    _FORBIDDEN_CHAR_ALIASES = {
+        "nbsp": "\u00A0",
+        "nnbsp": "\u202F",
+        "thinspace": "\u2009",
+        "figurespace": "\u2007",
+        "wordjoiner": "\u2060",
+        "zwnbsp": "\uFEFF",
+        "emdash": "—",
+        "endash": "–",
+        "semicolon": ";",
+        "space": " ",
+    }
+    PROMPT_KEYS: tuple[str, ...] = (
+        "chat_system",
+        "chat_section_grounding_title",
+        "chat_section_rewrite_title",
+        "chat_section_context_title",
+        "chat_section_context_end",
+        "chat_section_files_title",
+        "chat_section_rag_title",
+        "chat_section_selected_title",
+        "chat_citation_rule_answer",
+        "chat_citation_rule_rewrite",
+        "chat_grounding_note_rewrite",
+        "chat_grounding_rules",
+        "chat_canvas_rewrite_rules",
+        "fact_extract_system",
+        "fact_extract_user",
+        "fact_verify_system",
+        "fact_verify_user",
+        "fact_check_system",
+        "hyde_tfidf_system",
+        "hyde_tfidf_user",
+        "hyde_st_single_system",
+        "hyde_st_single_user",
+        "hyde_st_multi_system",
+        "hyde_st_multi_user",
+        "literal_terms_system",
+        "literal_terms_user",
+        "rag_rerank_system",
+        "rag_rerank_user",
+        "mindmap_system",
+        "mindmap_user",
+        "graph_system",
+        "graph_user",
+        "glossary_system",
+        "glossary_user",
+    )
+    PROMPT_DEFAULTS_FILE = _runtime_app_root() / "prompts" / "defaults.json"
+
+    def __init__(self, logger: Any = None, parent: QObject | None = None):
+        super().__init__(parent)
+        self._log    = logger
+        self.worker  = LLMWorker()
+        self._prompt_defaults: dict[str, str] = self._load_prompt_defaults()
+        self._prompts: dict[str, str] = dict(self._prompt_defaults)
+        self._system_prompt = self._prompts["chat_system"]
+        # Generation timing
+        self._gen_start: float = 0.0
+        self._token_count: int = 0
+        self._forbidden_chars: set[str] = set()
+
+        # Wire worker signals through interceptors for logging
+        self.worker.token_received.connect(self._on_token)
+        self.worker.generation_complete.connect(self._on_complete)
+        self.worker.error_occurred.connect(self._on_error)
+        self.worker.model_loaded.connect(self._on_model_loaded)
+
+    # ── Model management ──────────────────────────────────────────────────────
+
+    def load_model(
+        self,
+        path: str,
+        n_ctx: int = 4096,
+        n_gpu_layers: int = 0,
+        n_threads: int = 0,
+    ):
+        if self._log:
+            basename = os.path.basename(path)
+            threads  = n_threads or (os.cpu_count() or 4)
+            self._log.info(
+                "LLM",
+                f"Loading model: {basename}"
+                f"  |  n_ctx={n_ctx}  gpu_layers={n_gpu_layers}  threads={threads}",
+            )
+        self.worker.load_model(path, n_ctx=n_ctx, n_gpu_layers=n_gpu_layers, n_threads=n_threads)
+
+    def is_model_loaded(self) -> bool:
+        return self.worker._model is not None
+
+    def _load_prompt_defaults(self) -> dict[str, str]:
+        """Load default prompt templates from external JSON file."""
+        defaults: dict[str, str] = {}
+        src = self.PROMPT_DEFAULTS_FILE
+        try:
+            with src.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                for key in self.PROMPT_KEYS:
+                    value = data.get(key, "")
+                    if isinstance(value, str):
+                        defaults[key] = value
+        except Exception as exc:
+            if self._log:
+                self._log.error("LLM", f"Prompt-Defaults konnten nicht geladen werden ({src}): {exc}")
+
+        for key in self.PROMPT_KEYS:
+            defaults.setdefault(key, "")
+
+        if not defaults.get("chat_system", "").strip():
+            defaults["chat_system"] = "Du bist ein hilfreicher Schreibassistent."
+
+        return defaults
+
+    def set_system_prompt(self, text: str):
+        value = str(text or "").strip()
+        if not value:
+            value = self._prompt_defaults["chat_system"]
+        self._prompts["chat_system"] = value
+        self._system_prompt = value
+
+    def get_prompt_set(self) -> dict[str, str]:
+        """Return all configurable prompt templates (system + user blocks)."""
+        return dict(self._prompts)
+
+    def get_prompt_defaults(self) -> dict[str, str]:
+        """Return default prompt templates (immutable copy)."""
+        return dict(self._prompt_defaults)
+
+    def set_prompt_set(self, prompts: dict[str, str]):
+        """Apply multiple prompt values (unknown keys are ignored)."""
+        if not isinstance(prompts, dict):
+            return
+        for key in self.PROMPT_KEYS:
+            if key not in prompts:
+                continue
+            value = str(prompts.get(key, "") or "").strip()
+            if not value:
+                value = self._prompt_defaults[key]
+            else:
+                value = self._migrate_legacy_prompt_value(key, value)
+            self._prompts[key] = value
+        self._system_prompt = self._prompts["chat_system"]
+
+    def _migrate_legacy_prompt_value(self, key: str, value: str) -> str:
+        """Upgrade known legacy default prompts to current defaults."""
+        candidate = str(value or "").strip()
+        if self._is_legacy_prompt_value(key, candidate):
+            upgraded = str(self._prompt_defaults.get(key, candidate) or "").strip()
+            if upgraded and upgraded != candidate:
+                if self._log:
+                    self._log.info(
+                        "LLM",
+                        f"Prompt-Migration: '{key}' wurde auf aktuellen Default angehoben.",
+                    )
+                return upgraded
+        return candidate
+
+    @staticmethod
+    def _is_legacy_prompt_value(key: str, candidate: str) -> bool:
+        """Heuristically detect older built-in prompts from previous releases."""
+        text = str(candidate or "").strip()
+        if not text:
+            return False
+
+        if key == "mindmap_system":
+            return (
+                text.startswith("Du erstellst eine MindMap aus Kontext.")
+                and "Verbindliche Regeln:" not in text
+            )
+        if key == "mindmap_user":
+            return (
+                "Erstelle eine MindMap zur Frage: {query}" in text
+                and "Nutze nur diesen Kontext:" in text
+                and "Ausgabeformat streng:" in text
+                and "Arbeite intern in 3 Schritten:" not in text
+            )
+        if key == "graph_system":
+            return (
+                text.startswith("Du erstellst einen Wissensgraphen aus Kontext.")
+                and "Verbindliche Regeln:" not in text
+            )
+        if key == "graph_user":
+            return (
+                "Erstelle einen Wissensgraphen zur Frage: {query}" in text
+                and "Nutze nur diesen Kontext:" in text
+                and "Ausgabeformat" in text
+                and "Arbeite intern in 4 Schritten:" not in text
+            )
+        return False
+
+    def _render_prompt_template(
+        self,
+        key: str,
+        replacements: dict[str, str] | None = None,
+    ) -> str:
+        """Lightweight placeholder substitution for configurable prompt templates."""
+        text = str(self._prompts.get(key, self._prompt_defaults.get(key, "")) or "")
+        out = text
+        for name, value in (replacements or {}).items():
+            out = out.replace("{" + str(name) + "}", str(value))
+        return out
+
+    def render_prompt_template(
+        self,
+        key: str,
+        replacements: dict[str, str] | None = None,
+    ) -> str:
+        """Public wrapper used by UI elements to render editable prompt templates."""
+        return self._render_prompt_template(key, replacements)
+
+    def _log_llm_io(
+        self,
+        call_name: str,
+        prompt: str,
+        output: str | None = None,
+        error: str | None = None,
+    ):
+        """Write full input/output for one synchronous LLM call into debug log."""
+        if not self._log:
+            return
+        self._log.debug("LLM", f"[{call_name}] INPUT:\n{prompt}")
+        if output is not None:
+            self._log.debug("LLM", f"[{call_name}] OUTPUT:\n{output}")
+        if error:
+            self._log.error("LLM", f"[{call_name}] ERROR: {error}")
+
+    def expand_query_tfidf_sync(self, query: str) -> str:
+        """HyDE keyword expansion for the TF-IDF backend.
+
+        Generates a comma-separated list of domain keywords / synonyms.
+        TF-IDF matches these terms against the indexed vocabulary, dramatically
+        improving recall for short or abstract queries.
+
+        Call only while the worker is idle (not generating).
+        """
+        if not self.is_model_loaded():
+            return query
+        if self.worker.isRunning():
+            if self._log:
+                self._log.debug("LLM", f"HyDE (TF-IDF) skipped – model busy: '{query}'")
+            return query
+        model = self.worker._model
+        user_block = self._render_prompt_template(
+            "hyde_tfidf_user",
+            {"query": query},
+        )
+        prompt = (
+            "<|system|>\n"
+            f"{self._prompts['hyde_tfidf_system']}\n"
+            "<|user|>\n"
+            f"{user_block}\n"
+            "<|assistant|>\n"
+        )
+        try:
+            result   = model(prompt, max_tokens=80, temperature=0.2,
+                             stop=["<|"], stream=False)
+            raw_text = result["choices"][0].get("text", "")
+            self._log_llm_io("HyDE-TFIDF", prompt, raw_text)
+            keywords = raw_text.strip()
+            if self._log:
+                if keywords:
+                    self._log.info(
+                        "LLM",
+                        f"HyDE (TF-IDF keywords): '{query}'  ->  '{keywords[:100]}'",
+                    )
+                else:
+                    self._log.debug("LLM", f"HyDE (TF-IDF) no output for: '{query}'")
+            return keywords if keywords else query
+        except Exception as exc:
+            self._log_llm_io("HyDE-TFIDF", prompt, error=str(exc))
+            if self._log:
+                self._log.error("LLM", f"HyDE TF-IDF expansion failed: {exc}")
+            return query
+
+    def expand_query_st_sync(self, query: str, n_hypotheses: int = 1) -> list[str]:
+        """HyDE passage expansion for the sentence-transformers backend.
+
+        Generates 1 or *n_hypotheses* short hypothetical passages whose vectors
+        closely match real document chunks for cosine-similarity retrieval.
+
+        Returns a ``list[str]`` (always at least ``[query]`` as fallback).
+        Call only while the worker is idle (not generating).
+        """
+        if not self.is_model_loaded():
+            return [query]
+        if self.worker.isRunning():
+            if self._log:
+                self._log.debug("LLM", f"HyDE (ST) skipped – model busy: '{query}'")
+            return [query]
+        model = self.worker._model
+
+        if n_hypotheses <= 1:
+            user_block = self._render_prompt_template(
+                "hyde_st_single_user",
+                {"query": query},
+            )
+            prompt = (
+                "<|system|>\n"
+                f"{self._prompts['hyde_st_single_system']}\n"
+                "<|user|>\n"
+                f"{user_block}\n"
+                "<|assistant|>\n"
+            )
+            try:
+                result  = model(prompt, max_tokens=120, temperature=0.3,
+                                stop=["<|"], stream=False)
+                raw_text = result["choices"][0].get("text", "")
+                self._log_llm_io("HyDE-ST-single", prompt, raw_text)
+                passage = raw_text.strip()
+                if self._log and passage and passage != query:
+                    self._log.info(
+                        "LLM",
+                        f"HyDE (ST passage): '{query}'  ->  '{passage[:80]}…'",
+                    )
+                return [passage] if passage else [query]
+            except Exception as exc:
+                self._log_llm_io("HyDE-ST-single", prompt, error=str(exc))
+                if self._log:
+                    self._log.error("LLM", f"HyDE ST expansion failed: {exc}")
+                return [query]
+        else:
+            user_block = self._render_prompt_template(
+                "hyde_st_multi_user",
+                {"query": query, "n_hypotheses": str(n_hypotheses)},
+            )
+            prompt = (
+                "<|system|>\n"
+                f"{self._prompts['hyde_st_multi_system']}\n"
+                "<|user|>\n"
+                f"{user_block}\n"
+                "<|assistant|>\n"
+            )
+            try:
+                result   = model(
+                    prompt,
+                    max_tokens=120 * n_hypotheses,
+                    temperature=0.5,
+                    stop=["<|"],
+                    stream=False,
+                )
+                raw_text = result["choices"][0].get("text", "")
+                self._log_llm_io("HyDE-ST-multi", prompt, raw_text)
+                text     = raw_text.strip()
+                passages = [p.strip() for p in text.split("---") if p.strip()]
+                if not passages:
+                    passages = [query]
+                if self._log:
+                    self._log.info(
+                        "LLM",
+                        f"HyDE (ST multi-passage x{len(passages)}): '{query}'",
+                    )
+                return passages
+            except Exception as exc:
+                self._log_llm_io("HyDE-ST-multi", prompt, error=str(exc))
+                if self._log:
+                    self._log.error("LLM", f"HyDE ST multi-passage expansion failed: {exc}")
+                return [query]
+
+    def expand_query_literal_terms_sync(
+        self,
+        query: str,
+        max_terms: int = 8,
+    ) -> list[str] | tuple[list[str], dict[str, Any]]:
+        """Generate short literal search terms for the literal RAG backend."""
+        if not self.is_model_loaded():
+            return [], {
+                "applied": False,
+                "used": False,
+                "reason": "model_not_loaded",
+            }
+        if self.worker.isRunning():
+            if self._log:
+                self._log.debug("LLM", f"Literal expansion skipped – model busy: '{query}'")
+            return [], {
+                "applied": False,
+                "used": False,
+                "reason": "model_busy",
+            }
+
+        limit = max(1, int(max_terms))
+        model = self.worker._model
+        user_block = self._render_prompt_template(
+            "literal_terms_user",
+            {"query": query, "max_terms": str(limit)},
+        )
+        prompt = (
+            "<|system|>\n"
+            f"{self._prompts['literal_terms_system']}\n"
+            "<|user|>\n"
+            f"{user_block}\n"
+            "<|assistant|>\n"
+        )
+        try:
+            result = model(
+                prompt,
+                max_tokens=max(40, limit * 12),
+                temperature=0.2,
+                top_p=0.9,
+                stop=["<|"],
+                stream=False,
+            )
+            raw_full = result["choices"][0].get("text", "")
+            self._log_llm_io("Literal-Terms", prompt, raw_full)
+            raw = raw_full.strip()
+            if not raw:
+                return [], {
+                    "applied": True,
+                    "used": False,
+                    "reason": "empty",
+                }
+
+            terms: list[str] = []
+            seen: set[str] = set()
+            for token in re.split(r"[,\n;]+", raw):
+                term = token.strip()
+                term = re.sub(r"^\s*(?:[-*]+|\d+[\.\)])\s*", "", term).strip()
+                term = term.strip("\"'`")
+                term = re.sub(r"\s+", " ", term)
+                if len(term) < 2:
+                    continue
+                key = term.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                terms.append(term)
+                if len(terms) >= limit:
+                    break
+
+            if self._log:
+                if terms:
+                    self._log.info(
+                        "LLM",
+                        f"Literal terms: '{query}' -> {', '.join(terms[:8])}",
+                    )
+                else:
+                    self._log.debug("LLM", f"Literal terms empty for: '{query}'")
+            return terms, {
+                "applied": True,
+                "used": bool(terms),
+                "reason": "ok" if terms else "empty",
+            }
+        except Exception as exc:
+            self._log_llm_io("Literal-Terms", prompt, error=str(exc))
+            if self._log:
+                self._log.error("LLM", f"Literal term expansion failed: {exc}")
+            return [], {
+                "applied": False,
+                "used": False,
+                "reason": "exception",
+                "error": str(exc),
+            }
+
+    def rerank_rag_results_sync(
+        self,
+        query: str,
+        candidates: list[dict],
+        top_k: int = 5,
+        min_score: float = 0.45,
+    ) -> tuple[list[dict], dict]:
+        """Rerank and filter RAG candidates via LLM class labels."""
+        if not candidates:
+            return [], {
+                "applied": True,
+                "reason": "no_candidates",
+                "selected": 0,
+                "evaluated": 0,
+            }
+        if not self.is_model_loaded():
+            return candidates[:top_k], {
+                "applied": False,
+                "reason": "model_not_loaded",
+                "selected": min(len(candidates), top_k),
+                "evaluated": len(candidates),
+            }
+        if self.worker.isRunning():
+            if self._log:
+                self._log.debug("LLM", f"RAG rerank skipped – model busy: '{query}'")
+            return candidates[:top_k], {
+                "applied": False,
+                "reason": "model_busy",
+                "selected": min(len(candidates), top_k),
+                "evaluated": len(candidates),
+            }
+
+        model = self.worker._model
+        limit = max(1, len(candidates))
+        docs = candidates[:limit]
+        score_threshold = max(0.0, min(1.0, float(min_score)))
+
+        items: list[str] = []
+        for idx, doc in enumerate(docs):
+            raw_name = str(doc.get("name", "")).strip()
+            if not raw_name:
+                raw_name = str(doc.get("doc", "")).strip()
+            if not raw_name:
+                raw_name = str(doc.get("key", "")).strip()
+            name = os.path.basename(raw_name) if raw_name else "unknown"
+
+            methods: list[str] = []
+            if isinstance(doc.get("methods"), list):
+                methods = [str(m) for m in doc.get("methods", []) if str(m).strip()]
+            else:
+                meta = doc.get("meta", {})
+                if isinstance(meta, dict) and isinstance(meta.get("methods"), list):
+                    methods = [str(m) for m in meta.get("methods", []) if str(m).strip()]
+            source = ", ".join(methods) if methods else "unknown"
+
+            excerpt = str(doc.get("excerpt", "")).strip()
+            excerpt = re.sub(r"\s+", " ", excerpt)
+            items.append(f"[{idx}] {name}  | source: {source}\n{excerpt}")
+
+        user_block = self._render_prompt_template(
+            "rag_rerank_user",
+            {
+                "query": query,
+                "items": "\n\n".join(items),
+            },
+        )
+        prompt = (
+            "<|system|>\n"
+            f"{self._prompts['rag_rerank_system']}\n"
+            "<|user|>\n"
+            f"{user_block}\n"
+            "<|assistant|>\n"
+        )
+        max_out_tokens = max(160, 64 * len(docs))
+        window_err = self._check_prompt_window(prompt, max_out_tokens)
+        if window_err:
+            if self._log:
+                self._log.error("LLM", f"RAG rerank context too large: {window_err}")
+            return docs[:top_k], {
+                "applied": False,
+                "reason": "context_too_large",
+                "error": window_err,
+                "selected": min(len(docs), top_k),
+                "evaluated": len(docs),
+            }
+
+        try:
+            result = model(
+                prompt,
+                max_tokens=max_out_tokens,
+                temperature=0.1,
+                top_p=0.9,
+                repeat_penalty=1.05,
+                stop=["<|"],
+                stream=False,
+            )
+            raw_full = result["choices"][0].get("text", "")
+            self._log_llm_io("RAG-Rerank", prompt, raw_full)
+            raw = raw_full.strip()
+
+            parsed: Any = None
+            try:
+                parsed = json.loads(raw)
+            except Exception:
+                m = re.search(r"\[[\s\S]*\]", raw)
+                if m:
+                    parsed = json.loads(m.group(0))
+
+            if not isinstance(parsed, list):
+                return docs[:top_k], {
+                    "applied": False,
+                    "reason": "parse_failed",
+                    "selected": min(len(docs), top_k),
+                    "evaluated": len(docs),
+                    "raw_preview": raw[:300],
+                }
+
+            decisions_by_idx: dict[int, dict[str, Any]] = {}
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    idx = int(item.get("idx", -1))
+                except Exception:
+                    continue
+                if idx < 0 or idx >= len(docs):
+                    continue
+                score_value: float | None = None
+                if "score" in item:
+                    try:
+                        score_value = max(0.0, min(1.0, float(item.get("score", 0.0))))
+                    except Exception:
+                        score_value = None
+                cls_raw = str(item.get("class", "") or "").strip().lower()
+                if cls_raw in {"sinnvoll", "useful", "relevant", "ja", "yes", "keep"}:
+                    cls = "sinnvoll"
+                elif cls_raw in {"nicht_sinnvoll", "nicht sinnvoll", "irrelevant", "no", "nein", "drop"}:
+                    cls = "nicht_sinnvoll"
+                else:
+                    keep_raw = item.get("keep", None)
+                    if isinstance(keep_raw, bool):
+                        keep_fallback = keep_raw
+                    elif isinstance(keep_raw, (int, float)):
+                        keep_fallback = bool(keep_raw)
+                    elif isinstance(keep_raw, str):
+                        keep_fallback = keep_raw.strip().lower() in {"1", "true", "yes", "ja", "keep"}
+                    elif score_value is not None:
+                        keep_fallback = score_value >= score_threshold
+                    else:
+                        keep_fallback = False
+                    cls = "sinnvoll" if keep_fallback else "nicht_sinnvoll"
+                reason = str(item.get("reason", "") or "")[:240]
+                prev = decisions_by_idx.get(idx)
+                if prev is None:
+                    decisions_by_idx[idx] = {
+                        "idx": idx,
+                        "class": cls,
+                        "keep": (cls == "sinnvoll"),
+                        "score": score_value,
+                        "reason": reason,
+                    }
+                elif prev.get("class") != "sinnvoll" and cls == "sinnvoll":
+                    # Prefer positive classification for the same idx.
+                    decisions_by_idx[idx] = {
+                        "idx": idx,
+                        "class": cls,
+                        "keep": True,
+                        "score": score_value,
+                        "reason": reason,
+                    }
+
+            if not decisions_by_idx:
+                return docs[:top_k], {
+                    "applied": False,
+                    "reason": "no_valid_decisions",
+                    "selected": min(len(docs), top_k),
+                    "evaluated": len(docs),
+                }
+
+            ordered = sorted(
+                decisions_by_idx.values(),
+                key=lambda d: (1 if d.get("class") == "sinnvoll" else 0),
+                reverse=True,
+            )
+
+            selected: list[dict] = []
+            debug_decisions: list[dict[str, Any]] = []
+            for dec in ordered:
+                idx = int(dec["idx"])
+                cls = str(dec.get("class", "nicht_sinnvoll"))
+                keep = bool(dec["keep"]) and cls == "sinnvoll"
+                reason = str(dec.get("reason", ""))
+                score_value = dec.get("score", None)
+
+                doc = dict(docs[idx])
+                meta = dict(doc.get("meta", {})) if isinstance(doc.get("meta"), dict) else {}
+                meta["llm_rerank_class"] = cls
+                meta["llm_rerank_keep"] = keep
+                if isinstance(score_value, (int, float)):
+                    meta["llm_rerank_score"] = round(float(score_value), 4)
+                if reason:
+                    meta["llm_rerank_reason"] = reason
+                doc["meta"] = meta
+
+                debug_decisions.append({
+                    "idx": idx,
+                    "name": str(doc.get("name", "") or doc.get("doc", "") or doc.get("key", "")),
+                    "class": cls,
+                    "score": round(float(score_value), 4) if isinstance(score_value, (int, float)) else None,
+                    "keep": keep,
+                    "reason": reason,
+                })
+                if keep:
+                    selected.append(doc)
+
+            selected = selected[:max(1, int(top_k))]
+            if self._log:
+                self._log.info(
+                    "LLM",
+                    f"RAG rerank: '{query}'  |  selected {len(selected)}/{len(docs)}",
+                )
+            return selected, {
+                "applied": True,
+                "reason": "ok",
+                "selected": len(selected),
+                "evaluated": len(docs),
+                "mode": "class_label",
+                "threshold": score_threshold,
+                "decisions": debug_decisions,
+            }
+        except Exception as exc:
+            self._log_llm_io("RAG-Rerank", prompt, error=str(exc))
+            if self._log:
+                self._log.error("LLM", f"RAG rerank failed: {exc}")
+            return docs[:top_k], {
+                "applied": False,
+                "reason": "exception",
+                "error": str(exc),
+                "selected": min(len(docs), top_k),
+                "evaluated": len(docs),
+            }
+
+    def generate_mindmap_sync(
+        self,
+        *,
+        context_text: str,
+        query: str = "",
+        mode: str = "mindmap",
+        max_nodes: int = 28,
+    ) -> tuple[str, dict[str, Any]]:
+        """Generate a structured MindMap/Wissensgraph markdown block."""
+        context = str(context_text or "").strip()
+        if not context:
+            return "", {
+                "applied": False,
+                "reason": "empty_context",
+            }
+        if not self.is_model_loaded():
+            return "", {
+                "applied": False,
+                "reason": "model_not_loaded",
+            }
+        if self.worker.isRunning():
+            if self._log:
+                self._log.debug(
+                    "LLM",
+                    "MindMap generation skipped – model busy.",
+                )
+            return "", {
+                "applied": False,
+                "reason": "model_busy",
+            }
+
+        mode_clean = str(mode or "").strip().casefold()
+        mode_clean = "graph" if "graph" in mode_clean else "mindmap"
+        if mode_clean == "graph":
+            system_key = "graph_system"
+            user_key = "graph_user"
+            hard_system_rules = (
+                "HARTE REGELN (immer befolgen):\n"
+                "- Kein Inhaltsverzeichnis und kein Kapitelgerüst ausgeben.\n"
+                "- Nur Tripel im Format Subjekt | Relation | Objekt.\n"
+                "- Relation darf nicht leer/generisch sein.\n"
+                "- Keine Entitäts-Dubletten, keine Selbstkanten, keine Halluzinationen.\n"
+                "- Ziel ist ein möglichst zusammenhängender Graph mit einer dominanten Hauptkomponente.\n"
+                "- Neue Tripel sollen bevorzugt an bereits eingeführte Entitäten andocken.\n"
+                "- Viele isolierte Mini-Subgraphen vermeiden; wenn nicht belegbar verbindbar, weglassen."
+            )
+            hard_user_rules = (
+                "Zusatzregeln:\n"
+                "- Verwerfe TOC-/Layout-Zeilen (z. B. \"Inhaltsverzeichnis\", \"1.2\", Seitenzahlen).\n"
+                "- Wenn du nur Strukturüberschriften findest, gib stattdessen die stärksten inhaltlichen Beziehungen aus.\n"
+                "- Bevorzuge gemeinsame Entitäten als Brücken zwischen Teilaspekten.\n"
+                "- Isolierte Inseln nur wenn der Kontext keine belegbare Verbindung liefert."
+            )
+        else:
+            system_key = "mindmap_system"
+            user_key = "mindmap_user"
+            hard_system_rules = (
+                "HARTE REGELN (immer befolgen):\n"
+                "- Kein Inhaltsverzeichnis und kein Kapitelgerüst ausgeben.\n"
+                "- Nur konzeptuelle Knoten und Beziehungen (nicht Dokument-Navigation).\n"
+                "- Blätter müssen Kurz-Zitate enthalten: Label :: \"Zitat\".\n"
+                "- Keine Halluzinationen.\n"
+                "- MindMap muss wirklich hierarchisch sein, nicht flache Liste:\n"
+                "  * genau 1 Wurzelknoten,\n"
+                "  * darunter 3-7 Hauptäste,\n"
+                "  * pro Hauptast 2-4 Unterknoten,\n"
+                "  * mehrere Blattknoten mit Direktzitaten.\n"
+                "- Einrückung: exakt 2 Leerzeichen je Ebene.\n"
+                "- Mehrere Einrückungsebenen sind ausdrücklich erlaubt.\n"
+                "- Die Hierarchie wird ausschließlich über diese Einrückungen gebildet.\n"
+                "- Hierarchierichtung strikt: Oben steht das übergeordnete Ganze, unten nur Teilaspekte/Unterkategorien/Belege.\n"
+                "- Ein allgemeinerer Begriff darf niemals unter einem spezielleren Begriff stehen."
+            )
+            hard_user_rules = (
+                "Zusatzregeln:\n"
+                "- Verwerfe TOC-/Layout-Zeilen (z. B. \"Inhaltsverzeichnis\", \"1.2\", Seitenzahlen).\n"
+                "- Wenn der Kontext viele Überschriften enthält, priorisiere dennoch inhaltliche Aussagen und Befunde.\n"
+                "- Forme die Ausgabe als Baum (Konzept->Unterkonzept->Beleg), nicht als Stichwortsammlung.\n"
+                "- Nutze bei Bedarf mehrere Einrückungsstufen; jede zusätzliche Einrückung ist eine tiefere Ebene.\n"
+                "- Prüfe jede Eltern->Kind-Kante: Kind muss ein Teil/eine Spezifizierung des Elternknotens sein.\n"
+                "- Wenn eine Kante umgekehrt ist (Unterpunkt allgemeiner als Parent), Richtung korrigieren."
+            )
+        limit = max(8, min(96, int(max_nodes)))
+        question = str(query or "").strip()
+        if not question:
+            question = "Erstelle eine strukturierte Übersicht."
+
+        system_prompt = str(self._prompts.get(system_key, "") or "").strip()
+        if hard_system_rules not in system_prompt:
+            system_prompt = (system_prompt + "\n\n" + hard_system_rules).strip()
+        user_block = self._render_prompt_template(
+            user_key,
+            {
+                "context": context,
+                "query": question,
+                "mode": mode_clean,
+                "max_nodes": str(limit),
+            },
+        )
+        user_block = str(user_block or "").strip()
+        if hard_user_rules not in user_block:
+            if mode_clean == "mindmap":
+                # Keep context as final section in the user prompt.
+                user_block = (hard_user_rules + "\n\n" + user_block).strip()
+            else:
+                user_block = (user_block + "\n\n" + hard_user_rules).strip()
+        prompt = (
+            "<|system|>\n"
+            f"{system_prompt}\n"
+            "<|user|>\n"
+            f"{user_block}\n"
+            "<|assistant|>\n"
+        )
+        max_out_tokens = max(320, min(3600, limit * 140))
+        window_err = self._check_prompt_window(prompt, max_out_tokens)
+        if window_err:
+            if self._log:
+                self._log.error("LLM", f"MindMap context too large: {window_err}")
+            return "", {
+                "applied": False,
+                "reason": "context_too_large",
+                "error": window_err,
+            }
+
+        model = self.worker._model
+        try:
+            result = model(
+                prompt,
+                max_tokens=max_out_tokens,
+                temperature=0.2,
+                top_p=0.9,
+                repeat_penalty=1.05,
+                stop=["<|"],
+                stream=False,
+            )
+            raw_full = result["choices"][0].get("text", "")
+            self._log_llm_io("MindMap", prompt, raw_full)
+            raw = str(raw_full or "").strip()
+            if not raw:
+                return "", {
+                    "applied": True,
+                    "reason": "empty",
+                }
+
+            spec = extract_graph_spec(raw)
+            if spec is None:
+                spec = extract_graph_spec(f"```{mode_clean}\n{raw}\n```")
+            if spec is None:
+                json_match = re.search(r"\{[\s\S]*\}", raw)
+                if json_match is not None:
+                    candidate = f"```{mode_clean}\n{json_match.group(0)}\n```"
+                    spec = extract_graph_spec(candidate)
+            if spec is None:
+                return "", {
+                    "applied": False,
+                    "reason": "parse_failed",
+                    "raw_preview": raw[:320],
+                }
+
+            if mode_clean == "graph":
+                spec.kind = "graph"
+            else:
+                spec.kind = "mindmap"
+
+            if spec.title.strip() in {"MindMap", "Wissensgraph"} and question:
+                prefix = "Wissensgraph" if spec.kind == "graph" else "MindMap"
+                spec.title = f"{prefix}: {question[:96]}"
+
+            if spec.kind == "graph":
+                for edge in spec.edges:
+                    if not str(edge.label or "").strip():
+                        edge.label = "bezogen_auf"
+            else:
+                for node in spec.nodes.values():
+                    if node.children:
+                        continue
+                    quote = str(getattr(node, "quote", "") or "").strip()
+                    if quote:
+                        continue
+                    desc = str(node.description or "").strip()
+                    if not desc:
+                        continue
+                    node.quote = desc[:220]
+
+            markdown = spec_to_markdown(spec)
+            return markdown, {
+                "applied": True,
+                "reason": "ok",
+                "kind": spec.kind,
+                "nodes": len(spec.nodes),
+                "edges": len(spec.edges),
+            }
+        except Exception as exc:
+            self._log_llm_io("MindMap", prompt, error=str(exc))
+            if self._log:
+                self._log.error("LLM", f"MindMap generation failed: {exc}")
+            return "", {
+                "applied": False,
+                "reason": "exception",
+                "error": str(exc),
+            }
+
+    def generate_glossary_sync(
+        self,
+        context_text: str,
+        max_terms: int = 24,
+    ) -> tuple[list[dict[str, object]], dict[str, Any]]:
+        """Generate glossary entries from context text via local LLM."""
+        context = str(context_text or "").strip()
+        if not context:
+            return [], {
+                "applied": False,
+                "reason": "empty_context",
+            }
+        if not self.is_model_loaded():
+            return [], {
+                "applied": False,
+                "reason": "model_not_loaded",
+            }
+        if self.worker.isRunning():
+            if self._log:
+                self._log.debug("LLM", "Glossary generation skipped – model busy.")
+            return [], {
+                "applied": False,
+                "reason": "model_busy",
+            }
+
+        model = self.worker._model
+        limit = max(1, min(64, int(max_terms)))
+        user_block = self._render_prompt_template(
+            "glossary_user",
+            {"context": context, "max_terms": str(limit)},
+        )
+        prompt = (
+            "<|system|>\n"
+            f"{self._prompts['glossary_system']}\n"
+            "<|user|>\n"
+            f"{user_block}\n"
+            "<|assistant|>\n"
+        )
+        max_out_tokens = max(240, min(2400, limit * 80))
+        window_err = self._check_prompt_window(prompt, max_out_tokens)
+        if window_err:
+            if self._log:
+                self._log.error("LLM", f"Glossary context too large: {window_err}")
+            return [], {
+                "applied": False,
+                "reason": "context_too_large",
+                "error": window_err,
+            }
+
+        try:
+            result = model(
+                prompt,
+                max_tokens=max_out_tokens,
+                temperature=0.2,
+                top_p=0.9,
+                repeat_penalty=1.05,
+                stop=["<|"],
+                stream=False,
+            )
+            raw_full = result["choices"][0].get("text", "")
+            self._log_llm_io("Glossary", prompt, raw_full)
+            raw = str(raw_full or "").strip()
+            if not raw:
+                return [], {
+                    "applied": True,
+                    "reason": "empty",
+                }
+
+            parsed: Any = None
+            try:
+                parsed = json.loads(raw)
+            except Exception:
+                m = re.search(r"\[[\s\S]*\]", raw)
+                if m:
+                    parsed = json.loads(m.group(0))
+            if isinstance(parsed, dict):
+                for key in ("entries", "glossary", "items", "begriffe"):
+                    value = parsed.get(key)
+                    if isinstance(value, list):
+                        parsed = value
+                        break
+
+            if not isinstance(parsed, list):
+                return [], {
+                    "applied": False,
+                    "reason": "parse_failed",
+                    "raw_preview": raw[:320],
+                }
+
+            out: list[dict[str, object]] = []
+            seen: set[str] = set()
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                term = str(
+                    item.get("term")
+                    or item.get("begriff")
+                    or item.get("keyword")
+                    or item.get("title")
+                    or ""
+                ).strip()
+                if len(term) < 2:
+                    continue
+                definition = str(
+                    item.get("definition")
+                    or item.get("erklaerung")
+                    or item.get("erklärung")
+                    or item.get("explanation")
+                    or item.get("desc")
+                    or ""
+                ).strip()
+                aliases: list[str] = []
+                raw_aliases = item.get("aliases", [])
+                if isinstance(raw_aliases, list):
+                    aliases = [
+                        str(alias or "").strip()
+                        for alias in raw_aliases
+                        if str(alias or "").strip()
+                    ]
+
+                key = term.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(
+                    {
+                        "term": term,
+                        "definition": definition,
+                        "aliases": aliases,
+                    }
+                )
+                if len(out) >= limit:
+                    break
+
+            return out, {
+                "applied": True,
+                "reason": "ok" if out else "empty",
+                "generated": len(out),
+            }
+        except Exception as exc:
+            self._log_llm_io("Glossary", prompt, error=str(exc))
+            if self._log:
+                self._log.error("LLM", f"Glossary generation failed: {exc}")
+            return [], {
+                "applied": False,
+                "reason": "exception",
+                "error": str(exc),
+            }
+
+    def expand_query_sync(self, query: str) -> str:
+        """Deprecated: generate a single hypothetical passage.
+
+        Use ``expand_query_tfidf_sync`` or ``expand_query_st_sync`` instead.
+        """
+        passages = self.expand_query_st_sync(query, 1)
+        return passages[0] if passages else query
+
+    # ── Generation ────────────────────────────────────────────────────────────
+
+    def send_message(
+        self,
+        user_message: str,
+        file_contents: list[tuple[str, str]] | None = None,
+        rag_results: list[tuple[str, float, str]] | None = None,
+        selected_text: str = "",
+        chat_history: list[tuple[str, str]] | None = None,
+        max_tokens: int     = 1024,
+        temperature: float  = 0.7,
+        top_p: float        = 0.9,
+        repeat_penalty: float = 1.1,
+        forbidden_chars: str = "",
+        selection_apply_mode: bool = False,
+        grounding_required: bool = False,
+        grounding_has_sources: bool = True,
+        system_prompt_key: str = "chat_system",
+    ) -> bool:
+        if grounding_required and not grounding_has_sources:
+            msg = (
+                f"{GROUNDING_INSUFFICIENT_MESSAGE} "
+                "Bitte zuerst RAG-Ergebnisse erzeugen und/oder Dokumente auswählen."
+            )
+            if self._log:
+                self._log.warning("LLM", f"Generation abgelehnt: {msg}")
+            self.error_occurred.emit(msg)
+            return False
+
+        system_prompt_text = str(
+            self._prompts.get(system_prompt_key, self._system_prompt) or self._system_prompt
+        )
+        system_prompt_text = self._append_required_style_rules(system_prompt_text)
+
+        prompt = self._build_prompt(
+            user_message, file_contents, rag_results,
+            selected_text, chat_history, selection_apply_mode,
+            grounding_required, grounding_has_sources,
+            system_prompt_text,
+        )
+
+        # Context-window check — must happen before handing off to the worker
+        if self.is_model_loaded():
+            err = self._check_context(
+                prompt, user_message, file_contents, rag_results,
+                selected_text, chat_history, max_tokens,
+                system_prompt_text,
+            )
+            if err:
+                if self._log:
+                    self._log.error("LLM", err)
+                self.error_occurred.emit(err)
+                return False
+
+        if self._log:
+            self._log.info(
+                "LLM",
+                f"Generating  |  prompt: {len(prompt)} chars"
+                f"  ({self._count_tokens(prompt)} tokens)"
+                f"  max_tokens={max_tokens}  temp={temperature}  top_p={top_p}",
+            )
+            self._log.debug("LLM", f"Full prompt:\n{prompt}")
+
+        self._gen_start   = time.perf_counter()
+        self._token_count = 0
+        self._forbidden_chars = self._parse_forbidden_chars(forbidden_chars)
+        if self._log and self._forbidden_chars:
+            self._log.debug(
+                "LLM",
+                f"Forbidden-character filter active ({len(self._forbidden_chars)} chars).",
+            )
+        self.is_generating.emit(True)
+        self.worker.generate(
+            prompt,
+            max_tokens    = max_tokens,
+            temperature   = temperature,
+            top_p         = top_p,
+            repeat_penalty = repeat_penalty,
+            forbidden_chars = tuple(self._forbidden_chars),
+        )
+        return True
+
+    def stop(self):
+        if self._log:
+            elapsed = time.perf_counter() - self._gen_start
+            self._log.warning(
+                "LLM",
+                f"Generation stopped by user"
+                f"  |  {self._token_count} tokens  |  {elapsed:.2f}s elapsed",
+            )
+        self.worker.request_stop()
+
+    @staticmethod
+    def _append_required_style_rules(system_prompt_text: str) -> str:
+        base = (system_prompt_text or "").strip()
+        if REQUIRED_STYLE_RULES in base:
+            return base
+        if not base:
+            return REQUIRED_STYLE_RULES
+        return f"{base}\n\n{REQUIRED_STYLE_RULES}"
+
+    # ── Prompt builder ────────────────────────────────────────────────────────
+
+    def _build_prompt(
+        self,
+        user_message: str,
+        file_contents: list[tuple[str, str]] | None,
+        rag_results: list[tuple[str, float, str]] | None,
+        selected_text: str,
+        chat_history: list[tuple[str, str]] | None,
+        selection_apply_mode: bool,
+        grounding_required: bool,
+        grounding_has_sources: bool,
+        system_prompt_text: str,
+    ) -> str:
+        parts: list[str] = []
+
+        parts.append(f"<|system|>\n{system_prompt_text}\n")
+
+        if grounding_required:
+            cite_rule = self._render_prompt_template(
+                "chat_citation_rule_rewrite"
+                if selection_apply_mode
+                else "chat_citation_rule_answer"
+            ).strip()
+            grounding_block = self._render_prompt_template(
+                "chat_grounding_rules",
+                {
+                    "insufficient_message": GROUNDING_INSUFFICIENT_MESSAGE,
+                    "citation_rule": cite_rule,
+                },
+            ).strip()
+            grounding_title = self._render_prompt_template(
+                "chat_section_grounding_title"
+            ).strip() or "### Verbindliche Dokument-Regeln ###"
+            parts.append(
+                f"\n{grounding_title}\n"
+                + grounding_block
+                + "\n"
+            )
+
+        if selection_apply_mode and selected_text.strip():
+            grounding_note = (
+                self._render_prompt_template("chat_grounding_note_rewrite").strip()
+                if (grounding_required and grounding_has_sources) else ""
+            )
+            rewrite_enforcer = (
+                "Verbindliche Ausführungsregel:\n"
+                "- Die Nutzeranweisung hat höchste Priorität.\n"
+                "- Überarbeite ausschließlich den markierten Abschnitt "
+                "('Ausgewählter Text (Draft)').\n"
+                "- Weitere Draft-/Dokument-Kontexte sind nur Referenz "
+                "(Stil, Konsistenz, Fakten), nicht direkte Ersetzung.\n"
+                "- Gib NICHT den gesamten Draft zurück, außer der gesamte "
+                "Draft ist tatsächlich markiert.\n"
+                "- Wenn die Anweisung eine Änderung verlangt "
+                "(z. B. entfernen, ergänzen, umschreiben, kürzen), "
+                "muss der ausgegebene Text entsprechend geändert sein.\n"
+                "- Gib den Text NICHT unverändert zurück, außer die "
+                "Nutzeranweisung fordert explizit keine Änderung.\n"
+            )
+            rewrite_block = self._render_prompt_template(
+                "chat_canvas_rewrite_rules",
+                {
+                    "canvas_open": CANVAS_REWRITE_OPEN,
+                    "canvas_close": CANVAS_REWRITE_CLOSE,
+                    "grounding_note": grounding_note,
+                    "insufficient_message": GROUNDING_INSUFFICIENT_MESSAGE,
+                },
+            ).strip()
+            if (
+                not rewrite_block
+                or CANVAS_REWRITE_OPEN not in rewrite_block
+                or CANVAS_REWRITE_CLOSE not in rewrite_block
+            ):
+                rewrite_block = (
+                    "Du bearbeitest den aktuell ausgewählten Draft-Text.\n"
+                    "Gib NUR den finalen, vollständig editierten Ersatztext in "
+                    "diesem exakten Wrapper zurück:\n"
+                    f"{CANVAS_REWRITE_OPEN}\n"
+                    "<hier der vollständige finale Text>\n"
+                    f"{CANVAS_REWRITE_CLOSE}\n"
+                    "Keine Erklärung, keine zusätzlichen Präfixe/Suffixe."
+                )
+            rewrite_title = self._render_prompt_template(
+                "chat_section_rewrite_title"
+            ).strip() or "### Ausgabeformat für Draft-Rewrite ###"
+            parts.append(
+                f"\n{rewrite_title}\n"
+                + rewrite_enforcer
+                + rewrite_block
+                + "\n"
+            )
+
+        has_context = (
+            bool(file_contents)
+            or bool(rag_results)
+            or bool(selected_text and selected_text.strip())
+        )
+        if has_context:
+            context_title = self._render_prompt_template(
+                "chat_section_context_title"
+            ).strip() or "### Kontext ###"
+            parts.append(f"\n{context_title}\n")
+
+            if file_contents:
+                files_title = self._render_prompt_template(
+                    "chat_section_files_title"
+                ).strip() or "## Angehängte Dokumente"
+                parts.append(f"{files_title}\n")
+                for name, content in file_contents:
+                    parts.append(f"### {name}\n```\n{content}\n```\n")
+
+            if rag_results:
+                rag_title = self._render_prompt_template(
+                    "chat_section_rag_title"
+                ).strip() or "## Relevante Auszüge (Wissensbasis)"
+                parts.append(f"{rag_title}\n")
+                for path, score, excerpt in rag_results:
+                    basename = os.path.basename(path)
+                    parts.append(
+                        f"**{basename}** (score {score:.2f})\n{excerpt}\n"
+                    )
+
+            if selected_text and selected_text.strip():
+                selected_title = self._render_prompt_template(
+                    "chat_section_selected_title"
+                ).strip() or "## Ausgewählter Text (Draft)"
+                parts.append(
+                    f"{selected_title}\n```\n{selected_text}\n```\n"
+                )
+
+            context_end = self._render_prompt_template(
+                "chat_section_context_end"
+            ).strip() or "### Ende Kontext ###"
+            parts.append(f"{context_end}\n")
+
+        for role, content in (chat_history or []):
+            parts.append(f"\n<|{role}|>\n{content}")
+
+        parts.append(f"\n<|user|>\n{user_message}")
+        parts.append("\n<|assistant|>\n")
+
+        return "".join(parts)
+
+    # ── Context-window guard ───────────────────────────────────────────────────
+
+    def _n_ctx(self) -> int:
+        """Return the model's configured context window size."""
+        return self.worker._load_params.get("n_ctx", 4096)
+
+    def _count_tokens(self, text: str) -> int:
+        """Count tokens via the model's tokenizer; falls back to len/4."""
+        model = self.worker._model
+        if model is None:
+            return len(text) // 4
+        try:
+            return len(model.tokenize(text.encode("utf-8", errors="replace")))
+        except Exception:
+            return len(text) // 4
+
+    def _check_context(
+        self,
+        prompt: str,
+        user_message: str,
+        file_contents: list[tuple[str, str]] | None,
+        rag_results: list[tuple[str, float, str]] | None,
+        selected_text: str,
+        chat_history: list[tuple[str, str]] | None,
+        max_tokens: int,
+        system_prompt_text: str,
+    ) -> str:
+        """Return a detailed error string if the context exceeds n_ctx, else ''."""
+        n_ctx         = self._n_ctx()
+        prompt_tokens = self._count_tokens(prompt)
+
+        if prompt_tokens + max_tokens <= n_ctx:
+            return ""
+
+        # Build per-component breakdown
+        def tok(text: str) -> int:
+            return self._count_tokens(text)
+
+        breakdown: list[tuple[str, int]] = []
+
+        breakdown.append((
+            "System-Prompt",
+            tok(f"<|system|>\n{system_prompt_text}\n"),
+        ))
+
+        if file_contents:
+            files_title = self._render_prompt_template(
+                "chat_section_files_title"
+            ).strip() or "## Angehängte Dokumente"
+            fc_text = files_title + "\n" + "".join(
+                f"### {name}\n```\n{content}\n```\n"
+                for name, content in file_contents
+            )
+            breakdown.append((f"Dateien ({len(file_contents)})", tok(fc_text)))
+
+        if rag_results:
+            rag_title = self._render_prompt_template(
+                "chat_section_rag_title"
+            ).strip() or "## Relevante Auszüge (Wissensbasis)"
+            rag_text = rag_title + "\n" + "".join(
+                f"**{os.path.basename(path)}** (score {score:.2f})\n{excerpt}\n"
+                for path, score, excerpt in rag_results
+            )
+            breakdown.append((f"RAG-Ergebnisse ({len(rag_results)})", tok(rag_text)))
+
+        if selected_text and selected_text.strip():
+            selected_title = self._render_prompt_template(
+                "chat_section_selected_title"
+            ).strip() or "## Ausgewählter Text (Draft)"
+            breakdown.append((
+                "Ausgewählter Text",
+                tok(f"{selected_title}\n```\n{selected_text}\n```\n"),
+            ))
+
+        if chat_history:
+            hist_text = "".join(
+                f"\n<|{role}|>\n{content}" for role, content in chat_history
+            )
+            breakdown.append((
+                f"Chat-Verlauf ({len(chat_history)} Nachr.)",
+                tok(hist_text),
+            ))
+
+        breakdown.append((
+            "Nutzeranfrage",
+            tok(f"\n<|user|>\n{user_message}\n<|assistant|>\n"),
+        ))
+
+        # Format the error message
+        pad = max(len(label) for label, _ in breakdown)
+        sep = "─" * (pad + 12)
+
+        lines = ["Kontext zu groß – Nachricht nicht gesendet.", ""]
+        lines.append("Token-Aufschlüsselung:")
+        for label, n in breakdown:
+            lines.append(f"  {label:<{pad}}  {n:>7} Tokens")
+
+        overhead = prompt_tokens - sum(n for _, n in breakdown)
+        if overhead > 0:
+            lines.append(f"  {'Struktur-Overhead':<{pad}}  {overhead:>7} Tokens")
+
+        lines.append(f"  {sep}")
+        lines.append(f"  {'Prompt gesamt':<{pad}}  {prompt_tokens:>7} Tokens")
+        lines.append(f"  {'Reserviert (Antwort)':<{pad}}  {max_tokens:>7} Tokens")
+        lines.append(f"  {sep}")
+        lines.append(f"  {'Benötigt':<{pad}}  {prompt_tokens + max_tokens:>7} Tokens")
+        lines.append(f"  {'Maximal (n_ctx)':<{pad}}  {n_ctx:>7} Tokens")
+        lines.append(f"  {'Überschreitung':<{pad}}  {prompt_tokens + max_tokens - n_ctx:>7} Tokens")
+
+        return "\n".join(lines)
+
+    def _check_prompt_window(self, prompt: str, max_tokens: int) -> str:
+        """
+        Return an error when prompt+output would exceed the model n_ctx window.
+
+        Used by synchronous helper calls that don't go through send_message().
+        """
+        n_ctx = self._n_ctx()
+        prompt_tokens = self._count_tokens(prompt)
+        needed = int(prompt_tokens) + int(max_tokens)
+        if needed <= n_ctx:
+            return ""
+        return (
+            "Kontext zu groß für das aktuelle Modellfenster.\n"
+            f"Prompt: {prompt_tokens} Tokens\n"
+            f"Reserviert (Antwort): {int(max_tokens)} Tokens\n"
+            f"Benötigt: {needed} Tokens\n"
+            f"Maximal (n_ctx): {n_ctx} Tokens\n"
+            f"Überschreitung: {needed - n_ctx} Tokens"
+        )
+
+    @classmethod
+    def _decode_forbidden_token(cls, raw: str) -> str:
+        token = raw.strip()
+        if not token:
+            return ""
+
+        if len(token) >= 2 and token[0] == token[-1] and token[0] in ("'", '"'):
+            token = token[1:-1]
+
+        alias = cls._FORBIDDEN_CHAR_ALIASES.get(token.casefold())
+        if alias is not None:
+            return alias
+
+        m = re.fullmatch(r"(?:u\+|\\u)([0-9a-fA-F]{4,6})", token)
+        if m:
+            try:
+                return chr(int(m.group(1), 16))
+            except ValueError:
+                return ""
+
+        m = re.fullmatch(r"(?:0x|\\x)([0-9a-fA-F]{2,6})", token)
+        if m:
+            try:
+                return chr(int(m.group(1), 16))
+            except ValueError:
+                return ""
+
+        if "\\" in token:
+            try:
+                token = bytes(token, "utf-8").decode("unicode_escape")
+            except Exception:
+                pass
+
+        return token
+
+    @classmethod
+    def _parse_forbidden_chars(cls, spec: str) -> set[str]:
+        chars: set[str] = set()
+        for raw in re.split(r"[,\n]+", spec or ""):
+            decoded = cls._decode_forbidden_token(raw)
+            if not decoded:
+                continue
+            for ch in decoded:
+                chars.add(ch)
+        return chars
+
+    def _apply_forbidden_filter(self, text: str) -> str:
+        if not text or not self._forbidden_chars:
+            return text
+        return "".join(ch for ch in text if ch not in self._forbidden_chars)
+
+    # ── Worker signal interceptors ─────────────────────────────────────────────
+
+    def _on_token(self, token: str):
+        self._token_count += 1
+        filtered = self._apply_forbidden_filter(token)
+        if filtered:
+            self.token_received.emit(filtered)
+
+    def _on_complete(self, response: str):
+        filtered_response = self._apply_forbidden_filter(response)
+        elapsed = time.perf_counter() - self._gen_start
+        if self._log:
+            removed_chars = max(0, len(response) - len(filtered_response))
+            tok_s = self._token_count / elapsed if elapsed > 0 else 0.0
+            self._log.info(
+                "LLM",
+                f"Generation complete"
+                f"  |  {self._token_count} tokens"
+                f"  |  {elapsed:.2f}s"
+                f"  |  {tok_s:.1f} tok/s",
+            )
+            if removed_chars > 0:
+                self._log.info("LLM", f"Removed {removed_chars} forbidden characters.")
+            self._log.debug("LLM", f"Full response:\n{filtered_response}")
+        self.is_generating.emit(False)
+        self.generation_complete.emit(filtered_response)
+
+    def _on_error(self, message: str):
+        if self._log:
+            self._log.error("LLM", f"Error: {message}")
+        self.error_occurred.emit(message)
+
+    def _on_model_loaded(self, success: bool, message: str):
+        if self._log:
+            if success:
+                self._log.info("LLM", f"Model ready: {message}")
+            else:
+                self._log.error("LLM", f"Model load failed: {message}")
+        self.model_loaded.emit(success, message)

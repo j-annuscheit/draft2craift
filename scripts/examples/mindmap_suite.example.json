@@ -1,0 +1,93 @@
+{
+  "defaults": {},
+  "cases": [
+    {
+      "id": "graph_basics",
+      "labels": ["smoke", "graph"],
+      "markdown": "fixtures/mindmap_eval/01_graph_basics.md",
+      "must_contain": [
+        "RAG System",
+        "User Query",
+        "Reranking",
+        "Top Treffer"
+      ],
+      "must_not_contain": [
+        "Halluzination"
+      ]
+    },
+    {
+      "id": "graph_triples",
+      "labels": ["smoke", "graph", "triples"],
+      "markdown": "fixtures/mindmap_eval/02_graph_triples.md",
+      "must_contain": [
+        "Wissensgraph KI",
+        "Transformer",
+        "ermoeglicht",
+        "Aufmerksamkeitsmechanismus"
+      ],
+      "must_not_contain": [
+        "ohne_relation"
+      ]
+    },
+    {
+      "id": "mindmap_leaf_quotes",
+      "labels": ["smoke", "mindmap", "quotes"],
+      "markdown": "fixtures/mindmap_eval/03_mindmap_quotes.md",
+      "must_contain": [
+        "Studie Solarenergie",
+        "\"Die Effizienz stieg in drei Jahren um 12 Prozent.\"",
+        "\"Die Wartungskosten sanken um 8 Prozent.\"",
+        "belegt"
+      ],
+      "must_not_contain": [
+        "Zitat fehlt"
+      ]
+    },
+    {
+      "id": "mindmap_simple_text",
+      "labels": ["smoke", "mindmap", "plain_text"],
+      "markdown": "fixtures/mindmap_eval/04_mindmap_simple_text.md",
+      "must_contain": [
+        "Ausgangsfrage KI im Unternehmen",
+        "Produktivitaet",
+        "\"Die Bearbeitungszeit sank um 18 Prozent.\"",
+        "Datenschutz"
+      ],
+      "must_not_contain": [
+        "Fehlender Knoten"
+      ]
+    },
+    {
+      "id": "graph_plain_triples",
+      "labels": ["smoke", "graph", "plain_triples"],
+      "markdown": "fixtures/mindmap_eval/05_graph_triples_text.md",
+      "must_contain": [
+        "Wissensbasis",
+        "enthaelt",
+        "Vektorindex",
+        "verbessert"
+      ],
+      "must_not_contain": [
+        "ohne_relation"
+      ]
+    },
+    {
+      "id": "graph_no_inferred_edges",
+      "labels": ["smoke", "graph", "strict_edges"],
+      "markdown": "fixtures/mindmap_eval/06_graph_no_inferred_edges.md",
+      "must_contain": [
+        "Explizite Relationen",
+        "Quelle",
+        "Detail A",
+        "Detail B",
+        "belegt",
+        "Ergebnis"
+      ],
+      "must_not_contain": [
+        "Quelle -> Detail A",
+        "Quelle -> Detail B",
+        "bezogen_auf"
+      ]
+    }
+  ]
+}

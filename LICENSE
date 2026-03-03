@@ -1,0 +1,37 @@
+                    GNU AFFERO GENERAL PUBLIC LICENSE
+                       Version 3, 19 November 2007
+
+Copyright (C) 2026 Jonas Annuscheit
+
+draft2craift — Document Retrieval Augmented File Tool 2 Collaboratively
+Revised AI Formatted Text
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+-------------------------------------------------------------------------------
+
+ADDITIONAL NOTE ON DEPENDENCIES
+--------------------------------
+This software bundles or optionally integrates third-party libraries.
+Their respective licenses are documented in THIRD_PARTY_NOTICES.md.
+Notable licenses among the dependencies:
+
+  PyMuPDF / pymupdf4llm   AGPL-3.0          (compatible with this license)
+  PySide6 / Qt            LGPL-3.0          (compatible with this license)
+  llama-cpp-python        MIT               (compatible with this license)
+  sentence-transformers   Apache-2.0        (compatible with this license)
+  html2text               GPL-3.0           (compatible with this license)
+
+-------------------------------------------------------------------------------
+Full license text: https://www.gnu.org/licenses/agpl-3.0.txt

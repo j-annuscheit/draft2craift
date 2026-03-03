@@ -1,0 +1,45 @@
+# draft2craift — Conda environment
+#
+# Setup:
+#   conda env create -f environment.yml
+#   conda activate draft2craift
+#   python main.py
+#
+# To include optional PDF support (AGPL-3.0):
+#   pip install "pymupdf4llm>=0.0.17"
+
+name: draft2craift
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python>=3.10,<3.13
+  - pip
+
+  # ── Core (always required) ──────────────────────────────────────────────
+  - pyside6>=6.6.0
+  - networkx>=3.2
+
+  # ── Optional: semantic RAG (Apache-2.0 / BSD) ──────────────────────────
+  - sentence-transformers>=2.7.0
+  - pytorch>=2.0                  # pulled by sentence-transformers
+
+  # ── Optional: document import ──────────────────────────────────────────
+  - python-docx>=1.1.0
+  - odfpy>=1.4.1
+
+  # ── via pip (not on conda-forge) ───────────────────────────────────────
+  - pip:
+    # Core inference — choose the variant that matches your hardware:
+    #   CPU:   pip install llama-cpp-python
+    #   CUDA:  CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python
+    #   Metal: CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python
+    - llama-cpp-python>=0.2.57
+
+    # HTML import (MIT)
+    - markdownify>=0.11.6
+
+    # PDF import (AGPL-3.0) — comment out if not needed
+    - pymupdf4llm>=0.0.17

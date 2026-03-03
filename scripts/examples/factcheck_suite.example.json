@@ -1,0 +1,64 @@
+{
+  "defaults": {
+    "threshold_extract_recall": 0.6,
+    "threshold_verify_status": 0.6,
+    "threshold_full_f1": 0.45,
+    "source_max_chars": 24000,
+    "target_max_chars": 20000,
+    "max_verify_facts": 0,
+    "mode": "all"
+  },
+  "cases": [
+    {
+      "id": "city_solar_program",
+      "labels": ["smoke", "city", "contradiction"],
+      "target_markdown": "fixtures/factcheck_eval/01_city_target.md",
+      "sources": [
+        {
+          "name": "city_report_a.md",
+          "path": "fixtures/factcheck_eval/01_city_source_a.md"
+        },
+        {
+          "name": "city_report_b.md",
+          "path": "fixtures/factcheck_eval/01_city_source_b.md"
+        }
+      ],
+      "gt_facts_markdown": "fixtures/factcheck_eval/01_city.gt_facts.md",
+      "gt_verdicts_markdown": "fixtures/factcheck_eval/01_city.gt_verdicts.md"
+    },
+    {
+      "id": "aurora_release_notes",
+      "labels": ["smoke", "product", "timeline"],
+      "target_markdown": "fixtures/factcheck_eval/02_aurora_target.md",
+      "sources": [
+        {
+          "name": "aurora_release.md",
+          "path": "fixtures/factcheck_eval/02_aurora_source_a.md"
+        },
+        {
+          "name": "aurora_roadmap.md",
+          "path": "fixtures/factcheck_eval/02_aurora_source_b.md"
+        }
+      ],
+      "gt_facts_markdown": "fixtures/factcheck_eval/02_aurora.gt_facts.md",
+      "gt_verdicts_markdown": "fixtures/factcheck_eval/02_aurora.gt_verdicts.md"
+    },
+    {
+      "id": "valor_study_summary",
+      "labels": ["smoke", "study", "claims"],
+      "target_markdown": "fixtures/factcheck_eval/03_valor_target.md",
+      "sources": [
+        {
+          "name": "valor_results.md",
+          "path": "fixtures/factcheck_eval/03_valor_source_a.md"
+        },
+        {
+          "name": "valor_subgroups.md",
+          "path": "fixtures/factcheck_eval/03_valor_source_b.md"
+        }
+      ],
+      "gt_facts_markdown": "fixtures/factcheck_eval/03_valor.gt_facts.md",
+      "gt_verdicts_markdown": "fixtures/factcheck_eval/03_valor.gt_verdicts.md"
+    }
+  ]
+}

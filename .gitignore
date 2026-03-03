@@ -109,3 +109,5 @@ htmlcov/
 *.pdf
 tmp/
 runs/
+
+models/

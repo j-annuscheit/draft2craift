@@ -1,0 +1,19 @@
+{
+  "combination_mode": "product",
+  "base_config": {
+    "use_tfidf": true,
+    "use_st": false,
+    "chunking_strategy": "sliding_window",
+    "chunk_size": 420,
+    "chunk_overlap": 120,
+    "selection_mode": "top_k",
+    "top_k": 3
+  },
+  "parameters": {
+    "use_regex_search": [false, true],
+    "use_hyde": [false, true],
+    "literal_use_llm_terms": [false, true],
+    "llm_rerank_enabled": [false, true],
+    "top_k": [3, 5]
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "defaults": {
+    "max_terms": 24,
+    "context_max_chars": 22000,
+    "threshold_recall": 0.67
+  },
+  "cases": [
+    {
+      "id": "llm_basics",
+      "labels": ["smoke", "llm"],
+      "markdown": "fixtures/glossary_eval/01_llm_basics.md",
+      "target_terms": ["LLM", "Token", "Kontextfenster"]
+    },
+    {
+      "id": "rag_terms",
+      "labels": ["smoke", "rag"],
+      "markdown": "fixtures/glossary_eval/02_rag_terms.md",
+      "target_terms": ["RAG", "TF-IDF", "Embedding"]
+    },
+    {
+      "id": "eval_metrics",
+      "labels": ["smoke", "metrics"],
+      "markdown": "fixtures/glossary_eval/03_eval_metrics.md",
+      "target_terms": ["Precision", "Recall", "F1-Score"]
+    }
+  ]
+}
+

@@ -1,0 +1,1446 @@
+./features/canvas/widget.py:61:80: E501 line too long (80 > 79 characters)
+./features/canvas/widget.py:101:80: E501 line too long (80 > 79 characters)
+./features/canvas/widget.py:115:80: E501 line too long (90 > 79 characters)
+./features/canvas/widget.py:138:22: E272 multiple spaces before keyword
+./features/canvas/widget.py:165:80: E501 line too long (88 > 79 characters)
+./features/canvas/widget.py:185:80: E501 line too long (84 > 79 characters)
+./features/canvas/widget.py:192:80: E501 line too long (85 > 79 characters)
+./features/canvas/widget.py:202:80: E501 line too long (110 > 79 characters)
+./features/canvas/widget.py:206:80: E501 line too long (112 > 79 characters)
+./features/canvas/widget.py:215:80: E501 line too long (88 > 79 characters)
+./features/canvas/widget.py:224:80: E501 line too long (98 > 79 characters)
+./features/canvas/widget.py:227:80: E501 line too long (98 > 79 characters)
+./features/canvas/widget.py:241:80: E501 line too long (112 > 79 characters)
+./features/canvas/widget.py:285:80: E501 line too long (82 > 79 characters)
+./features/canvas/widget.py:374:80: E501 line too long (83 > 79 characters)
+./features/canvas/widget.py:382:80: E501 line too long (95 > 79 characters)
+./features/canvas/widget.py:446:13: F401 'docx' imported but unused
+./features/canvas/widget.py:450:80: E501 line too long (96 > 79 characters)
+./features/canvas/widget.py:478:80: E501 line too long (94 > 79 characters)
+./features/canvas/widget.py:511:80: E501 line too long (80 > 79 characters)
+./features/chat/dock.py:29:1: F401 'PySide6.QtWidgets.QSizePolicy' imported but unused
+./features/chat/dock.py:37:80: E501 line too long (94 > 79 characters)
+./features/chat/dock.py:53:80: E501 line too long (81 > 79 characters)
+./features/chat/dock.py:91:80: E501 line too long (80 > 79 characters)
+./features/chat/dock.py:143:80: E501 line too long (85 > 79 characters)
+./features/chat/dock.py:226:80: E501 line too long (81 > 79 characters)
+./features/chat/dock.py:229:80: E501 line too long (81 > 79 characters)
+./features/chat/dock.py:256:80: E501 line too long (86 > 79 characters)
+./features/chat/dock.py:314:80: E501 line too long (84 > 79 characters)
+./features/chat/dock.py:316:80: E501 line too long (84 > 79 characters)
+./features/chat/dock.py:352:80: E501 line too long (88 > 79 characters)
+./features/chat/dock.py:410:80: E501 line too long (87 > 79 characters)
+./features/chat/dock.py:411:80: E501 line too long (85 > 79 characters)
+./features/chat/dock.py:418:80: E501 line too long (81 > 79 characters)
+./features/chat/dock.py:458:35: E221 multiple spaces before operator
+./features/chat/dock.py:462:80: E501 line too long (80 > 79 characters)
+./features/chat/dock.py:472:80: E501 line too long (83 > 79 characters)
+./features/chat/dock.py:477:80: E501 line too long (90 > 79 characters)
+./features/chat/dock.py:486:80: E501 line too long (82 > 79 characters)
+./features/chat/dock.py:524:80: E501 line too long (80 > 79 characters)
+./features/chat/dock.py:561:80: E501 line too long (81 > 79 characters)
+./features/chat/dock.py:577:80: E501 line too long (91 > 79 characters)
+./features/chat/dock.py:578:80: E501 line too long (87 > 79 characters)
+./features/chat/dock.py:608:80: E501 line too long (91 > 79 characters)
+./features/chat/dock.py:611:80: E501 line too long (87 > 79 characters)
+./features/chat/dock.py:622:80: E501 line too long (80 > 79 characters)
+./features/chat/dock.py:628:80: E501 line too long (89 > 79 characters)
+./features/chat/dock.py:690:80: E501 line too long (84 > 79 characters)
+./features/chat/dock.py:712:80: E501 line too long (81 > 79 characters)
+./features/chat/dock.py:729:80: E501 line too long (92 > 79 characters)
+./features/chat/dock.py:733:80: E501 line too long (84 > 79 characters)
+./features/chat/dock.py:812:80: E501 line too long (91 > 79 characters)
+./features/chat/dock.py:825:80: E501 line too long (88 > 79 characters)
+./features/chat/dock.py:831:80: E501 line too long (85 > 79 characters)
+./features/chat/dock.py:840:80: E501 line too long (83 > 79 characters)
+./features/chat/dock.py:843:80: E501 line too long (81 > 79 characters)
+./features/chat/dock.py:876:80: E501 line too long (89 > 79 characters)
+./features/chat/dock.py:883:80: E501 line too long (92 > 79 characters)
+./features/chat/dock.py:899:80: E501 line too long (81 > 79 characters)
+./features/chat/dock.py:914:80: E501 line too long (91 > 79 characters)
+./features/chat/dock.py:926:80: E501 line too long (105 > 79 characters)
+./features/chat/dock.py:935:80: E501 line too long (87 > 79 characters)
+./features/chat/dock.py:939:80: E501 line too long (88 > 79 characters)
+./features/chat/dock.py:956:80: E501 line too long (88 > 79 characters)
+./features/chat/dock.py:962:80: E501 line too long (93 > 79 characters)
+./features/chat/dock.py:983:80: E501 line too long (89 > 79 characters)
+./features/chat/dock.py:987:80: E501 line too long (83 > 79 characters)
+./features/chat/dock.py:1001:80: E501 line too long (100 > 79 characters)
+./features/chat/dock.py:1014:80: E501 line too long (90 > 79 characters)
+./features/chat/dock.py:1018:80: E501 line too long (105 > 79 characters)
+./features/chat/dock.py:1020:80: E501 line too long (84 > 79 characters)
+./features/chat/dock.py:1054:80: E501 line too long (100 > 79 characters)
+./features/chat/dock.py:1056:80: E501 line too long (105 > 79 characters)
+./features/chat/dock.py:1107:80: E501 line too long (81 > 79 characters)
+./features/chat/dock.py:1120:80: E501 line too long (81 > 79 characters)
+./features/chat/dock.py:1121:80: E501 line too long (81 > 79 characters)
+./features/chat/dock.py:1129:80: E501 line too long (91 > 79 characters)
+./features/chat/dock.py:1150:80: E501 line too long (81 > 79 characters)
+./features/chat/dock.py:1155:80: E501 line too long (92 > 79 characters)
+./features/chat/dock.py:1170:80: E501 line too long (88 > 79 characters)
+./features/chat/dock.py:1185:80: E501 line too long (99 > 79 characters)
+./features/chat/dock.py:1189:80: E501 line too long (80 > 79 characters)
+./features/chat/dock.py:1193:80: E501 line too long (84 > 79 characters)
+./features/chat/dock.py:1220:80: E501 line too long (97 > 79 characters)
+./features/chat/dock.py:1230:80: E501 line too long (94 > 79 characters)
+./features/chat/dock.py:1241:80: E501 line too long (93 > 79 characters)
+./features/chat/dock.py:1242:80: E501 line too long (88 > 79 characters)
+./features/chat/dock.py:1265:80: E501 line too long (89 > 79 characters)
+./features/chat/dock.py:1269:80: E501 line too long (93 > 79 characters)
+./features/chat/dock.py:1299:80: E501 line too long (83 > 79 characters)
+./features/chat/dock.py:1337:80: E501 line too long (80 > 79 characters)
+./features/chat/dock.py:1355:80: E501 line too long (92 > 79 characters)
+./features/chat/dock.py:1420:80: E501 line too long (92 > 79 characters)
+./features/chat/dock.py:1422:80: E501 line too long (80 > 79 characters)
+./features/chat/dock.py:1426:80: E501 line too long (80 > 79 characters)
+./features/chat/dock.py:1441:80: E501 line too long (83 > 79 characters)
+./features/chat/dock.py:1447:80: E501 line too long (90 > 79 characters)
+./features/chat/dock.py:1500:80: E501 line too long (94 > 79 characters)
+./features/chat/dock.py:1548:80: E501 line too long (94 > 79 characters)
+./features/chat/dock.py:1549:80: E501 line too long (89 > 79 characters)
+./features/chat/dock.py:1556:80: E501 line too long (91 > 79 characters)
+./features/chat/dock.py:1558:80: E501 line too long (82 > 79 characters)
+./features/chat/dock.py:1564:80: E501 line too long (87 > 79 characters)
+./features/chat/dock.py:1567:80: E501 line too long (82 > 79 characters)
+./features/chat/dock.py:1572:80: E501 line too long (81 > 79 characters)
+./features/chat/dock.py:1578:80: E501 line too long (82 > 79 characters)
+./features/chat/dock.py:1588:80: E501 line too long (101 > 79 characters)
+./features/chat/dock.py:1589:80: E501 line too long (92 > 79 characters)
+./features/chat/dock.py:1591:80: E501 line too long (98 > 79 characters)
+./features/chat/dock.py:1595:80: E501 line too long (102 > 79 characters)
+./features/chat/dock.py:1598:80: E501 line too long (99 > 79 characters)
+./features/chat/dock.py:1608:80: E501 line too long (91 > 79 characters)
+./features/chat/dock.py:1647:80: E501 line too long (80 > 79 characters)
+./features/chat/dock.py:1653:80: E501 line too long (96 > 79 characters)
+./features/chat/dock.py:1718:80: E501 line too long (86 > 79 characters)
+./features/chat/dock.py:1723:80: E501 line too long (87 > 79 characters)
+./features/chat/dock.py:1738:80: E501 line too long (82 > 79 characters)
+./features/chat/dock.py:1740:80: E501 line too long (113 > 79 characters)
+./features/chat/dock.py:1789:80: E501 line too long (87 > 79 characters)
+./features/chat/dock.py:1811:80: E501 line too long (87 > 79 characters)
+./features/chat/dock.py:1825:80: E501 line too long (96 > 79 characters)
+./features/chat/dock.py:1839:80: E501 line too long (88 > 79 characters)
+./features/chat/dock.py:1859:80: E501 line too long (93 > 79 characters)
+./features/chat/dock.py:1862:80: E501 line too long (83 > 79 characters)
+./features/importer/browser.py:14:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:15:80: E501 line too long (82 > 79 characters)
+./features/importer/browser.py:16:80: E501 line too long (83 > 79 characters)
+./features/importer/browser.py:38:1: F401 'PySide6.QtCore.QPoint' imported but unused
+./features/importer/browser.py:51:80: E501 line too long (82 > 79 characters)
+./features/importer/browser.py:62:80: E501 line too long (83 > 79 characters)
+./features/importer/browser.py:63:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:64:80: E501 line too long (86 > 79 characters)
+./features/importer/browser.py:91:41: E261 at least two spaces before inline comment
+./features/importer/browser.py:135:80: E501 line too long (82 > 79 characters)
+./features/importer/browser.py:137:80: E501 line too long (80 > 79 characters)
+./features/importer/browser.py:141:24: E221 multiple spaces before operator
+./features/importer/browser.py:143:23: E221 multiple spaces before operator
+./features/importer/browser.py:144:19: E221 multiple spaces before operator
+./features/importer/browser.py:151:13: E221 multiple spaces before operator
+./features/importer/browser.py:169:18: E222 multiple spaces after operator
+./features/importer/browser.py:170:8: E222 multiple spaces after operator
+./features/importer/browser.py:170:15: E221 multiple spaces before operator
+./features/importer/browser.py:182:80: E501 line too long (93 > 79 characters)
+./features/importer/browser.py:183:80: E501 line too long (82 > 79 characters)
+./features/importer/browser.py:187:18: E221 multiple spaces before operator
+./features/importer/browser.py:224:15: E221 multiple spaces before operator
+./features/importer/browser.py:231:13: E221 multiple spaces before operator
+./features/importer/browser.py:232:16: E221 multiple spaces before operator
+./features/importer/browser.py:234:13: E221 multiple spaces before operator
+./features/importer/browser.py:235:10: E221 multiple spaces before operator
+./features/importer/browser.py:258:12: E221 multiple spaces before operator
+./features/importer/browser.py:260:14: E221 multiple spaces before operator
+./features/importer/browser.py:261:14: E221 multiple spaces before operator
+./features/importer/browser.py:262:14: E221 multiple spaces before operator
+./features/importer/browser.py:263:7: E221 multiple spaces before operator
+./features/importer/browser.py:267:80: E501 line too long (80 > 79 characters)
+./features/importer/browser.py:271:1: E302 expected 2 blank lines, found 1
+./features/importer/browser.py:271:80: E501 line too long (89 > 79 characters)
+./features/importer/browser.py:276:80: E501 line too long (93 > 79 characters)
+./features/importer/browser.py:316:80: E501 line too long (80 > 79 characters)
+./features/importer/browser.py:334:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:340:80: E501 line too long (101 > 79 characters)
+./features/importer/browser.py:341:80: E501 line too long (82 > 79 characters)
+./features/importer/browser.py:388:28: E203 whitespace before ':'
+./features/importer/browser.py:408:32: E203 whitespace before ':'
+./features/importer/browser.py:421:1: E303 too many blank lines (3)
+./features/importer/browser.py:449:80: E501 line too long (95 > 79 characters)
+./features/importer/browser.py:452:80: E501 line too long (80 > 79 characters)
+./features/importer/browser.py:454:80: E501 line too long (87 > 79 characters)
+./features/importer/browser.py:456:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:457:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:459:80: E501 line too long (80 > 79 characters)
+./features/importer/browser.py:477:80: E501 line too long (84 > 79 characters)
+./features/importer/browser.py:497:32: E741 ambiguous variable name 'l'
+./features/importer/browser.py:498:23: E741 ambiguous variable name 'l'
+./features/importer/browser.py:503:80: E501 line too long (83 > 79 characters)
+./features/importer/browser.py:504:47: E741 ambiguous variable name 'l'
+./features/importer/browser.py:513:17: E221 multiple spaces before operator
+./features/importer/browser.py:514:21: E221 multiple spaces before operator
+./features/importer/browser.py:514:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:563:16: E221 multiple spaces before operator
+./features/importer/browser.py:569:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:602:45: E741 ambiguous variable name 'l'
+./features/importer/browser.py:629:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:675:80: E501 line too long (86 > 79 characters)
+./features/importer/browser.py:736:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:809:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:814:19: E221 multiple spaces before operator
+./features/importer/browser.py:819:27: E221 multiple spaces before operator
+./features/importer/browser.py:825:16: E221 multiple spaces before operator
+./features/importer/browser.py:867:80: E501 line too long (88 > 79 characters)
+./features/importer/browser.py:899:12: E221 multiple spaces before operator
+./features/importer/browser.py:908:14: E221 multiple spaces before operator
+./features/importer/browser.py:909:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:917:80: E501 line too long (82 > 79 characters)
+./features/importer/browser.py:918:80: E501 line too long (82 > 79 characters)
+./features/importer/browser.py:919:80: E501 line too long (82 > 79 characters)
+./features/importer/browser.py:1000:80: E501 line too long (80 > 79 characters)
+./features/importer/browser.py:1002:41: E221 multiple spaces before operator
+./features/importer/browser.py:1003:41: E221 multiple spaces before operator
+./features/importer/browser.py:1006:36: E221 multiple spaces before operator
+./features/importer/browser.py:1007:36: E221 multiple spaces before operator
+./features/importer/browser.py:1008:33: E221 multiple spaces before operator
+./features/importer/browser.py:1013:18: E221 multiple spaces before operator
+./features/importer/browser.py:1020:20: E221 multiple spaces before operator
+./features/importer/browser.py:1021:20: E221 multiple spaces before operator
+./features/importer/browser.py:1039:80: E501 line too long (86 > 79 characters)
+./features/importer/browser.py:1048:80: E501 line too long (80 > 79 characters)
+./features/importer/browser.py:1058:80: E501 line too long (80 > 79 characters)
+./features/importer/browser.py:1067:80: E501 line too long (92 > 79 characters)
+./features/importer/browser.py:1072:80: E501 line too long (87 > 79 characters)
+./features/importer/browser.py:1080:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:1120:30: E221 multiple spaces before operator
+./features/importer/browser.py:1122:31: E221 multiple spaces before operator
+./features/importer/browser.py:1132:80: E501 line too long (93 > 79 characters)
+./features/importer/browser.py:1139:8: E221 multiple spaces before operator
+./features/importer/browser.py:1139:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:1203:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:1206:80: E501 line too long (83 > 79 characters)
+./features/importer/browser.py:1225:80: E501 line too long (80 > 79 characters)
+./features/importer/browser.py:1244:15: E221 multiple spaces before operator
+./features/importer/browser.py:1260:80: E501 line too long (97 > 79 characters)
+./features/importer/browser.py:1290:80: E501 line too long (83 > 79 characters)
+./features/importer/browser.py:1320:59: E741 ambiguous variable name 'l'
+./features/importer/browser.py:1320:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:1322:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:1342:13: E221 multiple spaces before operator
+./features/importer/browser.py:1344:80: E501 line too long (98 > 79 characters)
+./features/importer/browser.py:1346:20: E221 multiple spaces before operator
+./features/importer/browser.py:1348:19: E221 multiple spaces before operator
+./features/importer/browser.py:1358:80: E501 line too long (107 > 79 characters)
+./features/importer/browser.py:1375:19: E221 multiple spaces before operator
+./features/importer/browser.py:1381:15: E221 multiple spaces before operator
+./features/importer/browser.py:1381:80: E501 line too long (90 > 79 characters)
+./features/importer/browser.py:1382:19: E127 continuation line over-indented for visual indent
+./features/importer/browser.py:1393:19: E221 multiple spaces before operator
+./features/importer/browser.py:1398:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:1410:19: E221 multiple spaces before operator
+./features/importer/browser.py:1419:80: E501 line too long (87 > 79 characters)
+./features/importer/browser.py:1439:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:1442:14: E221 multiple spaces before operator
+./features/importer/browser.py:1483:80: E501 line too long (80 > 79 characters)
+./features/importer/browser.py:1490:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:1492:10: E221 multiple spaces before operator
+./features/importer/browser.py:1493:15: E221 multiple spaces before operator
+./features/importer/browser.py:1494:15: E221 multiple spaces before operator
+./features/importer/browser.py:1504:18: E221 multiple spaces before operator
+./features/importer/browser.py:1505:19: E221 multiple spaces before operator
+./features/importer/browser.py:1506:23: E221 multiple spaces before operator
+./features/importer/browser.py:1507:19: E221 multiple spaces before operator
+./features/importer/browser.py:1513:21: E221 multiple spaces before operator
+./features/importer/browser.py:1522:24: E221 multiple spaces before operator
+./features/importer/browser.py:1523:21: E221 multiple spaces before operator
+./features/importer/browser.py:1578:21: E221 multiple spaces before operator
+./features/importer/browser.py:1584:80: E501 line too long (86 > 79 characters)
+./features/importer/browser.py:1587:80: E501 line too long (108 > 79 characters)
+./features/importer/browser.py:1590:80: E501 line too long (86 > 79 characters)
+./features/importer/browser.py:1601:80: E501 line too long (83 > 79 characters)
+./features/importer/browser.py:1602:21: E221 multiple spaces before operator
+./features/importer/browser.py:1613:80: E501 line too long (86 > 79 characters)
+./features/importer/browser.py:1640:80: E501 line too long (82 > 79 characters)
+./features/importer/browser.py:1652:18: E221 multiple spaces before operator
+./features/importer/browser.py:1668:36: E702 multiple statements on one line (semicolon)
+./features/importer/browser.py:1677:36: E702 multiple statements on one line (semicolon)
+./features/importer/browser.py:1684:80: E501 line too long (92 > 79 characters)
+./features/importer/browser.py:1698:10: E221 multiple spaces before operator
+./features/importer/browser.py:1699:10: E221 multiple spaces before operator
+./features/importer/browser.py:1700:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:1715:80: E501 line too long (88 > 79 characters)
+./features/importer/browser.py:1730:19: E221 multiple spaces before operator
+./features/importer/browser.py:1731:23: E221 multiple spaces before operator
+./features/importer/browser.py:1732:24: E221 multiple spaces before operator
+./features/importer/browser.py:1785:24: E221 multiple spaces before operator
+./features/importer/browser.py:1786:21: E221 multiple spaces before operator
+./features/importer/browser.py:1800:80: E501 line too long (88 > 79 characters)
+./features/importer/browser.py:1809:80: E501 line too long (107 > 79 characters)
+./features/importer/browser.py:1810:19: E221 multiple spaces before operator
+./features/importer/browser.py:1811:23: E221 multiple spaces before operator
+./features/importer/browser.py:1813:23: E221 multiple spaces before operator
+./features/importer/browser.py:1814:80: E501 line too long (117 > 79 characters)
+./features/importer/browser.py:1822:39: E221 multiple spaces before operator
+./features/importer/browser.py:1829:23: E221 multiple spaces before operator
+./features/importer/browser.py:1854:80: E501 line too long (84 > 79 characters)
+./features/importer/browser.py:1863:80: E501 line too long (84 > 79 characters)
+./features/importer/browser.py:1891:47: E221 multiple spaces before operator
+./features/importer/browser.py:1893:11: E221 multiple spaces before operator
+./features/importer/browser.py:1894:11: E221 multiple spaces before operator
+./features/importer/browser.py:1903:35: E221 multiple spaces before operator
+./features/importer/browser.py:1904:32: E221 multiple spaces before operator
+./features/importer/browser.py:1962:80: E501 line too long (83 > 79 characters)
+./features/importer/browser.py:1987:80: E501 line too long (90 > 79 characters)
+./features/importer/browser.py:1999:13: E221 multiple spaces before operator
+./features/importer/browser.py:2000:14: E221 multiple spaces before operator
+./features/importer/browser.py:2022:21: E221 multiple spaces before operator
+./features/importer/browser.py:2024:21: E221 multiple spaces before operator
+./features/importer/browser.py:2053:80: E501 line too long (94 > 79 characters)
+./features/importer/browser.py:2089:80: E501 line too long (80 > 79 characters)
+./features/importer/browser.py:2115:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:2120:10: E221 multiple spaces before operator
+./features/importer/browser.py:2175:80: E501 line too long (87 > 79 characters)
+./features/importer/browser.py:2184:80: E501 line too long (103 > 79 characters)
+./features/importer/browser.py:2188:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:2200:32: E702 multiple statements on one line (semicolon)
+./features/importer/browser.py:2200:51: E702 multiple statements on one line (semicolon)
+./features/importer/browser.py:2212:10: E221 multiple spaces before operator
+./features/importer/browser.py:2220:80: E501 line too long (88 > 79 characters)
+./features/importer/browser.py:2239:80: E501 line too long (102 > 79 characters)
+./features/importer/browser.py:2259:80: E501 line too long (86 > 79 characters)
+./features/importer/browser.py:2267:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:2272:80: E501 line too long (94 > 79 characters)
+./features/importer/browser.py:2290:80: E501 line too long (86 > 79 characters)
+./features/importer/browser.py:2293:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:2302:80: E501 line too long (89 > 79 characters)
+./features/importer/browser.py:2307:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:2313:10: E221 multiple spaces before operator
+./features/importer/browser.py:2340:80: E501 line too long (80 > 79 characters)
+./features/importer/browser.py:2341:80: E501 line too long (88 > 79 characters)
+./features/importer/browser.py:2345:80: E501 line too long (89 > 79 characters)
+./features/importer/browser.py:2348:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:2349:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:2362:80: E501 line too long (90 > 79 characters)
+./features/importer/browser.py:2387:16: E221 multiple spaces before operator
+./features/importer/browser.py:2388:18: E221 multiple spaces before operator
+./features/importer/browser.py:2453:21: E221 multiple spaces before operator
+./features/importer/browser.py:2455:25: E221 multiple spaces before operator
+./features/importer/browser.py:2456:23: E221 multiple spaces before operator
+./features/importer/browser.py:2457:23: E221 multiple spaces before operator
+./features/importer/browser.py:2458:14: E221 multiple spaces before operator
+./features/importer/browser.py:2459:25: E221 multiple spaces before operator
+./features/importer/browser.py:2460:25: E221 multiple spaces before operator
+./features/importer/browser.py:2461:22: E221 multiple spaces before operator
+./features/importer/browser.py:2462:25: E221 multiple spaces before operator
+./features/importer/browser.py:2463:23: E221 multiple spaces before operator
+./features/importer/browser.py:2464:23: E221 multiple spaces before operator
+./features/importer/browser.py:2466:21: E221 multiple spaces before operator
+./features/importer/browser.py:2467:24: E221 multiple spaces before operator
+./features/importer/browser.py:2468:22: E221 multiple spaces before operator
+./features/importer/browser.py:2469:23: E221 multiple spaces before operator
+./features/importer/browser.py:2472:23: E221 multiple spaces before operator
+./features/importer/browser.py:2473:27: E221 multiple spaces before operator
+./features/importer/browser.py:2474:27: E221 multiple spaces before operator
+./features/importer/browser.py:2475:27: E221 multiple spaces before operator
+./features/importer/browser.py:2476:28: E221 multiple spaces before operator
+./features/importer/browser.py:2480:20: E221 multiple spaces before operator
+./features/importer/browser.py:2482:27: E221 multiple spaces before operator
+./features/importer/browser.py:2553:80: E501 line too long (96 > 79 characters)
+./features/importer/browser.py:2563:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:2564:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:2565:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:2578:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:2620:57: E221 multiple spaces before operator
+./features/importer/browser.py:2622:53: E221 multiple spaces before operator
+./features/importer/browser.py:2623:59: E221 multiple spaces before operator
+./features/importer/browser.py:2626:39: E221 multiple spaces before operator
+./features/importer/browser.py:2642:22: E221 multiple spaces before operator
+./features/importer/browser.py:2665:11: E221 multiple spaces before operator
+./features/importer/browser.py:2697:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:2766:80: E501 line too long (89 > 79 characters)
+./features/importer/browser.py:2802:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:2813:13: E221 multiple spaces before operator
+./features/importer/browser.py:2824:80: E501 line too long (104 > 79 characters)
+./features/importer/browser.py:2836:80: E501 line too long (84 > 79 characters)
+./features/importer/browser.py:2841:80: E501 line too long (81 > 79 characters)
+./features/importer/browser.py:2842:80: E501 line too long (80 > 79 characters)
+./features/importer/browser.py:2872:26: E221 multiple spaces before operator
+./features/importer/browser.py:2880:80: E501 line too long (97 > 79 characters)
+./features/importer/browser.py:2887:80: E501 line too long (89 > 79 characters)
+./features/importer/browser.py:2894:80: E501 line too long (80 > 79 characters)
+./features/importer/browser.py:2898:80: E501 line too long (84 > 79 characters)
+./features/importer/browser.py:2906:56: E221 multiple spaces before operator
+./features/importer/browser.py:2914:80: E501 line too long (83 > 79 characters)
+./features/importer/browser.py:2915:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:2922:80: E501 line too long (95 > 79 characters)
+./features/importer/browser.py:2936:33: E702 multiple statements on one line (semicolon)
+./features/importer/browser.py:2936:61: E702 multiple statements on one line (semicolon)
+./features/importer/browser.py:2936:80: E501 line too long (84 > 79 characters)
+./features/importer/browser.py:2941:18: E221 multiple spaces before operator
+./features/importer/browser.py:2942:21: E221 multiple spaces before operator
+./features/importer/browser.py:2944:80: E501 line too long (105 > 79 characters)
+./features/importer/browser.py:2951:80: E501 line too long (91 > 79 characters)
+./features/importer/browser.py:2954:80: E501 line too long (85 > 79 characters)
+./features/importer/browser.py:2956:80: E501 line too long (82 > 79 characters)
+./features/importer/browser.py:2965:80: E501 line too long (96 > 79 characters)
+./features/importer/browser.py:2967:80: E501 line too long (80 > 79 characters)
+./features/importer/browser.py:2995:80: E501 line too long (89 > 79 characters)
+./features/importer/browser.py:2998:41: E221 multiple spaces before operator
+./features/importer/browser.py:2999:42: E221 multiple spaces before operator
+./features/importer/browser.py:3002:42: E221 multiple spaces before operator
+./features/importer/browser.py:3009:13: E221 multiple spaces before operator
+./features/importer/browser.py:3009:80: E501 line too long (88 > 79 characters)
+./features/importer/browser.py:3027:80: E501 line too long (82 > 79 characters)
+./features/importer/convert.py:11:1: E302 expected 2 blank lines, found 1
+./features/importer/convert.py:11:80: E501 line too long (85 > 79 characters)
+./features/importer/convert.py:14:80: E501 line too long (83 > 79 characters)
+./features/importer/convert.py:33:80: E501 line too long (80 > 79 characters)
+./features/importer/convert.py:52:15: E221 multiple spaces before operator
+./features/importer/convert.py:68:80: E501 line too long (97 > 79 characters)
+./features/importer/convert.py:98:80: E501 line too long (83 > 79 characters)
+./features/importer/convert.py:128:59: E741 ambiguous variable name 'l'
+./features/importer/convert.py:128:80: E501 line too long (81 > 79 characters)
+./features/importer/convert.py:130:80: E501 line too long (85 > 79 characters)
+./features/importer/dialog.py:43:1: E302 expected 2 blank lines, found 1
+./features/importer/dialog.py:68:57: E221 multiple spaces before operator
+./features/importer/dialog.py:70:53: E221 multiple spaces before operator
+./features/importer/dialog.py:71:59: E221 multiple spaces before operator
+./features/importer/dialog.py:74:39: E221 multiple spaces before operator
+./features/importer/dialog.py:90:22: E221 multiple spaces before operator
+./features/importer/dialog.py:113:11: E221 multiple spaces before operator
+./features/importer/dialog.py:146:80: E501 line too long (85 > 79 characters)
+./features/importer/dialog.py:219:80: E501 line too long (89 > 79 characters)
+./features/importer/dialog.py:255:80: E501 line too long (85 > 79 characters)
+./features/importer/dialog.py:266:13: E221 multiple spaces before operator
+./features/importer/dialog.py:277:80: E501 line too long (104 > 79 characters)
+./features/importer/dialog.py:289:80: E501 line too long (84 > 79 characters)
+./features/importer/dialog.py:294:80: E501 line too long (84 > 79 characters)
+./features/importer/dialog.py:372:80: E501 line too long (97 > 79 characters)
+./features/importer/dialog.py:382:80: E501 line too long (84 > 79 characters)
+./features/importer/dialog.py:386:80: E501 line too long (89 > 79 characters)
+./features/importer/dialog.py:393:80: E501 line too long (80 > 79 characters)
+./features/importer/dialog.py:397:80: E501 line too long (84 > 79 characters)
+./features/importer/dialog.py:406:28: E221 multiple spaces before operator
+./features/importer/dialog.py:420:80: E501 line too long (95 > 79 characters)
+./features/importer/dialog.py:424:80: E501 line too long (100 > 79 characters)
+./features/importer/dialog.py:450:80: E501 line too long (89 > 79 characters)
+./features/importer/dialog.py:483:80: E501 line too long (91 > 79 characters)
+./features/importer/dialog.py:490:80: E501 line too long (85 > 79 characters)
+./features/importer/dialog.py:492:80: E501 line too long (82 > 79 characters)
+./features/importer/dialog.py:501:80: E501 line too long (96 > 79 characters)
+./features/importer/dialog.py:503:80: E501 line too long (80 > 79 characters)
+./features/importer/dialog.py:541:80: E501 line too long (94 > 79 characters)
+./features/importer/dialog.py:548:80: E501 line too long (87 > 79 characters)
+./features/importer/dialog.py:550:80: E501 line too long (94 > 79 characters)
+./features/importer/dialog.py:555:27: E221 multiple spaces before operator
+./features/importer/dialog.py:556:28: E221 multiple spaces before operator
+./features/importer/dialog.py:559:28: E221 multiple spaces before operator
+./features/importer/dialog.py:562:80: E501 line too long (110 > 79 characters)
+./features/importer/dialog.py:575:13: E221 multiple spaces before operator
+./features/importer/dialog.py:575:80: E501 line too long (88 > 79 characters)
+./features/importer/dialog.py:593:80: E501 line too long (82 > 79 characters)
+./features/importer/models.py:16:80: E501 line too long (83 > 79 characters)
+./features/importer/models.py:17:80: E501 line too long (81 > 79 characters)
+./features/importer/models.py:18:80: E501 line too long (86 > 79 characters)
+./features/importer/models.py:41:41: E261 at least two spaces before inline comment
+./features/importer/models.py:89:80: E501 line too long (82 > 79 characters)
+./features/importer/models.py:91:80: E501 line too long (80 > 79 characters)
+./features/importer/models.py:98:80: E501 line too long (84 > 79 characters)
+./features/importer/models.py:99:80: E501 line too long (87 > 79 characters)
+./features/importer/models.py:100:80: E501 line too long (101 > 79 characters)
+./features/importer/panel.py:39:1: E302 expected 2 blank lines, found 1
+./features/importer/panel.py:52:21: E221 multiple spaces before operator
+./features/importer/panel.py:54:21: E221 multiple spaces before operator
+./features/importer/panel.py:97:80: E501 line too long (94 > 79 characters)
+./features/importer/panel.py:127:80: E501 line too long (92 > 79 characters)
+./features/importer/panel.py:138:80: E501 line too long (80 > 79 characters)
+./features/importer/panel.py:164:80: E501 line too long (81 > 79 characters)
+./features/importer/panel.py:169:10: E221 multiple spaces before operator
+./features/importer/panel.py:181:80: E501 line too long (93 > 79 characters)
+./features/importer/panel.py:214:80: E501 line too long (81 > 79 characters)
+./features/importer/panel.py:225:80: E501 line too long (87 > 79 characters)
+./features/importer/panel.py:229:80: E501 line too long (103 > 79 characters)
+./features/importer/panel.py:263:10: E221 multiple spaces before operator
+./features/importer/panel.py:271:80: E501 line too long (88 > 79 characters)
+./features/importer/panel.py:290:80: E501 line too long (102 > 79 characters)
+./features/importer/panel.py:310:80: E501 line too long (86 > 79 characters)
+./features/importer/panel.py:312:80: E501 line too long (82 > 79 characters)
+./features/importer/panel.py:318:80: E501 line too long (85 > 79 characters)
+./features/importer/panel.py:323:80: E501 line too long (94 > 79 characters)
+./features/importer/panel.py:339:80: E501 line too long (91 > 79 characters)
+./features/importer/panel.py:347:80: E501 line too long (85 > 79 characters)
+./features/importer/panel.py:353:10: E221 multiple spaces before operator
+./features/importer/panel.py:380:80: E501 line too long (80 > 79 characters)
+./features/importer/panel.py:381:80: E501 line too long (88 > 79 characters)
+./features/importer/panel.py:385:80: E501 line too long (89 > 79 characters)
+./features/importer/panel.py:388:80: E501 line too long (85 > 79 characters)
+./features/importer/panel.py:389:80: E501 line too long (81 > 79 characters)
+./features/importer/panel.py:402:80: E501 line too long (90 > 79 characters)
+./features/importer/panel.py:406:80: E501 line too long (81 > 79 characters)
+./features/importer/panel.py:421:80: E501 line too long (90 > 79 characters)
+./features/importer/panel.py:426:80: E501 line too long (93 > 79 characters)
+./features/importer/panel.py:427:80: E501 line too long (102 > 79 characters)
+./features/importer/panel.py:445:80: E501 line too long (95 > 79 characters)
+./features/importer/panel.py:459:80: E501 line too long (82 > 79 characters)
+./features/importer/panel.py:500:21: E221 multiple spaces before operator
+./features/importer/panel.py:502:25: E221 multiple spaces before operator
+./features/importer/panel.py:503:23: E221 multiple spaces before operator
+./features/importer/panel.py:504:23: E221 multiple spaces before operator
+./features/importer/panel.py:505:14: E221 multiple spaces before operator
+./features/importer/panel.py:506:25: E221 multiple spaces before operator
+./features/importer/panel.py:507:25: E221 multiple spaces before operator
+./features/importer/panel.py:508:22: E221 multiple spaces before operator
+./features/importer/panel.py:509:25: E221 multiple spaces before operator
+./features/importer/panel.py:510:23: E221 multiple spaces before operator
+./features/importer/panel.py:511:23: E221 multiple spaces before operator
+./features/importer/panel.py:512:23: E221 multiple spaces before operator
+./features/importer/panel.py:514:21: E221 multiple spaces before operator
+./features/importer/panel.py:515:24: E221 multiple spaces before operator
+./features/importer/panel.py:516:22: E221 multiple spaces before operator
+./features/importer/panel.py:517:23: E221 multiple spaces before operator
+./features/importer/panel.py:520:23: E221 multiple spaces before operator
+./features/importer/panel.py:521:27: E221 multiple spaces before operator
+./features/importer/panel.py:522:27: E221 multiple spaces before operator
+./features/importer/panel.py:523:27: E221 multiple spaces before operator
+./features/importer/panel.py:524:28: E221 multiple spaces before operator
+./features/importer/panel.py:528:20: E221 multiple spaces before operator
+./features/importer/panel.py:530:27: E221 multiple spaces before operator
+./features/importer/panel.py:544:80: E501 line too long (90 > 79 characters)
+./features/importer/panel.py:545:80: E501 line too long (99 > 79 characters)
+./features/importer/panel.py:586:80: E501 line too long (86 > 79 characters)
+./features/importer/panel.py:590:80: E501 line too long (96 > 79 characters)
+./features/importer/panel.py:618:80: E501 line too long (88 > 79 characters)
+./features/importer/panel.py:620:80: E501 line too long (87 > 79 characters)
+./features/importer/panel.py:634:80: E501 line too long (84 > 79 characters)
+./features/importer/panel.py:635:80: E501 line too long (82 > 79 characters)
+./features/importer/panel.py:636:80: E501 line too long (82 > 79 characters)
+./features/importer/panel.py:637:80: E501 line too long (82 > 79 characters)
+./features/importer/panel.py:657:80: E501 line too long (101 > 79 characters)
+./features/importer/panel.py:659:80: E501 line too long (106 > 79 characters)
+./features/importer/pdf.py:10:13: E221 multiple spaces before operator
+./features/importer/pdf.py:28:18: E222 multiple spaces after operator
+./features/importer/pdf.py:29:8: E222 multiple spaces after operator
+./features/importer/pdf.py:29:15: E221 multiple spaces before operator
+./features/importer/pdf.py:41:80: E501 line too long (93 > 79 characters)
+./features/importer/pdf.py:42:80: E501 line too long (82 > 79 characters)
+./features/importer/pdf.py:46:18: E221 multiple spaces before operator
+./features/importer/pdf.py:83:15: E221 multiple spaces before operator
+./features/importer/pdf.py:87:80: E501 line too long (91 > 79 characters)
+./features/importer/pdf.py:91:13: E221 multiple spaces before operator
+./features/importer/pdf.py:92:16: E221 multiple spaces before operator
+./features/importer/pdf.py:94:13: E221 multiple spaces before operator
+./features/importer/pdf.py:95:10: E221 multiple spaces before operator
+./features/importer/pdf.py:118:12: E221 multiple spaces before operator
+./features/importer/pdf.py:120:14: E221 multiple spaces before operator
+./features/importer/pdf.py:121:14: E221 multiple spaces before operator
+./features/importer/pdf.py:122:14: E221 multiple spaces before operator
+./features/importer/pdf.py:123:7: E221 multiple spaces before operator
+./features/importer/pdf.py:125:80: E501 line too long (88 > 79 characters)
+./features/importer/pdf.py:133:80: E501 line too long (111 > 79 characters)
+./features/importer/pdf.py:136:80: E501 line too long (87 > 79 characters)
+./features/importer/pdf.py:173:80: E501 line too long (83 > 79 characters)
+./features/importer/pdf.py:189:1: E302 expected 2 blank lines, found 1
+./features/importer/pdf.py:189:80: E501 line too long (89 > 79 characters)
+./features/importer/pdf.py:221:80: E501 line too long (85 > 79 characters)
+./features/importer/pdf.py:231:1: E303 too many blank lines (3)
+./features/importer/pdf.py:259:80: E501 line too long (95 > 79 characters)
+./features/importer/pdf.py:262:80: E501 line too long (80 > 79 characters)
+./features/importer/pdf.py:264:80: E501 line too long (87 > 79 characters)
+./features/importer/pdf.py:266:80: E501 line too long (85 > 79 characters)
+./features/importer/pdf.py:267:80: E501 line too long (85 > 79 characters)
+./features/importer/pdf.py:269:80: E501 line too long (80 > 79 characters)
+./features/importer/pdf.py:287:80: E501 line too long (84 > 79 characters)
+./features/importer/pdf.py:307:32: E741 ambiguous variable name 'l'
+./features/importer/pdf.py:308:23: E741 ambiguous variable name 'l'
+./features/importer/pdf.py:313:80: E501 line too long (83 > 79 characters)
+./features/importer/pdf.py:314:47: E741 ambiguous variable name 'l'
+./features/importer/pdf.py:323:17: E221 multiple spaces before operator
+./features/importer/pdf.py:324:21: E221 multiple spaces before operator
+./features/importer/pdf.py:324:80: E501 line too long (81 > 79 characters)
+./features/importer/pdf.py:373:16: E221 multiple spaces before operator
+./features/importer/pdf.py:379:80: E501 line too long (81 > 79 characters)
+./features/importer/pdf.py:412:45: E741 ambiguous variable name 'l'
+./features/importer/pdf.py:439:80: E501 line too long (81 > 79 characters)
+./features/importer/pdf.py:485:80: E501 line too long (86 > 79 characters)
+./features/importer/pdf.py:546:80: E501 line too long (81 > 79 characters)
+./features/importer/pdf.py:650:80: E501 line too long (84 > 79 characters)
+./features/importer/pdf.py:694:80: E501 line too long (83 > 79 characters)
+./features/importer/pdf.py:699:80: E501 line too long (88 > 79 characters)
+./features/importer/pdf.py:725:80: E501 line too long (130 > 79 characters)
+./features/importer/pdf.py:733:80: E501 line too long (100 > 79 characters)
+./features/importer/pdf.py:778:80: E501 line too long (88 > 79 characters)
+./features/importer/pdf.py:805:80: E501 line too long (81 > 79 characters)
+./features/importer/pdf.py:815:80: E501 line too long (99 > 79 characters)
+./features/importer/pdf.py:832:80: E501 line too long (83 > 79 characters)
+./features/importer/pdf.py:854:80: E501 line too long (81 > 79 characters)
+./features/importer/pdf.py:864:80: E501 line too long (93 > 79 characters)
+./features/importer/pdf.py:866:80: E501 line too long (94 > 79 characters)
+./features/importer/pdf.py:877:80: E501 line too long (87 > 79 characters)
+./features/importer/pdf.py:895:80: E501 line too long (93 > 79 characters)
+./features/importer/pdf.py:952:80: E501 line too long (83 > 79 characters)
+./features/importer/pdf.py:984:80: E501 line too long (91 > 79 characters)
+./features/importer/pdf.py:1034:80: E501 line too long (89 > 79 characters)
+./features/importer/pdf.py:1054:80: E501 line too long (82 > 79 characters)
+./features/importer/pdf.py:1073:80: E501 line too long (84 > 79 characters)
+./features/importer/pdf.py:1126:80: E501 line too long (89 > 79 characters)
+./features/importer/pdf.py:1146:80: E501 line too long (83 > 79 characters)
+./features/importer/pdf.py:1172:33: E203 whitespace before ':'
+./features/importer/pdf.py:1228:49: E203 whitespace before ':'
+./features/importer/pdf.py:1251:80: E501 line too long (89 > 79 characters)
+./features/importer/pdf.py:1290:80: E501 line too long (80 > 79 characters)
+./features/importer/pdf.py:1322:80: E501 line too long (81 > 79 characters)
+./features/importer/pdf.py:1327:19: E221 multiple spaces before operator
+./features/importer/pdf.py:1332:27: E221 multiple spaces before operator
+./features/importer/pdf.py:1338:16: E221 multiple spaces before operator
+./features/importer/pdf.py:1380:80: E501 line too long (88 > 79 characters)
+./features/importer/pdf.py:1412:12: E221 multiple spaces before operator
+./features/importer/pdf.py:1421:14: E221 multiple spaces before operator
+./features/importer/pdf.py:1422:80: E501 line too long (81 > 79 characters)
+./features/importer/pdf.py:1430:80: E501 line too long (82 > 79 characters)
+./features/importer/pdf.py:1431:80: E501 line too long (82 > 79 characters)
+./features/importer/pdf.py:1432:80: E501 line too long (82 > 79 characters)
+./features/importer/pdf.py:1504:80: E501 line too long (85 > 79 characters)
+./features/importer/pdf.py:1506:80: E501 line too long (81 > 79 characters)
+./features/importer/pdf.py:1530:80: E501 line too long (80 > 79 characters)
+./features/importer/pdf.py:1595:80: E501 line too long (83 > 79 characters)
+./features/importer/pdf.py:1597:80: E501 line too long (83 > 79 characters)
+./features/importer/pdf.py:1657:80: E501 line too long (86 > 79 characters)
+./features/importer/pdf.py:1666:80: E501 line too long (94 > 79 characters)
+./features/importer/pdf.py:1678:80: E501 line too long (80 > 79 characters)
+./features/importer/pdf.py:1725:80: E501 line too long (81 > 79 characters)
+./features/importer/pdf.py:1729:80: E501 line too long (88 > 79 characters)
+./features/importer/pdf.py:1746:80: E501 line too long (81 > 79 characters)
+./features/importer/pdf.py:1750:80: E501 line too long (88 > 79 characters)
+./features/importer/pdf.py:1766:80: E501 line too long (80 > 79 characters)
+./features/importer/pdf.py:1801:80: E501 line too long (80 > 79 characters)
+./features/importer/pdf.py:1823:80: E501 line too long (84 > 79 characters)
+./features/importer/pdf.py:1831:80: E501 line too long (94 > 79 characters)
+./features/importer/pdf.py:1833:80: E501 line too long (91 > 79 characters)
+./features/importer/pdf.py:1855:80: E501 line too long (94 > 79 characters)
+./features/importer/pdf.py:1865:80: E501 line too long (82 > 79 characters)
+./features/importer/pdf.py:1867:80: E501 line too long (91 > 79 characters)
+./features/importer/pdf.py:1896:80: E501 line too long (95 > 79 characters)
+./features/importer/pdf.py:1924:80: E501 line too long (109 > 79 characters)
+./features/importer/pdf.py:1925:80: E501 line too long (109 > 79 characters)
+./features/importer/pdf.py:1938:80: E501 line too long (80 > 79 characters)
+./features/importer/pdf.py:1943:80: E501 line too long (122 > 79 characters)
+./features/importer/pdf.py:1944:80: E501 line too long (130 > 79 characters)
+./features/importer/pdf.py:1945:80: E501 line too long (133 > 79 characters)
+./features/importer/pdf.py:1969:80: E501 line too long (86 > 79 characters)
+./features/importer/pdf.py:1977:80: E501 line too long (122 > 79 characters)
+./features/importer/pdf.py:1988:80: E501 line too long (88 > 79 characters)
+./features/importer/pdf.py:2014:80: E501 line too long (106 > 79 characters)
+./features/importer/pdf.py:2030:80: E501 line too long (88 > 79 characters)
+./features/importer/pdf.py:2052:80: E501 line too long (88 > 79 characters)
+./features/importer/pdf.py:2053:80: E501 line too long (88 > 79 characters)
+./features/importer/pdf.py:2061:80: E501 line too long (93 > 79 characters)
+./features/importer/pdf.py:2068:80: E501 line too long (85 > 79 characters)
+./features/importer/pdf.py:2070:80: E501 line too long (93 > 79 characters)
+./features/importer/pdf.py:2074:80: E501 line too long (92 > 79 characters)
+./features/importer/pdf.py:2078:80: E501 line too long (113 > 79 characters)
+./features/importer/pdf.py:2083:80: E501 line too long (93 > 79 characters)
+./features/importer/pdf.py:2085:80: E501 line too long (95 > 79 characters)
+./features/importer/pdf.py:2093:80: E501 line too long (93 > 79 characters)
+./features/importer/pdf.py:2095:80: E501 line too long (95 > 79 characters)
+./features/importer/pdf.py:2101:80: E501 line too long (134 > 79 characters)
+./features/importer/pdf.py:2112:80: E501 line too long (99 > 79 characters)
+./features/importer/pdf.py:2118:80: E501 line too long (98 > 79 characters)
+./features/importer/pdf.py:2191:80: E501 line too long (85 > 79 characters)
+./features/importer/pdf.py:2193:80: E501 line too long (86 > 79 characters)
+./features/importer/pdf.py:2194:80: E501 line too long (92 > 79 characters)
+./features/importer/pdf.py:2195:80: E501 line too long (96 > 79 characters)
+./features/importer/pdf.py:2218:80: E501 line too long (83 > 79 characters)
+./features/importer/pdf.py:2224:80: E501 line too long (82 > 79 characters)
+./features/importer/pdf.py:2225:80: E501 line too long (81 > 79 characters)
+./features/importer/pdf.py:2288:80: E501 line too long (97 > 79 characters)
+./features/importer/pdf.py:2295:80: E501 line too long (89 > 79 characters)
+./features/importer/pdf.py:2307:80: E501 line too long (83 > 79 characters)
+./features/importer/ui_constants.py:52:80: E501 line too long (83 > 79 characters)
+./features/importer/ui_constants.py:77:80: E501 line too long (90 > 79 characters)
+./features/importer/ui_constants.py:89:13: E221 multiple spaces before operator
+./features/importer/ui_constants.py:90:14: E221 multiple spaces before operator
+./features/importer/viewer.py:138:80: E501 line too long (88 > 79 characters)
+./features/importer/viewer.py:139:80: E501 line too long (80 > 79 characters)
+./features/importer/viewer.py:147:80: E501 line too long (88 > 79 characters)
+./features/importer/viewer.py:164:80: E501 line too long (93 > 79 characters)
+./features/importer/viewer.py:178:80: E501 line too long (80 > 79 characters)
+./features/importer/viewer.py:182:80: E501 line too long (88 > 79 characters)
+./features/importer/viewer.py:186:80: E501 line too long (84 > 79 characters)
+./features/importer/viewer.py:189:80: E501 line too long (82 > 79 characters)
+./features/importer/viewer.py:196:80: E501 line too long (83 > 79 characters)
+./features/importer/viewer.py:199:80: E501 line too long (80 > 79 characters)
+./features/importer/viewer.py:229:80: E501 line too long (84 > 79 characters)
+./features/importer/viewer.py:296:80: E501 line too long (89 > 79 characters)
+./features/importer/viewer.py:327:80: E501 line too long (80 > 79 characters)
+./features/importer/viewer.py:399:80: E501 line too long (81 > 79 characters)
+./features/importer/viewer.py:434:80: E501 line too long (84 > 79 characters)
+./features/importer/viewer.py:462:80: E501 line too long (80 > 79 characters)
+./features/importer/viewer.py:469:80: E501 line too long (85 > 79 characters)
+./features/importer/viewer.py:471:10: E221 multiple spaces before operator
+./features/importer/viewer.py:472:15: E221 multiple spaces before operator
+./features/importer/viewer.py:473:15: E221 multiple spaces before operator
+./features/importer/viewer.py:483:18: E221 multiple spaces before operator
+./features/importer/viewer.py:484:19: E221 multiple spaces before operator
+./features/importer/viewer.py:485:23: E221 multiple spaces before operator
+./features/importer/viewer.py:486:19: E221 multiple spaces before operator
+./features/importer/viewer.py:492:21: E221 multiple spaces before operator
+./features/importer/viewer.py:501:24: E221 multiple spaces before operator
+./features/importer/viewer.py:502:21: E221 multiple spaces before operator
+./features/importer/viewer.py:566:80: E501 line too long (82 > 79 characters)
+./features/importer/viewer.py:569:80: E501 line too long (83 > 79 characters)
+./features/importer/viewer.py:590:80: E501 line too long (108 > 79 characters)
+./features/importer/viewer.py:604:80: E501 line too long (93 > 79 characters)
+./features/importer/viewer.py:619:80: E501 line too long (83 > 79 characters)
+./features/importer/viewer.py:622:21: E221 multiple spaces before operator
+./features/importer/viewer.py:663:80: E501 line too long (82 > 79 characters)
+./features/importer/viewer.py:674:80: E501 line too long (80 > 79 characters)
+./features/importer/viewer.py:676:18: E221 multiple spaces before operator
+./features/importer/viewer.py:692:36: E702 multiple statements on one line (semicolon)
+./features/importer/viewer.py:701:36: E702 multiple statements on one line (semicolon)
+./features/importer/viewer.py:708:80: E501 line too long (92 > 79 characters)
+./features/importer/viewer.py:727:10: E221 multiple spaces before operator
+./features/importer/viewer.py:728:10: E221 multiple spaces before operator
+./features/importer/viewer.py:729:80: E501 line too long (85 > 79 characters)
+./features/importer/viewer.py:761:19: E221 multiple spaces before operator
+./features/importer/viewer.py:762:23: E221 multiple spaces before operator
+./features/importer/viewer.py:763:24: E221 multiple spaces before operator
+./features/importer/viewer.py:816:24: E221 multiple spaces before operator
+./features/importer/viewer.py:817:21: E221 multiple spaces before operator
+./features/importer/viewer.py:831:80: E501 line too long (88 > 79 characters)
+./features/importer/viewer.py:840:80: E501 line too long (82 > 79 characters)
+./features/importer/viewer.py:850:19: E221 multiple spaces before operator
+./features/importer/viewer.py:851:23: E221 multiple spaces before operator
+./features/importer/viewer.py:853:23: E221 multiple spaces before operator
+./features/importer/viewer.py:866:80: E501 line too long (87 > 79 characters)
+./features/importer/viewer.py:887:80: E501 line too long (91 > 79 characters)
+./features/importer/viewer.py:904:39: E221 multiple spaces before operator
+./features/importer/viewer.py:911:23: E221 multiple spaces before operator
+./features/importer/viewer.py:977:47: E221 multiple spaces before operator
+./features/importer/viewer.py:979:11: E221 multiple spaces before operator
+./features/importer/viewer.py:980:11: E221 multiple spaces before operator
+./features/importer/viewer.py:990:35: E221 multiple spaces before operator
+./features/importer/viewer.py:991:32: E221 multiple spaces before operator
+./features/importer/workers.py:25:80: E501 line too long (83 > 79 characters)
+./features/importer/workers.py:37:1: E302 expected 2 blank lines, found 1
+./features/importer/workers.py:39:13: E221 multiple spaces before operator
+./features/importer/workers.py:41:80: E501 line too long (98 > 79 characters)
+./features/importer/workers.py:43:20: E221 multiple spaces before operator
+./features/importer/workers.py:45:19: E221 multiple spaces before operator
+./features/importer/workers.py:61:80: E501 line too long (82 > 79 characters)
+./features/importer/workers.py:68:80: E501 line too long (87 > 79 characters)
+./features/importer/workers.py:85:80: E501 line too long (88 > 79 characters)
+./features/importer/workers.py:86:80: E501 line too long (81 > 79 characters)
+./features/importer/workers.py:90:80: E501 line too long (83 > 79 characters)
+./features/importer/workers.py:96:80: E501 line too long (95 > 79 characters)
+./features/importer/workers.py:109:19: E221 multiple spaces before operator
+./features/importer/workers.py:115:15: E221 multiple spaces before operator
+./features/importer/workers.py:115:80: E501 line too long (90 > 79 characters)
+./features/importer/workers.py:116:19: E127 continuation line over-indented for visual indent
+./features/importer/workers.py:127:19: E221 multiple spaces before operator
+./features/importer/workers.py:151:19: E221 multiple spaces before operator
+./features/importer/workers.py:160:80: E501 line too long (87 > 79 characters)
+./features/knowledge/dock.py:11:1: F401 'os' imported but unused
+./features/knowledge/dock.py:28:80: E501 line too long (81 > 79 characters)
+./features/knowledge/dock.py:95:80: E501 line too long (86 > 79 characters)
+./features/knowledge/dock.py:99:16: E221 multiple spaces before operator
+./features/knowledge/dock.py:139:80: E501 line too long (81 > 79 characters)
+./features/knowledge/dock.py:147:80: E501 line too long (81 > 79 characters)
+./features/knowledge/dock.py:215:80: E501 line too long (81 > 79 characters)
+./features/knowledge/dock.py:218:80: E501 line too long (83 > 79 characters)
+./features/knowledge/dock.py:240:80: E501 line too long (83 > 79 characters)
+./features/knowledge/dock.py:243:80: E501 line too long (84 > 79 characters)
+./features/knowledge/dock.py:264:80: E501 line too long (81 > 79 characters)
+./features/knowledge/dock.py:288:80: E501 line too long (91 > 79 characters)
+./features/knowledge/dock.py:307:80: E501 line too long (82 > 79 characters)
+./features/knowledge/dock.py:308:80: E501 line too long (85 > 79 characters)
+./features/knowledge/dock.py:317:80: E501 line too long (81 > 79 characters)
+./features/knowledge/dock.py:346:21: E221 multiple spaces before operator
+./features/knowledge/dock.py:365:80: E501 line too long (80 > 79 characters)
+./features/knowledge/dock.py:368:80: E501 line too long (83 > 79 characters)
+./features/knowledge/dock.py:407:80: E501 line too long (80 > 79 characters)
+./features/knowledge/dock.py:416:80: E501 line too long (80 > 79 characters)
+./features/knowledge/dock.py:426:80: E501 line too long (80 > 79 characters)
+./features/knowledge/dock.py:450:80: E501 line too long (84 > 79 characters)
+./features/knowledge/dock.py:499:80: E501 line too long (93 > 79 characters)
+./features/knowledge/dock.py:500:80: E501 line too long (80 > 79 characters)
+./features/knowledge/dock.py:503:80: E501 line too long (84 > 79 characters)
+./features/knowledge/dock.py:505:80: E501 line too long (101 > 79 characters)
+./features/knowledge/dock.py:507:80: E501 line too long (90 > 79 characters)
+./features/knowledge/dock.py:514:80: E501 line too long (96 > 79 characters)
+./features/knowledge/dock.py:530:80: E501 line too long (84 > 79 characters)
+./features/knowledge/dock.py:555:80: E501 line too long (86 > 79 characters)
+./features/knowledge/dock.py:563:80: E501 line too long (90 > 79 characters)
+./features/knowledge/dock.py:577:80: E501 line too long (93 > 79 characters)
+./features/knowledge/dock.py:585:80: E501 line too long (82 > 79 characters)
+./features/knowledge/dock.py:586:80: E501 line too long (93 > 79 characters)
+./features/knowledge/dock.py:593:80: E501 line too long (82 > 79 characters)
+./features/knowledge/dock.py:627:80: E501 line too long (80 > 79 characters)
+./features/knowledge/dock.py:635:80: E501 line too long (89 > 79 characters)
+./features/knowledge/dock.py:679:80: E501 line too long (81 > 79 characters)
+./features/knowledge/dock.py:705:80: E501 line too long (83 > 79 characters)
+./features/knowledge/dock.py:706:23: E221 multiple spaces before operator
+./features/knowledge/dock.py:736:24: E221 multiple spaces before operator
+./features/knowledge/dock.py:737:23: E221 multiple spaces before operator
+./features/knowledge/dock.py:738:21: E221 multiple spaces before operator
+./features/knowledge/dock.py:767:80: E501 line too long (84 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:10:1: F401 'PySide6.QtWidgets.QHBoxLayout' imported but unused
+./features/knowledge/rag_settings_dialog.py:16:1: F401 'PySide6.QtCore.Qt' imported but unused
+./features/knowledge/rag_settings_dialog.py:57:80: E501 line too long (100 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:72:80: E501 line too long (88 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:81:80: E501 line too long (80 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:92:80: E501 line too long (80 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:115:80: E501 line too long (87 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:122:80: E501 line too long (94 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:128:80: E501 line too long (80 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:158:80: E501 line too long (89 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:164:80: E501 line too long (80 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:184:80: E501 line too long (84 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:198:80: E501 line too long (81 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:203:80: E501 line too long (84 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:229:80: E501 line too long (81 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:235:80: E501 line too long (80 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:260:80: E501 line too long (82 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:270:80: E501 line too long (89 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:272:80: E501 line too long (90 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:278:80: E501 line too long (89 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:280:80: E501 line too long (94 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:283:80: E501 line too long (91 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:290:80: E501 line too long (81 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:295:80: E501 line too long (88 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:306:80: E501 line too long (90 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:315:80: E501 line too long (81 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:324:80: E501 line too long (83 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:328:80: E501 line too long (81 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:333:80: E501 line too long (83 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:334:80: E501 line too long (84 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:335:80: E501 line too long (80 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:342:80: E501 line too long (81 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:377:80: E501 line too long (80 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:420:80: E501 line too long (86 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:434:80: E501 line too long (100 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:441:80: E501 line too long (101 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:455:80: E501 line too long (82 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:458:80: E501 line too long (87 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:459:80: E501 line too long (84 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:460:80: E501 line too long (92 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:462:80: E501 line too long (86 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:463:80: E501 line too long (90 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:464:80: E501 line too long (89 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:465:80: E501 line too long (89 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:468:80: E501 line too long (81 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:469:80: E501 line too long (80 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:471:80: E501 line too long (88 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:473:80: E501 line too long (83 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:474:80: E501 line too long (92 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:475:80: E501 line too long (91 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:476:80: E501 line too long (96 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:480:80: E501 line too long (80 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:484:80: E501 line too long (80 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:489:22: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:489:22: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:489:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:490:19: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:490:19: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:490:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:491:26: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:491:26: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:491:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:492:39: E131 continuation line unaligned for hanging indent
+./features/knowledge/rag_settings_dialog.py:492:80: E501 line too long (81 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:493:25: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:493:25: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:493:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:495:21: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:495:21: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:495:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:496:27: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:496:27: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:496:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:497:28: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:497:28: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:497:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:498:25: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:498:25: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:498:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:499:31: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:499:31: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:499:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:500:33: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:500:33: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:500:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:502:23: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:502:23: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:502:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:503:26: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:503:26: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:503:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:504:30: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:504:30: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:504:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:505:29: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:505:29: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:505:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:506:29: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:506:29: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:506:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:508:29: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:508:29: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:508:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:509:36: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:509:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:510:35: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:510:35: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:510:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:512:27: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:512:27: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:512:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:513:18: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:513:18: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:513:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:514:28: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:514:28: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:514:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:515:31: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:515:31: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:515:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:516:33: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:516:33: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:516:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:517:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:517:40: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:517:80: E501 line too long (80 > 79 characters)
+./features/knowledge/rag_settings_dialog.py:518:29: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:518:29: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:518:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:519:30: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:519:30: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:519:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:520:34: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:520:34: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:520:38: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:521:34: E251 unexpected spaces around keyword / parameter equals
+./features/knowledge/rag_settings_dialog.py:521:34: E221 multiple spaces before operator
+./features/knowledge/rag_settings_dialog.py:521:38: E251 unexpected spaces around keyword / parameter equals
+./main.py:2:80: E501 line too long (97 > 79 characters)
+./main.py:12:1: E402 module level import not at top of file
+./main.py:13:1: F401 'PySide6.QtCore.Qt' imported but unused
+./main.py:13:1: E402 module level import not at top of file
+./main.py:15:1: E402 module level import not at top of file
+./main.py:16:1: E402 module level import not at top of file
+./scripts/rag_eval.py:9:80: E501 line too long (82 > 79 characters)
+./scripts/rag_eval.py:25:1: F401 'itertools' imported but unused
+./scripts/rag_eval.py:44:1: E402 module level import not at top of file
+./scripts/rag_eval.py:45:1: E402 module level import not at top of file
+./scripts/rag_eval.py:72:80: E501 line too long (88 > 79 characters)
+./scripts/rag_eval.py:81:80: E501 line too long (88 > 79 characters)
+./scripts/rag_eval.py:149:80: E501 line too long (91 > 79 characters)
+./scripts/rag_eval.py:155:80: E501 line too long (100 > 79 characters)
+./scripts/rag_eval.py:161:80: E501 line too long (80 > 79 characters)
+./scripts/rag_eval.py:169:80: E501 line too long (85 > 79 characters)
+./scripts/rag_eval.py:201:80: E501 line too long (82 > 79 characters)
+./scripts/rag_eval.py:215:80: E501 line too long (83 > 79 characters)
+./scripts/rag_eval.py:253:80: E501 line too long (86 > 79 characters)
+./scripts/rag_eval.py:262:80: E501 line too long (89 > 79 characters)
+./scripts/rag_eval.py:287:80: E501 line too long (102 > 79 characters)
+./scripts/rag_eval.py:304:80: E501 line too long (107 > 79 characters)
+./scripts/rag_eval.py:325:80: E501 line too long (92 > 79 characters)
+./scripts/rag_eval.py:331:80: E501 line too long (94 > 79 characters)
+./scripts/rag_eval.py:357:80: E501 line too long (89 > 79 characters)
+./scripts/rag_eval.py:416:80: E501 line too long (84 > 79 characters)
+./scripts/rag_eval.py:429:80: E501 line too long (96 > 79 characters)
+./scripts/rag_eval.py:465:80: E501 line too long (91 > 79 characters)
+./scripts/rag_eval.py:475:80: E501 line too long (98 > 79 characters)
+./scripts/rag_eval.py:476:80: E501 line too long (110 > 79 characters)
+./scripts/rag_eval.py:482:80: E501 line too long (98 > 79 characters)
+./scripts/rag_eval.py:483:80: E501 line too long (95 > 79 characters)
+./scripts/rag_eval.py:485:80: E501 line too long (89 > 79 characters)
+./scripts/rag_eval.py:486:80: E501 line too long (105 > 79 characters)
+./scripts/rag_eval.py:513:80: E501 line too long (118 > 79 characters)
+./scripts/rag_eval.py:547:80: E501 line too long (86 > 79 characters)
+./scripts/rag_eval.py:550:80: E501 line too long (81 > 79 characters)
+./scripts/rag_eval.py:561:80: E501 line too long (81 > 79 characters)
+./scripts/rag_eval.py:562:80: E501 line too long (83 > 79 characters)
+./scripts/rag_eval.py:602:80: E501 line too long (84 > 79 characters)
+./scripts/rag_eval.py:605:80: E501 line too long (90 > 79 characters)
+./scripts/rag_eval.py:612:80: E501 line too long (83 > 79 characters)
+./scripts/rag_eval.py:614:80: E501 line too long (97 > 79 characters)
+./scripts/rag_eval.py:619:80: E501 line too long (96 > 79 characters)
+./scripts/rag_eval.py:630:80: E501 line too long (84 > 79 characters)
+./scripts/rag_eval.py:634:80: E501 line too long (97 > 79 characters)
+./scripts/rag_sweep.py:23:1: F401 'os' imported but unused
+./scripts/rag_sweep.py:36:1: E402 module level import not at top of file
+./scripts/rag_sweep.py:42:80: E501 line too long (90 > 79 characters)
+./scripts/rag_sweep.py:51:80: E501 line too long (96 > 79 characters)
+./scripts/rag_sweep.py:73:80: E501 line too long (87 > 79 characters)
+./scripts/rag_sweep.py:87:80: E501 line too long (88 > 79 characters)
+./scripts/rag_sweep.py:94:80: E501 line too long (85 > 79 characters)
+./scripts/rag_sweep.py:105:80: E501 line too long (82 > 79 characters)
+./scripts/rag_sweep.py:110:36: E203 whitespace before ':'
+./scripts/rag_sweep.py:150:80: E501 line too long (101 > 79 characters)
+./scripts/rag_sweep.py:151:80: E501 line too long (95 > 79 characters)
+./scripts/rag_sweep.py:180:80: E501 line too long (89 > 79 characters)
+./scripts/rag_sweep.py:190:80: E501 line too long (104 > 79 characters)
+./scripts/rag_sweep.py:202:80: E501 line too long (86 > 79 characters)
+./scripts/rag_sweep.py:204:80: E501 line too long (85 > 79 characters)
+./scripts/rag_sweep.py:262:80: E501 line too long (81 > 79 characters)
+./scripts/rag_sweep.py:263:80: E501 line too long (81 > 79 characters)
+./scripts/rag_sweep.py:268:80: E501 line too long (94 > 79 characters)
+./scripts/rag_sweep.py:269:80: E501 line too long (96 > 79 characters)
+./scripts/rag_sweep.py:270:80: E501 line too long (96 > 79 characters)
+./scripts/rag_sweep.py:271:80: E501 line too long (92 > 79 characters)
+./scripts/rag_sweep.py:272:80: E501 line too long (92 > 79 characters)
+./scripts/rag_sweep.py:273:80: E501 line too long (94 > 79 characters)
+./scripts/rag_sweep.py:274:80: E501 line too long (102 > 79 characters)
+./scripts/rag_sweep.py:277:80: E501 line too long (109 > 79 characters)
+./scripts/rag_sweep.py:293:80: E501 line too long (87 > 79 characters)
+./scripts/rag_sweep.py:299:80: E501 line too long (88 > 79 characters)
+./scripts/rag_sweep.py:340:80: E501 line too long (104 > 79 characters)
+./scripts/rag_sweep.py:348:80: E501 line too long (85 > 79 characters)
+./scripts/rag_sweep.py:349:80: E501 line too long (96 > 79 characters)
+./scripts/rag_sweep.py:350:80: E501 line too long (94 > 79 characters)
+./scripts/rag_sweep.py:351:80: E501 line too long (102 > 79 characters)
+./scripts/rag_sweep.py:352:80: E501 line too long (101 > 79 characters)
+./scripts/rag_sweep.py:353:80: E501 line too long (87 > 79 characters)
+./scripts/rag_sweep.py:355:80: E501 line too long (105 > 79 characters)
+./scripts/rag_sweep.py:356:80: E501 line too long (85 > 79 characters)
+./scripts/rag_sweep.py:357:80: E501 line too long (90 > 79 characters)
+./scripts/rag_sweep.py:358:80: E501 line too long (84 > 79 characters)
+./scripts/rag_sweep.py:360:80: E501 line too long (96 > 79 characters)
+./services/llm/manager.py:32:1: E302 expected 2 blank lines, found 1
+./services/llm/manager.py:44:80: E501 line too long (80 > 79 characters)
+./services/llm/manager.py:54:80: E501 line too long (80 > 79 characters)
+./services/llm/manager.py:57:19: E221 multiple spaces before operator
+./services/llm/manager.py:59:19: E221 multiple spaces before operator
+./services/llm/manager.py:60:17: E221 multiple spaces before operator
+./services/llm/manager.py:65:24: E221 multiple spaces before operator
+./services/llm/manager.py:75:80: E501 line too long (80 > 79 characters)
+./services/llm/manager.py:77:80: E501 line too long (80 > 79 characters)
+./services/llm/manager.py:86:19: E221 multiple spaces before operator
+./services/llm/manager.py:100:24: E221 multiple spaces before operator
+./services/llm/manager.py:102:21: E221 multiple spaces before operator
+./services/llm/manager.py:109:19: E221 multiple spaces before operator
+./services/llm/manager.py:110:21: E221 multiple spaces before operator
+./services/llm/manager.py:127:80: E501 line too long (80 > 79 characters)
+./services/llm/manager.py:138:80: E501 line too long (81 > 79 characters)
+./services/llm/manager.py:141:80: E501 line too long (83 > 79 characters)
+./services/llm/manager.py:145:80: E501 line too long (85 > 79 characters)
+./services/llm/manager.py:152:80: E501 line too long (81 > 79 characters)
+./services/llm/manager.py:212:16: E221 multiple spaces before operator
+./services/llm/manager.py:254:80: E501 line too long (80 > 79 characters)
+./services/llm/manager.py:276:19: E221 multiple spaces before operator
+./services/llm/manager.py:278:19: E221 multiple spaces before operator
+./services/llm/manager.py:279:17: E221 multiple spaces before operator
+./services/llm/manager.py:280:18: E221 multiple spaces before operator
+./services/llm/manager.py:328:18: E221 multiple spaces before operator
+./services/llm/manager.py:329:20: E221 multiple spaces before operator
+./services/llm/manager.py:344:80: E501 line too long (80 > 79 characters)
+./services/llm/manager.py:355:20: E221 multiple spaces before operator
+./services/llm/manager.py:359:80: E501 line too long (84 > 79 characters)
+./services/llm/manager.py:361:80: E501 line too long (97 > 79 characters)
+./services/llm/manager.py:380:80: E501 line too long (102 > 79 characters)
+./services/llm/manager.py:386:80: E501 line too long (81 > 79 characters)
+./services/llm/manager.py:423:80: E501 line too long (85 > 79 characters)
+./services/llm/manager.py:424:80: E501 line too long (84 > 79 characters)
+./services/llm/manager.py:435:80: E501 line too long (87 > 79 characters)
+./services/llm/manager.py:445:80: E501 line too long (82 > 79 characters)
+./services/llm/manager.py:467:80: E501 line too long (88 > 79 characters)
+./services/llm/manager.py:482:19: E221 multiple spaces before operator
+./services/llm/manager.py:491:80: E501 line too long (85 > 79 characters)
+./services/llm/manager.py:494:80: E501 line too long (85 > 79 characters)
+./services/llm/manager.py:502:80: E501 line too long (83 > 79 characters)
+./services/llm/manager.py:515:80: E501 line too long (84 > 79 characters)
+./services/llm/manager.py:532:23: E221 multiple spaces before operator
+./services/llm/manager.py:561:23: E221 multiple spaces before operator
+./services/llm/manager.py:570:21: E221 multiple spaces before operator
+./services/llm/manager.py:583:80: E501 line too long (92 > 79 characters)
+./services/llm/manager.py:600:80: E501 line too long (92 > 79 characters)
+./services/llm/manager.py:663:80: E501 line too long (81 > 79 characters)
+./services/llm/manager.py:704:80: E501 line too long (85 > 79 characters)
+./services/llm/manager.py:728:80: E501 line too long (84 > 79 characters)
+./services/llm/manager.py:731:80: E501 line too long (84 > 79 characters)
+./services/llm/manager.py:732:80: E501 line too long (89 > 79 characters)
+./services/llm/manager.py:800:80: E501 line too long (87 > 79 characters)
+./services/llm/manager.py:804:80: E501 line too long (86 > 79 characters)
+./services/llm/manager.py:806:80: E501 line too long (105 > 79 characters)
+./services/llm/manager.py:815:80: E501 line too long (102 > 79 characters)
+./services/llm/manager.py:865:80: E501 line too long (93 > 79 characters)
+./services/llm/manager.py:876:80: E501 line too long (97 > 79 characters)
+./services/llm/manager.py:878:80: E501 line too long (109 > 79 characters)
+./services/llm/manager.py:889:80: E501 line too long (86 > 79 characters)
+./services/llm/manager.py:920:80: E501 line too long (80 > 79 characters)
+./services/llm/manager.py:929:24: E221 multiple spaces before operator
+./services/llm/manager.py:930:27: E221 multiple spaces before operator
+./services/llm/manager.py:931:21: E221 multiple spaces before operator
+./services/llm/manager.py:942:80: E501 line too long (84 > 79 characters)
+./services/llm/manager.py:950:80: E501 line too long (92 > 79 characters)
+./services/llm/manager.py:978:80: E501 line too long (80 > 79 characters)
+./services/llm/manager.py:982:24: E221 multiple spaces before operator
+./services/llm/manager.py:988:80: E501 line too long (91 > 79 characters)
+./services/llm/manager.py:993:23: E251 unexpected spaces around keyword / parameter equals
+./services/llm/manager.py:993:23: E221 multiple spaces before operator
+./services/llm/manager.py:993:28: E251 unexpected spaces around keyword / parameter equals
+./services/llm/manager.py:994:24: E251 unexpected spaces around keyword / parameter equals
+./services/llm/manager.py:994:24: E221 multiple spaces before operator
+./services/llm/manager.py:994:28: E251 unexpected spaces around keyword / parameter equals
+./services/llm/manager.py:995:18: E251 unexpected spaces around keyword / parameter equals
+./services/llm/manager.py:995:18: E221 multiple spaces before operator
+./services/llm/manager.py:995:28: E251 unexpected spaces around keyword / parameter equals
+./services/llm/manager.py:996:27: E251 unexpected spaces around keyword / parameter equals
+./services/llm/manager.py:996:29: E251 unexpected spaces around keyword / parameter equals
+./services/llm/manager.py:997:28: E251 unexpected spaces around keyword / parameter equals
+./services/llm/manager.py:997:30: E251 unexpected spaces around keyword / parameter equals
+./services/llm/manager.py:1011:80: E501 line too long (80 > 79 characters)
+./services/llm/manager.py:1053:80: E501 line too long (83 > 79 characters)
+./services/llm/manager.py:1125:80: E501 line too long (81 > 79 characters)
+./services/llm/manager.py:1152:80: E501 line too long (83 > 79 characters)
+./services/llm/manager.py:1153:14: E221 multiple spaces before operator
+./services/llm/manager.py:1185:80: E501 line too long (80 > 79 characters)
+./services/llm/manager.py:1188:80: E501 line too long (85 > 79 characters)
+./services/llm/manager.py:1224:80: E501 line too long (81 > 79 characters)
+./services/llm/manager.py:1228:80: E501 line too long (82 > 79 characters)
+./services/llm/manager.py:1230:80: E501 line too long (86 > 79 characters)
+./services/llm/manager.py:1232:80: E501 line too long (100 > 79 characters)
+./services/llm/manager.py:1242:80: E501 line too long (80 > 79 characters)
+./services/llm/manager.py:1287:80: E501 line too long (81 > 79 characters)
+./services/llm/manager.py:1309:80: E501 line too long (87 > 79 characters)
+./services/project/manager.py:4:80: E501 line too long (85 > 79 characters)
+./services/project/manager.py:42:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:48:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:65:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:83:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:98:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:103:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:114:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:119:80: E501 line too long (83 > 79 characters)
+./services/project/manager.py:122:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:127:80: E501 line too long (83 > 79 characters)
+./services/project/manager.py:130:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:147:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:166:80: E501 line too long (86 > 79 characters)
+./services/project/manager.py:169:21: E221 multiple spaces before operator
+./services/project/manager.py:187:80: E501 line too long (85 > 79 characters)
+./services/project/manager.py:188:80: E501 line too long (84 > 79 characters)
+./services/project/manager.py:214:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:244:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:251:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:253:80: E501 line too long (81 > 79 characters)
+./services/project/manager.py:260:29: E221 multiple spaces before operator
+./services/project/manager.py:261:26: E221 multiple spaces before operator
+./services/project/manager.py:269:80: E501 line too long (81 > 79 characters)
+./services/project/manager.py:275:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:289:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:302:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:330:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:344:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:362:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:390:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:408:80: E501 line too long (84 > 79 characters)
+./services/project/manager.py:410:80: E501 line too long (85 > 79 characters)
+./services/project/manager.py:412:80: E501 line too long (94 > 79 characters)
+./services/project/manager.py:413:80: E501 line too long (88 > 79 characters)
+./services/project/manager.py:423:80: E501 line too long (80 > 79 characters)
+./services/project/manager.py:442:80: E501 line too long (84 > 79 characters)
+./services/rag/system.py:9:80: E501 line too long (81 > 79 characters)
+./services/rag/system.py:20:80: E501 line too long (83 > 79 characters)
+./services/rag/system.py:31:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:61:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:65:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:69:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:71:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:72:80: E501 line too long (91 > 79 characters)
+./services/rag/system.py:74:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:75:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:78:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:86:80: E501 line too long (81 > 79 characters)
+./services/rag/system.py:91:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:96:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:102:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:107:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:110:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:114:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:117:80: E501 line too long (85 > 79 characters)
+./services/rag/system.py:135:9: E221 multiple spaces before operator
+./services/rag/system.py:137:8: E221 multiple spaces before operator
+./services/rag/system.py:148:80: E501 line too long (85 > 79 characters)
+./services/rag/system.py:153:9: E221 multiple spaces before operator
+./services/rag/system.py:155:8: E221 multiple spaces before operator
+./services/rag/system.py:164:80: E501 line too long (85 > 79 characters)
+./services/rag/system.py:167:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:173:36: E221 multiple spaces before operator
+./services/rag/system.py:174:49: E221 multiple spaces before operator
+./services/rag/system.py:175:38: E221 multiple spaces before operator
+./services/rag/system.py:218:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:232:80: E501 line too long (82 > 79 characters)
+./services/rag/system.py:254:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:269:18: E221 multiple spaces before operator
+./services/rag/system.py:281:20: E221 multiple spaces before operator
+./services/rag/system.py:282:18: E221 multiple spaces before operator
+./services/rag/system.py:284:20: E221 multiple spaces before operator
+./services/rag/system.py:285:38: E221 multiple spaces before operator
+./services/rag/system.py:287:44: E221 multiple spaces before operator
+./services/rag/system.py:289:44: E221 multiple spaces before operator
+./services/rag/system.py:290:44: E221 multiple spaces before operator
+./services/rag/system.py:295:44: E221 multiple spaces before operator
+./services/rag/system.py:299:33: E221 multiple spaces before operator
+./services/rag/system.py:300:44: E221 multiple spaces before operator
+./services/rag/system.py:312:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:327:80: E501 line too long (81 > 79 characters)
+./services/rag/system.py:330:80: E501 line too long (81 > 79 characters)
+./services/rag/system.py:334:80: E501 line too long (88 > 79 characters)
+./services/rag/system.py:379:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:393:25: E221 multiple spaces before operator
+./services/rag/system.py:415:41: E221 multiple spaces before operator
+./services/rag/system.py:416:41: E221 multiple spaces before operator
+./services/rag/system.py:429:19: E221 multiple spaces before operator
+./services/rag/system.py:498:30: E221 multiple spaces before operator
+./services/rag/system.py:499:31: E221 multiple spaces before operator
+./services/rag/system.py:500:29: E221 multiple spaces before operator
+./services/rag/system.py:501:26: E221 multiple spaces before operator
+./services/rag/system.py:503:31: E221 multiple spaces before operator
+./services/rag/system.py:504:31: E221 multiple spaces before operator
+./services/rag/system.py:507:29: E221 multiple spaces before operator
+./services/rag/system.py:509:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:524:11: E221 multiple spaces before operator
+./services/rag/system.py:525:12: E221 multiple spaces before operator
+./services/rag/system.py:527:16: E221 multiple spaces before operator
+./services/rag/system.py:578:80: E501 line too long (85 > 79 characters)
+./services/rag/system.py:593:19: E221 multiple spaces before operator
+./services/rag/system.py:594:80: E501 line too long (81 > 79 characters)
+./services/rag/system.py:640:80: E501 line too long (102 > 79 characters)
+./services/rag/system.py:647:80: E501 line too long (88 > 79 characters)
+./services/rag/system.py:651:80: E501 line too long (92 > 79 characters)
+./services/rag/system.py:652:80: E501 line too long (83 > 79 characters)
+./services/rag/system.py:655:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:656:80: E501 line too long (84 > 79 characters)
+./services/rag/system.py:663:80: E501 line too long (81 > 79 characters)
+./services/rag/system.py:665:80: E501 line too long (87 > 79 characters)
+./services/rag/system.py:671:80: E501 line too long (90 > 79 characters)
+./services/rag/system.py:697:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:733:80: E501 line too long (93 > 79 characters)
+./services/rag/system.py:735:80: E501 line too long (94 > 79 characters)
+./services/rag/system.py:737:80: E501 line too long (97 > 79 characters)
+./services/rag/system.py:739:80: E501 line too long (89 > 79 characters)
+./services/rag/system.py:741:80: E501 line too long (96 > 79 characters)
+./services/rag/system.py:779:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:793:80: E501 line too long (94 > 79 characters)
+./services/rag/system.py:820:80: E501 line too long (87 > 79 characters)
+./services/rag/system.py:827:80: E501 line too long (82 > 79 characters)
+./services/rag/system.py:828:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:842:80: E501 line too long (81 > 79 characters)
+./services/rag/system.py:844:80: E501 line too long (88 > 79 characters)
+./services/rag/system.py:873:80: E501 line too long (82 > 79 characters)
+./services/rag/system.py:884:80: E501 line too long (85 > 79 characters)
+./services/rag/system.py:926:80: E501 line too long (82 > 79 characters)
+./services/rag/system.py:927:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:941:15: E221 multiple spaces before operator
+./services/rag/system.py:952:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:969:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:1001:80: E501 line too long (92 > 79 characters)
+./services/rag/system.py:1002:12: E221 multiple spaces before operator
+./services/rag/system.py:1012:20: E221 multiple spaces before operator
+./services/rag/system.py:1028:21: E221 multiple spaces before operator
+./services/rag/system.py:1031:25: E221 multiple spaces before operator
+./services/rag/system.py:1041:80: E501 line too long (88 > 79 characters)
+./services/rag/system.py:1044:29: E221 multiple spaces before operator
+./services/rag/system.py:1045:22: E221 multiple spaces before operator
+./services/rag/system.py:1052:28: E221 multiple spaces before operator
+./services/rag/system.py:1055:28: E221 multiple spaces before operator
+./services/rag/system.py:1070:80: E501 line too long (87 > 79 characters)
+./services/rag/system.py:1104:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:1107:80: E501 line too long (86 > 79 characters)
+./services/rag/system.py:1118:13: E221 multiple spaces before operator
+./services/rag/system.py:1136:80: E501 line too long (96 > 79 characters)
+./services/rag/system.py:1149:80: E501 line too long (82 > 79 characters)
+./services/rag/system.py:1159:80: E501 line too long (88 > 79 characters)
+./services/rag/system.py:1162:80: E501 line too long (81 > 79 characters)
+./services/rag/system.py:1172:18: E221 multiple spaces before operator
+./services/rag/system.py:1175:17: E221 multiple spaces before operator
+./services/rag/system.py:1177:19: E221 multiple spaces before operator
+./services/rag/system.py:1184:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:1198:80: E501 line too long (89 > 79 characters)
+./services/rag/system.py:1201:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:1208:13: E221 multiple spaces before operator
+./services/rag/system.py:1224:13: E221 multiple spaces before operator
+./services/rag/system.py:1237:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:1247:80: E501 line too long (83 > 79 characters)
+./services/rag/system.py:1276:80: E501 line too long (90 > 79 characters)
+./services/rag/system.py:1287:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:1297:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:1309:80: E501 line too long (89 > 79 characters)
+./services/rag/system.py:1314:80: E501 line too long (85 > 79 characters)
+./services/rag/system.py:1333:80: E501 line too long (90 > 79 characters)
+./services/rag/system.py:1418:80: E501 line too long (82 > 79 characters)
+./services/rag/system.py:1424:19: E221 multiple spaces before operator
+./services/rag/system.py:1424:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:1440:10: E221 multiple spaces before operator
+./services/rag/system.py:1440:80: E501 line too long (82 > 79 characters)
+./services/rag/system.py:1460:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:1502:12: E221 multiple spaces before operator
+./services/rag/system.py:1504:13: E221 multiple spaces before operator
+./services/rag/system.py:1513:12: E221 multiple spaces before operator
+./services/rag/system.py:1521:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:1524:80: E501 line too long (85 > 79 characters)
+./services/rag/system.py:1525:12: E221 multiple spaces before operator
+./services/rag/system.py:1535:20: E221 multiple spaces before operator
+./services/rag/system.py:1546:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:1561:41: E741 ambiguous variable name 'l'
+./services/rag/system.py:1591:9: E221 multiple spaces before operator
+./services/rag/system.py:1595:19: E221 multiple spaces before operator
+./services/rag/system.py:1596:12: E221 multiple spaces before operator
+./services/rag/system.py:1622:80: E501 line too long (83 > 79 characters)
+./services/rag/system.py:1623:13: E221 multiple spaces before operator
+./services/rag/system.py:1627:17: E221 multiple spaces before operator
+./services/rag/system.py:1633:15: E221 multiple spaces before operator
+./services/rag/system.py:1652:29: E221 multiple spaces before operator
+./services/rag/system.py:1655:20: E221 multiple spaces before operator
+./services/rag/system.py:1687:80: E501 line too long (83 > 79 characters)
+./services/rag/system.py:1688:9: E221 multiple spaces before operator
+./services/rag/system.py:1693:80: E501 line too long (80 > 79 characters)
+./services/rag/system.py:1711:19: E221 multiple spaces before operator
+./services/rag/system.py:1712:14: E221 multiple spaces before operator
+./services/rag/system.py:1713:19: E221 multiple spaces before operator
+./services/rag/system.py:1717:18: E221 multiple spaces before operator
+./services/rag/system.py:1766:80: E501 line too long (81 > 79 characters)
+./services/rag/system.py:1785:80: E501 line too long (80 > 79 characters)
+./shell/logging.py:41:80: E501 line too long (80 > 79 characters)
+./shell/logging.py:58:12: E221 multiple spaces before operator
+./shell/logging.py:64:80: E501 line too long (80 > 79 characters)
+./shell/logging.py:80:80: E501 line too long (80 > 79 characters)
+./shell/logging.py:87:80: E501 line too long (80 > 79 characters)
+./shell/logging.py:103:24: E221 multiple spaces before operator
+./shell/logging.py:112:80: E501 line too long (80 > 79 characters)
+./shell/logging.py:117:11: E221 multiple spaces before operator
+./shell/logging.py:135:80: E501 line too long (80 > 79 characters)
+./shell/logging.py:177:80: E501 line too long (84 > 79 characters)
+./shell/logging.py:184:21: E221 multiple spaces before operator
+./shell/logging.py:185:24: E221 multiple spaces before operator
+./shell/logging.py:187:25: E221 multiple spaces before operator
+./shell/logging.py:198:80: E501 line too long (80 > 79 characters)
+./shell/logging.py:246:17: E221 multiple spaces before operator
+./shell/logging.py:281:80: E501 line too long (80 > 79 characters)
+./shell/logging.py:284:80: E501 line too long (88 > 79 characters)
+./shell/logging.py:294:25: E221 multiple spaces before operator
+./shell/logging.py:315:80: E501 line too long (80 > 79 characters)
+./shell/logging.py:316:80: E501 line too long (91 > 79 characters)
+./shell/logging.py:323:80: E501 line too long (80 > 79 characters)
+./shell/logging.py:327:80: E501 line too long (84 > 79 characters)
+./shell/logging.py:332:18: E221 multiple spaces before operator
+./shell/logging.py:334:17: E221 multiple spaces before operator
+./shell/logging.py:357:14: E221 multiple spaces before operator
+./shell/logging.py:358:80: E501 line too long (86 > 79 characters)
+./shell/window.py:13:1: F401 'os' imported but unused
+./shell/window.py:15:1: F401 'PySide6.QtWidgets.QMenu' imported but unused
+./shell/window.py:43:1: F401 'shell.theme.apply_dark_theme' imported but unused
+./shell/window.py:45:80: E501 line too long (81 > 79 characters)
+./shell/window.py:47:1: E302 expected 2 blank lines, found 1
+./shell/window.py:63:24: E221 multiple spaces before operator
+./shell/window.py:64:24: E221 multiple spaces before operator
+./shell/window.py:83:80: E501 line too long (89 > 79 characters)
+./shell/window.py:97:80: E501 line too long (111 > 79 characters)
+./shell/window.py:120:80: E501 line too long (85 > 79 characters)
+./shell/window.py:124:80: E501 line too long (81 > 79 characters)
+./shell/window.py:128:80: E501 line too long (85 > 79 characters)
+./shell/window.py:133:80: E501 line too long (81 > 79 characters)
+./shell/window.py:156:80: E501 line too long (81 > 79 characters)
+./shell/window.py:161:80: E501 line too long (98 > 79 characters)
+./shell/window.py:162:80: E501 line too long (86 > 79 characters)
+./shell/window.py:163:80: E501 line too long (89 > 79 characters)
+./shell/window.py:168:80: E501 line too long (88 > 79 characters)
+./shell/window.py:169:80: E501 line too long (88 > 79 characters)
+./shell/window.py:171:80: E501 line too long (89 > 79 characters)
+./shell/window.py:174:80: E501 line too long (84 > 79 characters)
+./shell/window.py:199:80: E501 line too long (86 > 79 characters)
+./shell/window.py:205:80: E501 line too long (108 > 79 characters)
+./shell/window.py:206:80: E501 line too long (109 > 79 characters)
+./shell/window.py:207:80: E501 line too long (114 > 79 characters)
+./shell/window.py:209:80: E501 line too long (102 > 79 characters)
+./shell/window.py:210:80: E501 line too long (103 > 79 characters)
+./shell/window.py:211:80: E501 line too long (108 > 79 characters)
+./shell/window.py:217:80: E501 line too long (97 > 79 characters)
+./shell/window.py:218:80: E501 line too long (96 > 79 characters)
+./shell/window.py:220:80: E501 line too long (108 > 79 characters)
+./shell/window.py:222:80: E501 line too long (106 > 79 characters)
+./shell/window.py:223:80: E501 line too long (98 > 79 characters)
+./shell/window.py:227:80: E501 line too long (95 > 79 characters)
+./shell/window.py:228:80: E501 line too long (90 > 79 characters)
+./shell/window.py:252:80: E501 line too long (83 > 79 characters)
+./shell/window.py:268:80: E501 line too long (82 > 79 characters)
+./shell/window.py:269:80: E501 line too long (83 > 79 characters)
+./shell/window.py:271:80: E501 line too long (93 > 79 characters)
+./shell/window.py:283:80: E501 line too long (83 > 79 characters)
+./shell/window.py:298:24: E221 multiple spaces before operator
+./shell/window.py:299:80: E501 line too long (83 > 79 characters)
+./shell/window.py:375:80: E501 line too long (81 > 79 characters)
+./shell/window.py:379:80: E501 line too long (91 > 79 characters)
+./shell/window.py:383:80: E501 line too long (83 > 79 characters)
+./shell/window.py:389:80: E501 line too long (81 > 79 characters)
+./shell/window.py:393:80: E501 line too long (91 > 79 characters)
+./shell/window.py:397:80: E501 line too long (83 > 79 characters)
+./shell/window.py:403:80: E501 line too long (81 > 79 characters)
+./shell/window.py:407:80: E501 line too long (91 > 79 characters)
+./shell/window.py:411:80: E501 line too long (83 > 79 characters)
+./shell/window.py:415:80: E501 line too long (87 > 79 characters)
+./shell/window.py:419:80: E501 line too long (87 > 79 characters)
+./shell/window.py:423:80: E501 line too long (87 > 79 characters)
+./shell/window.py:430:80: E501 line too long (80 > 79 characters)
+./shell/window.py:443:80: E501 line too long (83 > 79 characters)
+./shell/window.py:444:80: E501 line too long (90 > 79 characters)
+./shell/window.py:512:80: E501 line too long (92 > 79 characters)
+./shell/window.py:523:80: E501 line too long (90 > 79 characters)
+./shell/window.py:546:80: E501 line too long (90 > 79 characters)
+./shell/window.py:558:80: E501 line too long (90 > 79 characters)
+./shell/window.py:568:80: E501 line too long (83 > 79 characters)
+./shell/window.py:581:80: E501 line too long (86 > 79 characters)
+./shell/window.py:582:80: E501 line too long (81 > 79 characters)
+./shell/window.py:608:80: E501 line too long (91 > 79 characters)
+./shell/window.py:609:80: E501 line too long (91 > 79 characters)
+./shell/window.py:610:80: E501 line too long (87 > 79 characters)
+./shell/window.py:649:80: E501 line too long (87 > 79 characters)
+./shell/window.py:657:80: E501 line too long (106 > 79 characters)
+./shell/window.py:663:80: E501 line too long (80 > 79 characters)
+./shell/window.py:675:80: E501 line too long (94 > 79 characters)
+./shell/window.py:720:80: E501 line too long (81 > 79 characters)
+./shell/window.py:759:80: E501 line too long (91 > 79 characters)
+./shell/window.py:772:80: E501 line too long (88 > 79 characters)
+./shell/window.py:814:80: E501 line too long (107 > 79 characters)
+./shell/window.py:830:80: E501 line too long (96 > 79 characters)
+./shell/window.py:864:80: E501 line too long (100 > 79 characters)
+./shell/window.py:866:80: E501 line too long (89 > 79 characters)
+./shell/window.py:868:80: E501 line too long (94 > 79 characters)
+./shell/window.py:899:80: E501 line too long (84 > 79 characters)
+./shell/window.py:908:80: E501 line too long (83 > 79 characters)
+./shell/window.py:910:80: E501 line too long (81 > 79 characters)
+./shell/window.py:912:80: E501 line too long (81 > 79 characters)
+./shell/window.py:965:80: E501 line too long (91 > 79 characters)
+./shell/window.py:967:80: E501 line too long (110 > 79 characters)
+./shell/window.py:994:80: E501 line too long (83 > 79 characters)
+./shell/window.py:1008:80: E501 line too long (83 > 79 characters)
+./shell/window.py:1020:80: E501 line too long (93 > 79 characters)
+./shell/window.py:1055:80: E501 line too long (107 > 79 characters)
+./shell/window.py:1059:80: E501 line too long (107 > 79 characters)
+./shell/window.py:1063:80: E501 line too long (107 > 79 characters)
+./shell/window.py:1128:80: E501 line too long (88 > 79 characters)
+./shell/window.py:1131:20: E221 multiple spaces before operator
+./shell/window.py:1157:80: E501 line too long (83 > 79 characters)
+./shell/window.py:1163:80: E501 line too long (83 > 79 characters)
+./shell/window.py:1178:80: E501 line too long (80 > 79 characters)
+./shell/window.py:1200:80: E501 line too long (80 > 79 characters)
+./shell/window.py:1264:80: E501 line too long (96 > 79 characters)
+./shell/window.py:1284:80: E501 line too long (94 > 79 characters)
+./shell/window.py:1327:80: E501 line too long (91 > 79 characters)
+./shell/window.py:1334:80: E501 line too long (80 > 79 characters)
+./shell/window.py:1371:80: E501 line too long (82 > 79 characters)
+./widgets/markdown/editor.py:15:80: E501 line too long (86 > 79 characters)
+./widgets/markdown/editor.py:22:80: E501 line too long (81 > 79 characters)
+./widgets/markdown/editor.py:23:80: E501 line too long (85 > 79 characters)
+./widgets/markdown/editor.py:44:1: E305 expected 2 blank lines after class or function definition, found 1
+./widgets/markdown/editor.py:63:80: E501 line too long (81 > 79 characters)
+./widgets/markdown/editor.py:101:80: E501 line too long (80 > 79 characters)
+./widgets/markdown/editor.py:103:80: E501 line too long (82 > 79 characters)
+./widgets/markdown/editor.py:186:80: E501 line too long (81 > 79 characters)
+./widgets/markdown/editor.py:262:80: E501 line too long (81 > 79 characters)
+./widgets/markdown/editor.py:348:80: E501 line too long (80 > 79 characters)
+./widgets/markdown/editor.py:370:80: E501 line too long (80 > 79 characters)
+./widgets/markdown/editor.py:477:80: E501 line too long (81 > 79 characters)
+./widgets/markdown/editor.py:481:80: E501 line too long (89 > 79 characters)
+./widgets/markdown/highlighter.py:60:80: E501 line too long (86 > 79 characters)
+./widgets/markdown/highlighter.py:62:80: E501 line too long (89 > 79 characters)
+./widgets/markdown/highlighter.py:66:80: E501 line too long (95 > 79 characters)

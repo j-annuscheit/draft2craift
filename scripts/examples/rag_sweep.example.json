@@ -1,0 +1,31 @@
+{
+  "combination_mode": "product",
+  "max_runs": 24,
+  "base_config": {
+    "chunk_size": 450,
+    "chunk_overlap": 100
+  },
+  "parameters": {
+    "chunking_strategy": [
+      "sliding_window",
+      "section",
+      "recursive"
+    ],
+    "selection_mode": [
+      "top_k",
+      "top_k_threshold"
+    ],
+    "top_k": [
+      3,
+      5
+    ],
+    "score_threshold": [
+      0.1,
+      0.2
+    ],
+    "use_regex_search": [
+      true,
+      false
+    ]
+  }
+}

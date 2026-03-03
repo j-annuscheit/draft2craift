@@ -1,0 +1,23 @@
+{
+  "defaults": {
+    "prompt_max_chars": 6000,
+    "threshold_win_gap": 0.05
+  },
+  "cases": [
+    {
+      "id": "follow_format_short_answer",
+      "labels": ["format", "instruction"],
+      "prompt": "Antworte nur mit exakt einem Wort: Berlin oder Hamburg. Welche Stadt ist die Hauptstadt von Deutschland?"
+    },
+    {
+      "id": "math_concise",
+      "labels": ["math", "precision"],
+      "prompt": "Rechne 37 * 14. Gib zuerst das Ergebnis und dann genau einen kurzen Rechenschritt."
+    },
+    {
+      "id": "explain_tradeoff",
+      "labels": ["reasoning", "quality"],
+      "prompt": "Erklaere in 4 bis 6 Saetzen den Unterschied zwischen Durchsatz und Latenz in verteilten Systemen."
+    }
+  ]
+}

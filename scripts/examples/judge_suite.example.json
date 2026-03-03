@@ -1,0 +1,33 @@
+{
+  "defaults": {
+    "threshold_accuracy": 0.8,
+    "prompt_max_chars": 6000,
+    "answer_max_chars": 8000
+  },
+  "cases": [
+    {
+      "id": "yes_no_instruction_following",
+      "labels": ["smoke", "instruction_following"],
+      "prompt": "Antworte nur mit 'Ja' oder 'Nein': Ist Wasser bei normalem Luftdruck bei 100 Grad Celsius am Siedepunkt?",
+      "answer_a": "Ja.",
+      "answer_b": "Wasser siedet bei 100 Grad Celsius auf Meeresspiegelniveau, das haengt aber vom Druck ab.",
+      "winner": "A"
+    },
+    {
+      "id": "translate_exact_phrase",
+      "labels": ["smoke", "translation"],
+      "prompt": "Uebersetze exakt ins Englische: 'Guten Morgen'.",
+      "answer_a": "Good morning.",
+      "answer_b": "Have a nice day.",
+      "winner": "A"
+    },
+    {
+      "id": "exact_three_bullets",
+      "labels": ["structure", "constraint"],
+      "prompt": "Nenne genau drei Vorteile von Code Reviews als Stichpunkte.",
+      "answer_a": "- Frueheres Finden von Fehlern\n- Einheitlicherer Code-Stil\n- Besserer Wissenstransfer im Team",
+      "answer_b": "Code Reviews helfen bei Qualitaet, Teamarbeit, Sicherheit und Wartbarkeit.",
+      "winner": "A"
+    }
+  ]
+}

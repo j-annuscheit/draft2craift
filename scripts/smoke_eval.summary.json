@@ -1,0 +1,158 @@
+{
+  "run_name": "smoke_eval",
+  "timestamp": "2026-02-23T07:47:01",
+  "suite": "/home/be/test_claude/canvas2/scripts/examples/rag_suite.example.json",
+  "config": {
+    "use_tfidf": true,
+    "use_st": false,
+    "chunk_size": 450,
+    "chunk_overlap": 100,
+    "chunking_strategy": "sliding_window",
+    "include_headings": true,
+    "include_filename": true,
+    "use_hyde": true,
+    "hyde_min_words": 5,
+    "hyde_tfidf_mode": "keywords",
+    "hyde_st_mode": "passage",
+    "hyde_st_hypotheses": 3,
+    "hyde_use_doc_context": false,
+    "extended_context": false,
+    "extended_context_before": 500,
+    "extended_context_after": 500,
+    "selection_mode": "top_k",
+    "top_k": 3,
+    "score_threshold": 0.15,
+    "use_regex_search": true,
+    "regex_max_results": 3,
+    "literal_use_llm_terms": false,
+    "literal_llm_max_terms": 8,
+    "llm_rerank_enabled": false,
+    "llm_rerank_min_score": 0.45,
+    "llm_rerank_max_candidates": 10,
+    "st_model_name": "paraphrase-multilingual-MiniLM-L12-v2",
+    "st_n_threads": 0
+  },
+  "llm": {
+    "model_path": "",
+    "n_ctx": 4096,
+    "gpu_layers": 0,
+    "threads": 32,
+    "enabled": false
+  },
+  "summary": {
+    "cases": 3,
+    "micro": {
+      "tp": 4,
+      "fp": 4,
+      "fn": 0,
+      "precision": 0.5,
+      "recall": 1.0,
+      "f1": 0.6666666666666666
+    },
+    "macro": {
+      "precision": 0.5,
+      "recall": 1.0,
+      "f1": 0.6555555555555556,
+      "hit_at_k": 1.0,
+      "mrr": 0.8333333333333334,
+      "map": 0.8333333333333334,
+      "ndcg": 0.8769765845238192,
+      "contains_recall": 0.5
+    }
+  },
+  "cases": [
+    {
+      "case_id": "renewable_001",
+      "query": "Welche Vorteile hat Solarenergie in Städten?",
+      "top_k": 3,
+      "duration_ms": 0.5145129980519414,
+      "expected_docs": [
+        "rag_doc_1.md"
+      ],
+      "predicted_docs": [
+        "rag_doc_1.md",
+        "rag_doc_2.md"
+      ],
+      "tp": 1,
+      "fp": 1,
+      "fn": 0,
+      "precision": 0.5,
+      "recall": 1.0,
+      "f1": 0.6666666666666666,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "ap": 1.0,
+      "ndcg": 1.0,
+      "expected_contains": [
+        "Solarmodule auf Dächern",
+        "Senkung lokaler Emissionen"
+      ],
+      "contains_matches": 0,
+      "contains_recall": 0.0,
+      "warnings": []
+    },
+    {
+      "case_id": "security_001",
+      "query": "Welche Risiken entstehen durch schwache Zugriffskontrollen in APIs?",
+      "top_k": 3,
+      "duration_ms": 0.3305630089016631,
+      "expected_docs": [
+        "rag_doc_2.md"
+      ],
+      "predicted_docs": [
+        "rag_doc_1.md",
+        "rag_doc_2.md",
+        "rag_doc_3.md"
+      ],
+      "tp": 1,
+      "fp": 2,
+      "fn": 0,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "f1": 0.5,
+      "hit_at_k": 1.0,
+      "mrr": 0.5,
+      "ap": 0.5,
+      "ndcg": 0.6309297535714575,
+      "expected_contains": [
+        "Token-Leakage",
+        "fehlende Rollenprüfung"
+      ],
+      "contains_matches": 2,
+      "contains_recall": 1.0,
+      "warnings": []
+    },
+    {
+      "case_id": "mixed_001",
+      "query": "Wie kann man CO2 reduzieren und gleichzeitig digitale Dienste absichern?",
+      "top_k": 4,
+      "duration_ms": 0.2760119969025254,
+      "expected_docs": [
+        "rag_doc_1.md",
+        "rag_doc_2.md"
+      ],
+      "predicted_docs": [
+        "rag_doc_2.md",
+        "rag_doc_1.md",
+        "rag_doc_3.md"
+      ],
+      "tp": 2,
+      "fp": 1,
+      "fn": 0,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "f1": 0.8,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "ap": 1.0,
+      "ndcg": 1.0,
+      "expected_contains": [
+        "Senkung lokaler Emissionen",
+        "Zero-Trust"
+      ],
+      "contains_matches": 1,
+      "contains_recall": 0.5,
+      "warnings": []
+    }
+  ]
+}

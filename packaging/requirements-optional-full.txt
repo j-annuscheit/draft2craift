@@ -1,0 +1,5 @@
+# Optional dependencies for the full profile (AGPL-3.0 distribution).
+# Includes all import stacks: DOCX, ODT, HTML, PDF (AGPL), sentence-transformers.
+-r requirements-optional-minimal.txt
+pymupdf4llm>=0.0.17
+html2text>=2020.1.16

@@ -1,0 +1,121 @@
+{
+  "documents": [
+    {"name": "rag_doc_1.md", "path": "fixtures/rag_doc_1.md"},
+    {"name": "rag_doc_2.md", "path": "fixtures/rag_doc_2.md"},
+    {"name": "rag_doc_3.md", "path": "fixtures/rag_doc_3.md"},
+    {"name": "rag_doc_4.md", "path": "fixtures/rag_doc_4.md"},
+    {"name": "rag_doc_5.md", "path": "fixtures/rag_doc_5.md"},
+    {"name": "rag_doc_6.md", "path": "fixtures/rag_doc_6.md"},
+    {"name": "rag_doc_7.md", "path": "fixtures/rag_doc_7.md"},
+    {"name": "rag_doc_8.md", "path": "fixtures/rag_doc_8.md"}
+  ],
+  "config": {
+    "use_tfidf": true,
+    "use_st": false,
+    "use_regex_search": false,
+    "use_hyde": false,
+    "selection_mode": "top_k",
+    "top_k": 3,
+    "chunking_strategy": "sliding_window",
+    "chunk_size": 420,
+    "chunk_overlap": 120
+  },
+  "cases": [
+    {
+      "id": "paraphrase_activation",
+      "query": "Wie senke ich den Absprung neuer Testnutzer direkt nach dem ersten Login?",
+      "labels": ["paraphrase", "onboarding", "semantic"],
+      "gt_docs": ["rag_doc_5.md"],
+      "gt_contains": [
+        "reduzieren den Startaufwand",
+        "Aha-Moment"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "implicit_reliability",
+      "query": "Wie kann ich den Wechsel auf eine neue Datenpipeline ausfallsicher gestalten?",
+      "labels": ["implicit", "reliability", "migration"],
+      "gt_docs": ["rag_doc_6.md"],
+      "gt_contains": [
+        "Parallelbetrieb",
+        "Rollback-Pfade"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "semantic_negation",
+      "query": "Belegt die Studie eindeutig, dass die neue Methode besser ist?",
+      "labels": ["negation", "medical", "semantic"],
+      "gt_docs": ["rag_doc_7.md"],
+      "gt_contains": [
+        "keinen statistisch belastbaren Vorteil",
+        "nicht als Nachweis einer Überlegenheit"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "cross_domain_composed",
+      "query": "Welche Maßnahmen helfen gleichzeitig gegen Emissionen in Städten und gegen API-Missbrauch?",
+      "labels": ["cross_domain", "composed_query", "multi_source"],
+      "gt_docs": ["rag_doc_1.md", "rag_doc_2.md"],
+      "gt_contains": [
+        "Senkung lokaler Emissionen",
+        "fehlende Rollenprüfung"
+      ],
+      "top_k": 4
+    },
+    {
+      "id": "cool_chain_no_literal",
+      "query": "Wie verhindere ich, dass temperaturempfindliche Impfchargen unterwegs unbrauchbar werden?",
+      "labels": ["domain_shift", "implicit", "medical_logistics"],
+      "gt_docs": ["rag_doc_4.md"],
+      "gt_contains": [
+        "verlieren bei Unterbrechungen der Kühlung",
+        "Temperaturdaten kontinuierlich erfasst"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "incident_coordination",
+      "query": "Warum beschleunigt eine klar benannte Einsatzleitung die Störungsbehebung?",
+      "labels": ["incident", "organizational", "response"],
+      "gt_docs": ["rag_doc_8.md"],
+      "gt_contains": [
+        "festem Incident-Lead",
+        "Lage-Updates in festen Intervallen"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "hard_negative_noise",
+      "query": "Welche Datei behandelt primär Einkaufsprognosen und Lieferantenkoordination?",
+      "labels": ["hard_negative", "supply_chain"],
+      "gt_docs": ["rag_doc_3.md"],
+      "gt_contains": [
+        "Bedarfsprognosen",
+        "Zusammenarbeit mit Lieferanten"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "abstention_required",
+      "query": "Welche Erkenntnisse gibt es hier zur Photosynthese bei Tiefseealgen?",
+      "labels": ["abstention", "out_of_scope", "hard_negative"],
+      "gt_docs": [],
+      "gt_contains": [],
+      "top_k": 3
+    },
+    {
+      "id": "multi_hop_robustness",
+      "query": "Wie würde ein resilienter Rollout aussehen, wenn gleichzeitig sichere Token-Praxis gefordert ist?",
+      "labels": ["multi_hop", "cross_domain", "security", "migration"],
+      "gt_docs": ["rag_doc_2.md", "rag_doc_6.md"],
+      "gt_contains": [
+        "kurze Token-Laufzeiten",
+        "Umschaltung erfolgt stufenweise"
+      ],
+      "top_k": 4
+    }
+  ]
+}

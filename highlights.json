@@ -1,0 +1,1089 @@
+{
+  "highlights": [
+    {
+      "anchor": {
+        "exact": "selected",
+        "prefix": " same topic were generated using the previously ",
+        "suffix": " text gene rators. Based on a criteria ana-lysis"
+      },
+      "color": "#CBA6F7",
+      "created_at": "2026-02-27T18:41:58.665366+00:00",
+      "hover_text": "",
+      "id": "hl_14dbabcb5463",
+      "jump_to": "RAG-Ergebnisse",
+      "panel_scope": "draft",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Einleitung"
+      ],
+      "updated_at": "2026-02-28T05:38:34.084155+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "on the left, run a search, use the results",
+        "prefix": "th the LLM.\nUse RAG\nSelect files in the RAG tab ",
+        "suffix": " as context.\nSave / Export\nCtrl+S saves the curr"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-27T18:52:15.449603+00:00",
+      "hover_text": "Das ist ein TEST asda sduihzsd kahsh asd hauds had shuahd adsh as ahd ilokahdl ahdu hlgihihqldhja ishdl ahjsilokhjalodjs ads",
+      "id": "hl_a7571c1818d6",
+      "jump_to": "",
+      "panel_scope": "draft",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Einleitung"
+      ],
+      "updated_at": "2026-02-28T05:38:34.084214+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "eading 1\n## Heading 2",
+        "prefix": "rkup language for structured text.\nExamples:\n# H",
+        "suffix": "\n\n**bold**, *italic*, `code`\n\n- Item 1\n- Item 2\n"
+      },
+      "color": "#A6E3A1",
+      "created_at": "2026-02-27T19:05:43.480602+00:00",
+      "hover_text": "asd\nas\nd\nasdasasdasd\nasdads asdas da asfuasofu asd asd asd  sda\nsd as\nd \nasd asd asd",
+      "id": "hl_3a913608af04",
+      "jump_to": "",
+      "panel_scope": "draft",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Einleitung"
+      ],
+      "updated_at": "2026-02-28T05:38:34.084240+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "F model file, set paramet",
+        "prefix": "\nLoad a model\nAI > Load GGUF Model…\nSelect a GGU",
+        "suffix": "ers, then load.\nWork with AI\nType in the AI Chat"
+      },
+      "color": "#F38BA8",
+      "created_at": "2026-02-27T19:08:05.322185+00:00",
+      "hover_text": "",
+      "id": "hl_ff87e22bb9f7",
+      "jump_to": "",
+      "panel_scope": "draft",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Einleitung"
+      ],
+      "updated_at": "2026-02-28T05:38:34.084261+00:00"
+    },
+    {
+      "anchor": {
+        "exact": ", DOCX, HTML, CSV, TXT and mre are",
+        "prefix": "\nImport files\nFile > Import Files… or Ctrl+I\nPDF",
+        "suffix": " conerted to Markdown.\nLoad a model\nAI > Load GG"
+      },
+      "color": "#CBA6F7",
+      "created_at": "2026-02-27T19:08:20.642251+00:00",
+      "hover_text": "",
+      "id": "hl_a64f02722f53",
+      "jump_to": "",
+      "panel_scope": "draft",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Einleitung"
+      ],
+      "updated_at": "2026-02-28T05:38:34.084278+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "tly with the LLM.",
+        "prefix": "er.\nOptionally rewrite selected Draft text direc",
+        "suffix": "\nUse RAG\nSelect files in the RAG tab on the left"
+      },
+      "color": "#FAB387",
+      "created_at": "2026-02-27T19:08:27.474441+00:00",
+      "hover_text": "",
+      "id": "hl_b048e7126039",
+      "jump_to": "",
+      "panel_scope": "draft",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Einleitung"
+      ],
+      "updated_at": "2026-02-28T05:38:34.084294+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "ional tabs v",
+        "prefix": "e\nUse this tab as your main document.\nOpen addit",
+        "suffix": "ia + New.\nImport files\nFile > Import Files… or C"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-27T19:16:59.988171+00:00",
+      "hover_text": "Noch eine kleine Beschreibung des Begriffes.",
+      "id": "hl_b6a6a063f556",
+      "jump_to": "",
+      "panel_scope": "draft",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Einleitung"
+      ],
+      "updated_at": "2026-02-28T05:38:34.084309+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "lt von Franziska Rußwurm Matrikelnummer: 26709617 an der Hochschule",
+        "prefix": " künstlicher Intelligenz im Journalismus“ erstel",
+        "suffix": " für angewandte Wissenschaften München im Sommer"
+      },
+      "color": "#89B4FA",
+      "created_at": "2026-02-27T20:19:55.758795+00:00",
+      "hover_text": "",
+      "id": "hl_d1e102c33804",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-27T20:19:55.758827+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "\nDas Studiendesign besteht insgesamt aus drei Teilen. Im ersten und dritten Teil füllen die Testpersonen einen Fragebogen aus. Das Experiment stellt den zweiten Teil der Studie dar. In Summe soll die Bearbeitung der Studie durchschnittlich 20 bis 25 Mi nuten beanspruchen.",
+        "prefix": "ne Befragung, mithilfe eines Online-Fragebogens.",
+        "suffix": "\nIn dieser Arbeit werden Testpersonen jeden Gesc"
+      },
+      "color": "#A6E3A1",
+      "created_at": "2026-02-28T05:38:55.611976+00:00",
+      "hover_text": "",
+      "id": "hl_66147ea9d63a",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T05:38:55.612002+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "\nligenz das Ziel und die richtigen Antworten nicht. Das KI-System muss die Daten selbständig analysieren und Muster erkennen. Die gewonnenen Ergeb nisse können somit außerhalb des von Menschen erdachten Horizonts liegen (vgl. Kreutzer & Sirrenberg, 2020, S. 7). Dem Bilderkennungsalgorithmus lie gen keine vordefinierten Kategorien vor. Zudem sind keine Trainingsdaten vorhanden. Der Bilderkennungsalgorithmus muss das abgebildete Objekt, den Busch, den Baum oder die Bank auf den Bildern selbständig identifizieren, kategorisieren und zuordnen",
+        "prefix": "ei diesem Lernprozess kennt die künstliche Intel",
+        "suffix": ".\nBestärkendes Lernen: Bei diesem Lernverfahren "
+      },
+      "color": "#A6E3A1",
+      "created_at": "2026-02-28T05:39:13.182566+00:00",
+      "hover_text": "",
+      "id": "hl_0b08153423dd",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T06:24:47.041442+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "en und Muster erkennen. Die gewonnenen Ergeb nisse können somit außerhalb des von Menschen erdachten Horizonts liegen (vgl. Kreutzer & Sirrenberg, 2020, S. 7). Dem Bilderkennungsalgorithmus lie gen keine vordefinierten Kategorien vor. Zudem sind keine Trainingsdaten vorhanden. Der Bilderkennungsalgorithmus muss das abgebildete Objekt, den Busch, den Baum oder die Bank",
+        "prefix": "s KI-System muss die Daten selbständig analysier",
+        "suffix": " auf den Bildern selbständig identifizieren, kat"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T05:44:35.665524+00:00",
+      "hover_text": "",
+      "id": "hl_84efde6e0d6b",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2 (1)"
+      ],
+      "updated_at": "2026-02-28T05:44:35.665553+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "auch als „Natural Language Understanding“ (NLU) bezeichnet. Wenn ein Text von einem KI-System verarbeitet und verstanden wurde, kann das KI-System anschließend einen neuen Text generieren. Dieser Vorgang wird auch „Natural Language Generation“ (NLG) genannt. In Abbildung 4 sind die Teilbe reiche NLP und NLU mit verschiedenen Anwendungsbereichen abgebildet (vgl",
+        "prefix": " Verstehen von natürlicher Sprache. Dieses wird ",
+        "suffix": ".\nKreutzer & Sirrenberg, 2020, S. 24, S. 27).\n[S"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T05:44:49.083982+00:00",
+      "hover_text": "",
+      "id": "hl_f4b0cfc8cb06",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2 (1)"
+      ],
+      "updated_at": "2026-02-28T05:44:49.084011+00:00"
+    },
+    {
+      "anchor": {
+        "exact": " System diese Aufgab",
+        "prefix": "wieriger wird es für ein künstlich intelligentes",
+        "suffix": "e zu erfüllen (vgl. Baumeis ter, 2018).\n[Seite 2"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T05:46:05.982350+00:00",
+      "hover_text": "",
+      "id": "hl_f06e93e25790",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2 (1)"
+      ],
+      "updated_at": "2026-03-02T10:44:06.461629+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "g, sondern gibt an, dass sich zwei Datensätze in die gleiche Richtung bewegen. Ist eine Korrelation ne gativ, zeigt das im Umkehrschluss, dass ",
+        "prefix": "ne Korrelation positiv, ist das keine Beurteilun",
+        "suffix": "sich zwei Datensätze nicht in die gleiche Richtu"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T05:48:45.652717+00:00",
+      "hover_text": "",
+      "id": "hl_dab4c8badaf4",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T05:48:45.652744+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "die dem weiteren Verständnis dieser Arbeit dienen. Darüber hinaus wird der aktuelle",
+        "prefix": "rt grundlegende Konzepte und Begrifflichkeiten, ",
+        "suffix": " Einsatz von KI im Journalismus näher beschriebe"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T05:52:52.654928+00:00",
+      "hover_text": "",
+      "id": "hl_2d7bf96dfd07",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T05:52:52.654952+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "eneriert wer den können. Im Zuge dessen wird analysiert, ob Testpersonen einen Unterschied zwischen künstlich generierten und nicht künstlich generierten Texten erkennen. Dar über hinaus wird ermittelt, anhand welcher Merkmale sie einen Unterschied erk",
+        "prefix": "tativ hochwertige und praxistaugliche Berichte g",
+        "suffix": "ennen und ob wahrnehmungspsychologische Untersch"
+      },
+      "color": "#89B4FA",
+      "created_at": "2026-02-28T05:54:10.645692+00:00",
+      "hover_text": "",
+      "id": "hl_db5488d18808",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T06:24:47.041630+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "erierten Texte zu beurteilen, wird ein Bewertungsbogen erstellt und eine Be ",
+        "prefix": "d das Experiment die Qualität der künst lich gen",
+        "suffix": "urteilung durchgeführt. Der Bewertungsbogen umfa"
+      },
+      "color": "#A6E3A1",
+      "created_at": "2026-02-28T05:54:20.937154+00:00",
+      "hover_text": "",
+      "id": "hl_a94b349110a9",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T05:54:20.937166+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "of the test subjects recognized a differ",
+        "prefix": ". The evaluation of the results showed that 70% ",
+        "suffix": "ence between artificially generated texts and no"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T05:55:53.535146+00:00",
+      "hover_text": "",
+      "id": "hl_3e71f96465b4",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T05:55:53.535171+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "tikel/nachrichten-und-qualitaet (zuletzt geprüft am 17.07.2021)",
+        "prefix": "tion-und-kultur/fokus/medien-und-journalismus/ar",
+        "suffix": ".\nWalther, Björn (2020): Bivariate Korrelation i"
+      },
+      "color": "#A6E3A1",
+      "created_at": "2026-02-28T05:56:06.890933+00:00",
+      "hover_text": "",
+      "id": "hl_edfc4edb677a",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T10:36:41.167567+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "en, desto schwieriger wird es für ein künstlich intelligentes System diese Aufgabe zu erf",
+        "prefix": " Doch je komplexer die Inhalte der Beiträge werd",
+        "suffix": "üllen (vgl. Baumeis ter, 2018).\n[Seite 27]\n3.5 D"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T05:56:45.433157+00:00",
+      "hover_text": "",
+      "id": "hl_f6a9ea9eafbd",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T05:56:45.433183+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "\nThielsch, T. Meinald &. Brandenburg, Torsten (2012): Praxis der Wirtschaftspsy chologie II. Themen und Fallbeispiele für Studium und Anwendung. (2. Auflage). Mon senstein und Vannerdat.\nUrban, Juliane & Schweiger Wolfgang (2014): Nachrichten und Quali",
+        "prefix": "-textgenerator (zuletzt ge prüft am 17.07.2021).",
+        "suffix": "tät. Schader Stiftung. Online verfügbar unter: h"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T06:00:08.141430+00:00",
+      "hover_text": "",
+      "id": "hl_cc18127f74b2",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T06:00:08.141456+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "“ anbieten",
+        "prefix": " „Kulturlandschaft in brach und vernachlässigbar",
+        "suffix": "."
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T06:01:31.371448+00:00",
+      "hover_text": "",
+      "id": "hl_0f07f9214a5c",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "draft",
+      "tab_scope": "tabs",
+      "tabs": [
+        "longtext.md"
+      ],
+      "updated_at": "2026-02-28T06:17:05.194158+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "addsas",
+        "prefix": "schaft in brach und vernachlässigbar“ anbieten.s",
+        "suffix": "d"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T06:03:27.613418+00:00",
+      "hover_text": "",
+      "id": "hl_1ca35a2feb9c",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "draft",
+      "tab_scope": "tabs",
+      "tabs": [
+        "longtext.md"
+      ],
+      "updated_at": "2026-02-28T06:17:05.194175+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "rogrammbeginn einiges wichtiger werden, wenn die Podiumsprotagonisten laut der Kommunikationskrise gezwungen werden, ihren Anteil an der Suche nach Kult",
+        "prefix": "landschaft? Vielleicht sollte das Thema an den P",
+        "suffix": "urinstitutionen in ihren kulturellen Schaffenswe"
+      },
+      "color": "#F38BA8",
+      "created_at": "2026-02-28T06:08:07.592133+00:00",
+      "hover_text": "",
+      "id": "hl_33e01484499a",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T06:24:47.041990+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "Kulturlandschaft im öffe",
+        "prefix": "\nFazit Die wichtigste Frage für alle Kunst- und ",
+        "suffix": "ntlichen Raum ist nun in der Kommunikationskrise"
+      },
+      "color": "#F38BA8",
+      "created_at": "2026-02-28T06:08:17.240243+00:00",
+      "hover_text": "",
+      "id": "hl_a422ef042c4d",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T06:24:47.042076+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "gebnisse ",
+        "prefix": "zu erhöhen. Daher wollen wir diesen Monat die Er",
+        "suffix": "der Untersuchung „Kulturlandschaft in brach und "
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T06:10:36.341917+00:00",
+      "hover_text": "",
+      "id": "hl_836b5a8ec977",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T06:24:47.042201+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "nschen brauchen das Fernsehfernsehen, deswegen müssen Medien wie Fernsehen natürlich a",
+        "prefix": "as ist eine andere Seite der Medienkunst. Die Me",
+        "suffix": "uch funktionieren. Es gibt eine Vielzahl untersc"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T06:13:14.180291+00:00",
+      "hover_text": "",
+      "id": "hl_f45c8aa940b8",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T06:24:47.042259+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "zu die verschiedenen Facetten der Öffentlichkeitsarbeit im öffe",
+        "prefix": "lichen Raum beschäftigte. Der Workshop diente da",
+        "suffix": "ntlichen Raum zu beleuchten und sie in einem Dis"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T06:15:19.865498+00:00",
+      "hover_text": "",
+      "id": "hl_4abc256af486",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T06:15:19.865535+00:00"
+    },
+    {
+      "anchor": {
+        "exact": " Raum an die Ö",
+        "prefix": "önnen Medien und Kunstschaffende im öffentlichen",
+        "suffix": "ffentlichkeit gelangen? In Zusammenarbeit mit CT"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T06:25:02.351537+00:00",
+      "hover_text": "",
+      "id": "hl_09260bd750fc",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T06:25:02.351560+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "von aus, d",
+        "prefix": "ro angehoben werden musste. Und sie ging auch da",
+        "suffix": "ass diese Marke von 15 Millionen Euro profitiere"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T06:35:04.255045+00:00",
+      "hover_text": "",
+      "id": "hl_00c6af21d6a8",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T06:35:04.255071+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "er Reihe von Gründen gehe",
+        "prefix": "nd Kulturschaffende zunehmend Konflikte. Aus ein",
+        "suffix": "n laut Susanne Wolf beispielsweise Senioren, die"
+      },
+      "color": "#A6E3A1",
+      "created_at": "2026-02-28T06:35:08.951227+00:00",
+      "hover_text": "",
+      "id": "hl_81200c56dd80",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T06:35:08.951252+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "en, d",
+        "prefix": "n hatte die Kulturstaatsministerin bekannt gegeb",
+        "suffix": "ass der Ertrag der beiden Pannenlotsen von 23 Mi"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T06:35:54.197265+00:00",
+      "hover_text": "",
+      "id": "hl_04e2b70f955c",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T06:35:54.197290+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "ril vergangenen Jahres im Blick hat, war wohl die die größte Überraschung im Beziehungen zwischen der Regierung und den Landesverbanden. Zwar kämpfte der Landesregierung mit den Verbandsvorsitzenden um eine Übergangs- und Aufhebungsgesellschaft, die den demografischen Wandel gerecht werden sollte.",
+        "prefix": "elche die Praxis der Kulturlandleitung am 15. Ap",
+        "suffix": "\n[Seite 89]\nKulturelles Kapital gemeinsam nutzen"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T06:36:00.737524+00:00",
+      "hover_text": "",
+      "id": "hl_bdecfc164e50",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T06:41:32.146221+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "dieser Ergebnisse konnten die Chi-Quadrat-Koeffi zienten und die korrigierten Kontingenzkoeffizienten berechnet werden. Die Ergeb nisse dieser Berechnung sind in Abbildungen Abbildung 28 einsehbar.\n[Seite 63]\nAbbildung 28: Berechnung - Geschlecht\nDer berechnete Kontingenzkoeffizient kann zur abschließenden Bewertung verwen det werden. Nach der in Abschnitt 3.5.6 erläuterten Skala kann nun die Aussage ge troffen werden, dass zwischen dem Geschlecht und der Identifizierung des Basistex tes nahezu kein Zusammenhang hergestellt werden kann. Zwischen dem Geschlecht und der Identifizierung der Vergleichstexte kann nur ein schwacher mittlerer Zusam menhang hergestellt werden.\nAufgrund des niedrigen Kontingenzkoeffizient wird in dieser Arbeit nicht näher auf diesen Zusammenhang eingegangen.\n[Seite 64]xcasda s",
+        "prefix": ".5.4 erläu terten Formel, aufgestellt. Mithilfe ",
+        "suffix": "d\n6.3.3 Zusammenhang zwischen Alter und Identifi"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T06:41:54.239028+00:00",
+      "hover_text": "",
+      "id": "hl_ce73c626dbff",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "viewer",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Bachelorarbeit_Franziska_Russwurm_V2"
+      ],
+      "updated_at": "2026-02-28T06:41:54.239053+00:00"
+    },
+    {
+      "anchor": {
+        "exact": " languag",
+        "prefix": "at is Markdown?\nMarkdown is a lightweight markup",
+        "suffix": "e for structured text.\nExamples:\n# Heading 1\n## "
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T08:43:09.111765+00:00",
+      "hover_text": "",
+      "id": "hl_ed8a025a1b2a",
+      "jump_to": "hl_d1e102c33804",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "draft",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Draft 1"
+      ],
+      "updated_at": "2026-02-28T08:54:17.656495+00:00"
+    },
+    {
+      "anchor": {
+        "exact": " th",
+        "prefix": "e results as context.\nSave / Export\nCtrl+S saves",
+        "suffix": "e current tab.\nExport as PDF or Word via File > "
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T08:43:56.623424+00:00",
+      "hover_text": "",
+      "id": "hl_8e958284fb7b",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "draft",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Draft 1"
+      ],
+      "updated_at": "2026-02-28T08:44:55.617751+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "t",
+        "prefix": " Euro -> 17 Millionen Euro)\n.HKKG (Haus der Küns",
+        "suffix": "lerischen Gesellschaft Potsdam)\n.Künstlerische L"
+      },
+      "color": "#F9E2AF",
+      "created_at": "2026-02-28T08:44:28.237742+00:00",
+      "hover_text": "",
+      "id": "hl_81f4fceabe3b",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "draft",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T17:46:23.667532+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "\nHapp",
+        "prefix": "iew > Reset Layout restores the default layout.\n",
+        "suffix": "y writing."
+      },
+      "color": "#89B4FA",
+      "created_at": "2026-02-28T08:45:14.182978+00:00",
+      "hover_text": "",
+      "id": "hl_7b69380d7405",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "draft",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T12:56:47.540670+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "\nHapp",
+        "prefix": "iew > Reset Layout restores the default layout.\n",
+        "suffix": "y writing."
+      },
+      "color": "#F38BA8",
+      "created_at": "2026-02-28T08:45:18.510348+00:00",
+      "hover_text": "",
+      "id": "hl_4b0550e838d0",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "draft",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T12:56:47.540680+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "od",
+        "prefix": "# Heading 1\n## Heading 2\n\n**bold**, *italic*, `c",
+        "suffix": "e`\n\n- Item 1\n- Item 2\n\n[Link text](https://examp"
+      },
+      "color": "#A6E3A1",
+      "created_at": "2026-02-28T09:14:38.858760+00:00",
+      "hover_text": "",
+      "id": "hl_7efbadaf5b77",
+      "jump_to": "",
+      "kind": "user",
+      "match_mode": "anchor",
+      "panel_scope": "draft",
+      "tab_scope": "tabs",
+      "tabs": [
+        "Draft 1"
+      ],
+      "updated_at": "2026-03-01T07:51:24.352323+00:00"
+    },
+    {
+      "anchor": {
+        "exact": "Künstliche Intelligenz",
+        "prefix": "",
+        "suffix": ""
+      },
+      "case_sensitive": false,
+      "color": "#94E2D5",
+      "created_at": "2026-03-02T15:15:28.590049+00:00",
+      "hover_text": "Die Fähigkeit einer Maschine, kognitive Aufgaben auszuführen, die wir mit dem menschlichen Geist assoziieren. KI-Systeme verwenden verschiedene Algorithmen und erlangen dadurch die Fähigkeit zu argumentieren und selbstständig zu lernen.",
+      "id": "gls_fae8c0cc14d0",
+      "jump_to": "",
+      "kind": "glossary",
+      "match_mode": "term_all",
+      "panel_scope": "*",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T15:15:28.590056+00:00",
+      "whole_word": true
+    },
+    {
+      "anchor": {
+        "exact": "Neuronale Netze",
+        "prefix": "",
+        "suffix": ""
+      },
+      "case_sensitive": false,
+      "color": "#94E2D5",
+      "created_at": "2026-03-02T15:15:28.590064+00:00",
+      "hover_text": "Ein Hauptbestandteil eines künstlich intelligenten Systems, das sich an der Struktur eines menschlichen Gehirns orientiert. Neuronale Netze arbeiten mit einer großen Anzahl an Prozessen parallel und lernen durch Wiederholung.",
+      "id": "gls_f0985608bfb5",
+      "jump_to": "",
+      "kind": "glossary",
+      "match_mode": "term_all",
+      "panel_scope": "*",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T15:15:28.590065+00:00",
+      "whole_word": true
+    },
+    {
+      "anchor": {
+        "exact": "Maschinelles Lernen",
+        "prefix": "",
+        "suffix": ""
+      },
+      "case_sensitive": false,
+      "color": "#94E2D5",
+      "created_at": "2026-03-02T15:15:28.590069+00:00",
+      "hover_text": "Ein Teilaspekt von künstlicher Intelligenz, bei dem Algorithmen selbstständig aus Daten lernen, ohne dass Programmierer in den Lernprozess mit einbezogen werden müssen. Es gibt drei Arten des maschinellen Lernens: kontrolliertes, unkontrolliertes und bestärkendes Lernen.",
+      "id": "gls_0e4945e39b0b",
+      "jump_to": "",
+      "kind": "glossary",
+      "match_mode": "term_all",
+      "panel_scope": "*",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T15:15:28.590070+00:00",
+      "whole_word": true
+    },
+    {
+      "anchor": {
+        "exact": "Deep Learning",
+        "prefix": "",
+        "suffix": ""
+      },
+      "case_sensitive": false,
+      "color": "#94E2D5",
+      "created_at": "2026-03-02T15:15:28.590073+00:00",
+      "hover_text": "Eine Untergruppe des maschinellen Lernens, die auf künstlichen neuronalen Netzen mit mehreren Schichten basiert. Deep Learning ermöglicht es Maschinen, komplexe Muster in Daten zu erkennen.",
+      "id": "gls_afafacb9d650",
+      "jump_to": "",
+      "kind": "glossary",
+      "match_mode": "term_all",
+      "panel_scope": "*",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T15:15:28.590074+00:00",
+      "whole_word": true
+    },
+    {
+      "anchor": {
+        "exact": "Natural Language Processing (NLP)",
+        "prefix": "",
+        "suffix": ""
+      },
+      "case_sensitive": false,
+      "color": "#94E2D5",
+      "created_at": "2026-03-02T15:15:28.590078+00:00",
+      "hover_text": "Die Fähigkeit von Computern, menschliche Sprache zu verstehen und zu verarbeiten. NLP wird für Aufgaben wie Textanalyse, Spracherkennung und Übersetzung eingesetzt.",
+      "id": "gls_41a33baf9fc9",
+      "jump_to": "",
+      "kind": "glossary",
+      "match_mode": "term_all",
+      "panel_scope": "*",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T15:15:28.590079+00:00",
+      "whole_word": true
+    },
+    {
+      "anchor": {
+        "exact": "Transformers",
+        "prefix": "",
+        "suffix": ""
+      },
+      "case_sensitive": false,
+      "color": "#94E2D5",
+      "created_at": "2026-03-02T15:15:28.590081+00:00",
+      "hover_text": "Eine Architektur für neuronale Netze, die besonders effektiv bei der Verarbeitung von Sequenzen wie Text ist. Transformers ermöglichen es Maschinen, Beziehungen zwischen Wörtern in einem Satz zu verstehen und zu generieren.",
+      "id": "gls_8c61ca3d733e",
+      "jump_to": "",
+      "kind": "glossary",
+      "match_mode": "term_all",
+      "panel_scope": "*",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T15:15:28.590082+00:00",
+      "whole_word": true
+    },
+    {
+      "anchor": {
+        "exact": "AI-Article-Writer",
+        "prefix": "",
+        "suffix": ""
+      },
+      "case_sensitive": false,
+      "color": "#94E2D5",
+      "created_at": "2026-03-02T15:15:28.590085+00:00",
+      "hover_text": "Ein KI-basierter Textgenerator, der automatisch Artikel zu verschiedenen Themen erstellen kann. Diese Textgeneratoren basieren oft auf Transformer-Architekturen.",
+      "id": "gls_f83213cff043",
+      "jump_to": "",
+      "kind": "glossary",
+      "match_mode": "term_all",
+      "panel_scope": "*",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T15:15:28.590086+00:00",
+      "whole_word": true
+    },
+    {
+      "anchor": {
+        "exact": "GPT-2",
+        "prefix": "",
+        "suffix": ""
+      },
+      "case_sensitive": false,
+      "color": "#94E2D5",
+      "created_at": "2026-03-02T15:15:28.590089+00:00",
+      "hover_text": "Ein großes Sprachmodell, das von OpenAI entwickelt wurde und in der Lage ist, menschenähnlichen Text zu generieren. GPT-2 wurde als Grundlage für viele weitere KI-Textgeneratoren verwendet.",
+      "id": "gls_0a278f1bdd53",
+      "jump_to": "",
+      "kind": "glossary",
+      "match_mode": "term_all",
+      "panel_scope": "*",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T15:15:28.590090+00:00",
+      "whole_word": true
+    },
+    {
+      "anchor": {
+        "exact": "GPT-3",
+        "prefix": "",
+        "suffix": ""
+      },
+      "case_sensitive": false,
+      "color": "#94E2D5",
+      "created_at": "2026-03-02T15:15:28.590093+00:00",
+      "hover_text": "Ein noch leistungsfähigeres Sprachmodell als GPT-2, das von OpenAI entwickelt wurde. GPT-3 kann Texte zu einer Vielzahl von Themen generieren und ist in der Lage, komplexe Aufgaben zu lösen.",
+      "id": "gls_8f2f2b02d37a",
+      "jump_to": "",
+      "kind": "glossary",
+      "match_mode": "term_all",
+      "panel_scope": "*",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T15:15:28.590094+00:00",
+      "whole_word": true
+    },
+    {
+      "anchor": {
+        "exact": "Journalismus",
+        "prefix": "",
+        "suffix": ""
+      },
+      "case_sensitive": false,
+      "color": "#94E2D5",
+      "created_at": "2026-03-02T15:15:28.590097+00:00",
+      "hover_text": "Die Berichterstattung über aktuelle Ereignisse und Themen. Im Kontext dieser Arbeit wird untersucht, wie KI eingesetzt werden kann, um journalistische Aufgaben zu automatisieren oder zu unterstützen.",
+      "id": "gls_5d517e921f41",
+      "jump_to": "",
+      "kind": "glossary",
+      "match_mode": "term_all",
+      "panel_scope": "*",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T15:15:28.590098+00:00",
+      "whole_word": true
+    },
+    {
+      "anchor": {
+        "exact": "Roboterjournalismus",
+        "prefix": "",
+        "suffix": ""
+      },
+      "case_sensitive": false,
+      "color": "#94E2D5",
+      "created_at": "2026-03-02T15:15:28.590101+00:00",
+      "hover_text": "Der Einsatz von Technologie, insbesondere von KI, zur Erstellung von Nachrichten und Inhalten. Roboterjournalismus zielt darauf ab, journalistische Aufgaben effizienter und kostengünstiger zu erledigen.",
+      "id": "gls_628f7775440b",
+      "jump_to": "",
+      "kind": "glossary",
+      "match_mode": "term_all",
+      "panel_scope": "*",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T15:15:28.590102+00:00",
+      "whole_word": true
+    },
+    {
+      "anchor": {
+        "exact": "Experiment",
+        "prefix": "",
+        "suffix": ""
+      },
+      "case_sensitive": false,
+      "color": "#94E2D5",
+      "created_at": "2026-03-02T15:15:28.590105+00:00",
+      "hover_text": "Eine kontrollierte Studie, bei der Variablen manipuliert werden, um die Auswirkungen auf eine abhängige Variable zu untersuchen. In dieser Arbeit wurde ein Experiment durchgeführt, um die Qualität von KI-generierten Texten zu evaluieren.",
+      "id": "gls_45ab24d4d28b",
+      "jump_to": "",
+      "kind": "glossary",
+      "match_mode": "term_all",
+      "panel_scope": "*",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T15:15:28.590106+00:00",
+      "whole_word": true
+    },
+    {
+      "anchor": {
+        "exact": "Online-Befragung",
+        "prefix": "",
+        "suffix": ""
+      },
+      "case_sensitive": false,
+      "color": "#94E2D5",
+      "created_at": "2026-03-02T15:15:28.590108+00:00",
+      "hover_text": "Eine Umfrage, die über das Internet durchgeführt wird. In dieser Arbeit wurde eine Online-Befragung verwendet, um die Wahrnehmung von KI-generierten Texten durch Testpersonen zu erfassen.",
+      "id": "gls_ca1e0ea837ca",
+      "jump_to": "",
+      "kind": "glossary",
+      "match_mode": "term_all",
+      "panel_scope": "*",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T15:15:28.590109+00:00",
+      "whole_word": true
+    },
+    {
+      "anchor": {
+        "exact": "Kriterienanalyse",
+        "prefix": "",
+        "suffix": ""
+      },
+      "case_sensitive": false,
+      "color": "#94E2D5",
+      "created_at": "2026-03-02T15:15:28.590112+00:00",
+      "hover_text": "Eine Methode zur Bewertung von Texten anhand vordefinierter Kriterien. In dieser Arbeit wurde eine Kriterienanalyse verwendet, um die Qualität der KI-generierten Texte zu beurteilen.",
+      "id": "gls_216c3aace14b",
+      "jump_to": "",
+      "kind": "glossary",
+      "match_mode": "term_all",
+      "panel_scope": "*",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T15:15:28.590113+00:00",
+      "whole_word": true
+    },
+    {
+      "anchor": {
+        "exact": "Testpersonen",
+        "prefix": "",
+        "suffix": ""
+      },
+      "case_sensitive": false,
+      "color": "#94E2D5",
+      "created_at": "2026-03-02T15:15:28.590115+00:00",
+      "hover_text": "Die Teilnehmer an einem Experiment oder einer Studie. In dieser Arbeit wurden 58 Testpersonen befragt, um ihre Wahrnehmung von KI-generierten Texten zu erfassen.",
+      "id": "gls_58b3dff5d6c9",
+      "jump_to": "",
+      "kind": "glossary",
+      "match_mode": "term_all",
+      "panel_scope": "*",
+      "tab_scope": "all",
+      "tabs": [],
+      "updated_at": "2026-03-02T15:15:28.590116+00:00",
+      "whole_word": true
+    }
+  ],
+  "settings": {
+    "glossary_enabled": true
+  },
+  "updated_at": "2026-03-02T17:46:23.667632+00:00",
+  "version": 2
+}
