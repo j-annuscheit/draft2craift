@@ -155,6 +155,10 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         """Remove an imported document from the context selector."""
         self.context_panel.remove_document(name)
 
+    def rename_document(self, old_name: str, new_name: str) -> str:
+        """Rename an imported document in the context selector."""
+        return self.context_panel.rename_document(old_name, new_name)
+
     def get_context_selection(self) -> tuple[bool, bool, list[tuple[str, str]]]:
         """Return ``(use_canvas, use_rag, [(name, content), ...])``."""
         return self.context_panel.get_selection()

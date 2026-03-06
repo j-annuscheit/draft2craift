@@ -644,6 +644,7 @@ class MainWindow(QMainWindow):
         self.knowledge_dock.rag_settings_requested.connect(self._open_rag_settings)
         self.knowledge_dock.rag_status_changed.connect(self._on_rag_status)
         self.knowledge_dock.document_remove_requested.connect(self._remove_imported_document)
+        self.knowledge_dock.document_rename_requested.connect(self._rename_imported_document)
         self.knowledge_dock.rag_worker.index_complete.connect(
             lambda n: self.statusBar().showMessage(
                 f"RAG indexed {n} document{'s' if n != 1 else ''}", 3000
@@ -2737,6 +2738,93 @@ class MainWindow(QMainWindow):
         if entry:
             _path, markdown = entry
             self.knowledge_dock.open_content(display_name, markdown, doc_key=display_name)
+
+    @staticmethod
+    def _unique_imported_name(
+        desired: str,
+        existing: set[str],
+        current: str,
+    ) -> str:
+        target = str(desired or "").strip() or str(current or "").strip() or "Document"
+        if target == current or target not in existing:
+            return target
+
+        stem, dot, ext = target.rpartition(".")
+        root = stem if dot else target
+        suffix = f".{ext}" if dot else ""
+
+        idx = 1
+        while True:
+            candidate = f"{root} ({idx}){suffix}"
+            if candidate not in existing or candidate == current:
+                return candidate
+            idx += 1
+
+    def _resolve_imported_registry_key(self, name: str) -> str:
+        """
+        Resolve a user-visible document title to the actual registry key.
+
+        Viewer tab titles may be extension-stripped (e.g. ``report`` instead of
+        ``report.md``), while registry keys often keep the original filename.
+        """
+        key = str(name or "").strip()
+        if not key:
+            return ""
+
+        if key in self._file_registry:
+            return key
+
+        key_low = key.casefold()
+        for existing in self._file_registry.keys():
+            raw = str(existing or "").strip()
+            if raw.casefold() == key_low:
+                return raw
+
+        key_stem = os.path.splitext(key)[0].strip().casefold()
+        if not key_stem:
+            return ""
+
+        for existing in self._file_registry.keys():
+            raw = str(existing or "").strip()
+            if not raw:
+                continue
+            raw_stem = os.path.splitext(raw)[0].strip().casefold()
+            if raw_stem == key_stem:
+                return raw
+        return ""
+
+    def _rename_imported_document(self, old_name: str, new_name: str):
+        """Rename one imported document across viewer, RAG list, chat context and registry."""
+        old_key = self._resolve_imported_registry_key(old_name)
+        requested = str(new_name or "").strip()
+        if not old_key or not requested or old_key == requested:
+            return
+
+        existing = set(self._file_registry.keys())
+        existing.discard(old_key)
+        final_name = self._unique_imported_name(requested, existing, old_key)
+
+        entry = self._file_registry.pop(old_key)
+        self._file_registry[final_name] = entry
+        self._update_loaded_menu()
+
+        # Keep all surfaces in sync with the same final display name.
+        self.knowledge_dock.rename_viewer_document(old_key, final_name)
+        self.knowledge_dock.rename_imported_file(old_key, final_name)
+        self.chat_dock.rename_document(old_key, final_name)
+        self._refresh_context_bar()
+
+        if final_name != requested:
+            self.statusBar().showMessage(
+                f"Dokument umbenannt: '{requested}' bereits vergeben, nutze '{final_name}'.",
+                5000,
+            )
+        else:
+            self.statusBar().showMessage(
+                f"Dokument umbenannt: {old_key} -> {final_name}",
+                4000,
+            )
+        self._autosave_schedule_full(delay_ms=250)
 
     def _remove_imported_document(self, display_name: str):
         """Remove one imported document from all app surfaces."""

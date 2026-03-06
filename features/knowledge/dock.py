@@ -44,6 +44,7 @@ class KnowledgeDock(QDockWidget):
     rag_settings_requested = Signal()   # relayed from RAGResultsPanel → MainWindow
     rag_status_changed = Signal(str)  # relayed from RAGWorker → MainWindow
     document_remove_requested = Signal(str)  # doc_key (display name)
+    document_rename_requested = Signal(str, str)  # old_name, new_name
 
     def __init__(self, rag_system: RAGSystem, parent=None):
         super().__init__("Knowledge Base", parent)
@@ -99,6 +100,7 @@ class KnowledgeDock(QDockWidget):
         self.rag_panel.search_requested.connect(self._run_rag_search)
         self.rag_panel.settings_requested.connect(self.rag_settings_requested)
         self.doc_viewer.file_remove_requested.connect(self._on_doc_remove_requested)
+        self.doc_viewer.document_rename_requested.connect(self._on_doc_rename_requested)
 
         self.rag_worker.search_complete.connect(self._on_search_complete)
         self.rag_worker.status_changed.connect(self._on_rag_status)
@@ -124,6 +126,12 @@ class KnowledgeDock(QDockWidget):
         if key:
             self.document_remove_requested.emit(key)
 
+    def _on_doc_rename_requested(self, old_name: str, new_name: str):
+        old_key = str(old_name or "").strip()
+        new_key = str(new_name or "").strip()
+        if old_key and new_key and old_key != new_key:
+            self.document_rename_requested.emit(old_key, new_key)
+
     def reindex_rag(self):
         """Re-index all currently checked files (enqueues background task)."""
         entries = self.imported_files.get_checked_files()
@@ -142,9 +150,17 @@ class KnowledgeDock(QDockWidget):
         """Remove one imported file from the selector (and trigger reindex)."""
         self.imported_files.remove_file(name)
 
+    def rename_imported_file(self, old_name: str, new_name: str) -> str:
+        """Rename one imported file entry in the selector."""
+        return self.imported_files.rename_file(old_name, new_name)
+
     def remove_viewer_document(self, doc_key: str):
         """Remove all viewer tabs for the given imported document key."""
         self.doc_viewer.remove_tabs_for_doc(doc_key)
+
+    def rename_viewer_document(self, old_doc_key: str, new_doc_key: str) -> bool:
+        """Rename viewer tabs and bindings for one imported document key."""
+        return self.doc_viewer.apply_document_rename(old_doc_key, new_doc_key)
 
     def set_feedback_service(self, service) -> None:
         self.rag_panel.set_feedback_service(service)

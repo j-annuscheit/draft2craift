@@ -136,6 +136,50 @@ class ImportedFilesPanel(QWidget):
         else:
             self._update_status()
 
+    @staticmethod
+    def _unique_name(target: str, existing: set[str], current: str) -> str:
+        desired = str(target or "").strip() or str(current or "").strip() or "Document"
+        if desired == current or desired not in existing:
+            return desired
+
+        stem, dot, ext = desired.rpartition(".")
+        root = stem if dot else desired
+        suffix = f".{ext}" if dot else ""
+
+        idx = 1
+        while True:
+            candidate = f"{root} ({idx}){suffix}"
+            if candidate not in existing or candidate == current:
+                return candidate
+            idx += 1
+
+    def rename_file(self, old_name: str, new_name: str) -> str:
+        """Rename one imported file entry and keep selection/check-state."""
+        old_key = str(old_name or "").strip()
+        if not old_key or old_key not in self._entries:
+            return ""
+
+        final = self._unique_name(new_name, set(self._entries.keys()), old_key)
+        if final == old_key:
+            return old_key
+
+        content = self._entries.pop(old_key)
+        self._entries[final] = content
+
+        self._list.blockSignals(True)
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            item_key = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
+            if item_key != old_key:
+                continue
+            item.setData(Qt.ItemDataRole.UserRole, final)
+            item.setText(final)
+            break
+        self._list.blockSignals(False)
+
+        self._emit_selection()
+        return final
+
     def _select_all(self):
         self._list.blockSignals(True)
         for i in range(self._list.count()):

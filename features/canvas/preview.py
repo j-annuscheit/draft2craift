@@ -236,6 +236,7 @@ class CanvasPreviewPane(QWidget):
     """Encapsulates preview editing/rendering, zooming, and cursor sync."""
 
     _HR_MARKER = "{{__D2C_HR__}}"
+    _BLANK_LINE_SENTINEL = "\u200B"
     _ORDERED_ITEM_RE = re.compile(r"^(\s*)\d+[.)]\s+")
     _BULLET_ITEM_RE = re.compile(r"^(\s*)[-+*]\s+")
     _TOKEN_RE = re.compile(r"\w+(?:[+./-]\w+)*", flags=re.UNICODE)
@@ -1717,8 +1718,8 @@ class CanvasPreviewPane(QWidget):
         )
         return CanvasPreviewPane._normalize_ordered_sublist_indent(normalized)
 
-    @staticmethod
-    def _markdown_for_render(text: str) -> str:
+    @classmethod
+    def _markdown_for_render(cls, text: str) -> str:
         """
         Prepare markdown for HTML display without structural rewrites.
 
@@ -1726,12 +1727,66 @@ class CanvasPreviewPane(QWidget):
         can otherwise alter list/paragraph structure in pure preview mode.
         """
         normalized = str(text or "").replace("\r\n", "\n")
-        return CanvasPreviewPane._replace_hr_markers(normalized)
+        normalized = cls._replace_hr_markers(normalized)
+        return cls._inject_render_spacers_for_extra_blank_lines(normalized)
 
     @classmethod
     def _replace_hr_markers(cls, text: str) -> str:
         pattern = rf"(?m)^[ \t]*{re.escape(cls._HR_MARKER)}[ \t]*$"
         return re.sub(pattern, "- - -", text)
+
+    @classmethod
+    def _inject_render_spacers_for_extra_blank_lines(cls, text: str) -> str:
+        lines = str(text or "").split("\n")
+        out: list[str] = []
+        blank_run = 0
+        in_fence = False
+        fence_char = ""
+        fence_len = 0
+
+        def flush_blank_run():
+            nonlocal blank_run
+            if blank_run <= 0:
+                return
+            out.append("")
+            for _ in range(max(0, blank_run - 1)):
+                out.append(cls._BLANK_LINE_SENTINEL)
+                out.append("")
+            blank_run = 0
+
+        for line in lines:
+            stripped = str(line or "").lstrip()
+            fence_match = re.match(r"^([`~]{3,})", stripped)
+            if fence_match is not None:
+                marker = fence_match.group(1)
+                marker_char = marker[0]
+                marker_len = len(marker)
+                flush_blank_run()
+                if not in_fence:
+                    in_fence = True
+                    fence_char = marker_char
+                    fence_len = marker_len
+                elif marker_char == fence_char and marker_len >= fence_len:
+                    in_fence = False
+                    fence_char = ""
+                    fence_len = 0
+                out.append(line)
+                continue
+
+            if in_fence:
+                flush_blank_run()
+                out.append(line)
+                continue
+
+            if cls._line_is_blank_like(line):
+                blank_run += 1
+                continue
+
+            flush_blank_run()
+            out.append(line)
+
+        flush_blank_run()
+        return "\n".join(out)
 
     @staticmethod
     def _normalize_inline_code_backslashes(text: str) -> str:
@@ -1845,6 +1900,90 @@ class CanvasPreviewPane(QWidget):
 
         return "\n".join(out)
 
+    @classmethod
+    def _line_is_blank_like(cls, line: str) -> bool:
+        # Preserve visually empty spacer paragraphs as blank-like.
+        token = str(line or "").replace("\u00A0", " ").replace("\u200B", "")
+        return not token.strip()
+
+    @classmethod
+    def _nonempty_normalized_rows(
+        cls,
+        text: str,
+    ) -> list[tuple[str, int, int]]:
+        lines = str(text or "").replace("\r\n", "\n").split("\n")
+        rows: list[tuple[str, int, int]] = []
+        count = len(lines)
+        i = 0
+        while i < count:
+            token = cls._normalize_markdown_line(lines[i]).casefold()
+            if not token:
+                i += 1
+                continue
+            j = i + 1
+            gap = 0
+            while j < count and cls._line_is_blank_like(lines[j]):
+                gap += 1
+                j += 1
+            rows.append((token, i, gap))
+            i = j
+        return rows
+
+    @classmethod
+    def _restore_extra_blank_lines_from_plaintext(
+        cls,
+        markdown_text: str,
+        plain_text: str,
+    ) -> str:
+        """
+        Restore user-added extra blank paragraphs from HTML editor input.
+
+        Qt's toMarkdown() collapses repeated empty paragraphs. We preserve
+        additional blank lines by inserting invisible spacer paragraphs between
+        blocks where plain-text block gaps are larger than the markdown gap.
+        """
+        md = str(markdown_text or "").replace("\r\n", "\n")
+        plain = str(plain_text or "").replace("\r\n", "\n")
+        if not md or not plain:
+            return md
+
+        md_rows = cls._nonempty_normalized_rows(md)
+        plain_rows = cls._nonempty_normalized_rows(plain)
+        if len(md_rows) < 2 or len(md_rows) != len(plain_rows):
+            return md
+        if any(md_rows[idx][0] != plain_rows[idx][0] for idx in range(len(md_rows))):
+            return md
+
+        lines = md.split("\n")
+        offset = 0
+        changed = False
+        for idx in range(len(md_rows) - 1):
+            start = int(md_rows[idx][1]) + offset
+            end = int(md_rows[idx + 1][1]) + offset
+            if end <= start:
+                continue
+            region = lines[start + 1:end]
+            if not region:
+                continue
+            if not all(cls._line_is_blank_like(line) for line in region):
+                continue
+
+            desired_extra = max(0, int(plain_rows[idx][2]))
+            target_region = [""]
+            for _ in range(desired_extra):
+                target_region.append(cls._BLANK_LINE_SENTINEL)
+                target_region.append("")
+
+            if region == target_region:
+                continue
+            lines[start + 1:end] = target_region
+            offset += len(target_region) - len(region)
+            changed = True
+
+        if not changed:
+            return md
+        return "\n".join(lines)
+
     def _on_preview_text_changed(self):
         if (
             not self._allow_editing
@@ -1858,10 +1997,22 @@ class CanvasPreviewPane(QWidget):
             self._PREVIEW_TO_MARKDOWN_DELAY_MS
         )
 
-    def _commit_preview_edit_to_markdown(self):
-        if self._editor is None:
+    def _commit_preview_edit_to_markdown(self, *, force: bool = False):
+        if (
+            self._editor is None
+            or (not self._allow_editing)
+            or self._structured_view_active
+        ):
+            self._preview_edit_active = False
             return
+        if (not force) and self._focus_is_inside_preview():
+            return
+        plain_text = (self._view.toPlainText() or "").replace("\r\n", "\n")
         new_markdown = self._canonical_markdown(self._view.toMarkdown())
+        new_markdown = self._restore_extra_blank_lines_from_plaintext(
+            new_markdown,
+            plain_text,
+        )
         if (
             self._view_has_terminal_hr()
             and not self._markdown_has_terminal_hr(new_markdown)
@@ -1917,7 +2068,7 @@ class CanvasPreviewPane(QWidget):
         if self._focus_is_inside_preview():
             return
         self._preview_to_markdown_timer.stop()
-        self._commit_preview_edit_to_markdown()
+        self._commit_preview_edit_to_markdown(force=True)
         self._preview_edit_active = False
         self.schedule_update()
         self.schedule_cursor_sync()
@@ -1929,7 +2080,7 @@ class CanvasPreviewPane(QWidget):
         self._preview_to_markdown_timer.stop()
         if not self._preview_edit_active:
             return
-        self._commit_preview_edit_to_markdown()
+        self._commit_preview_edit_to_markdown(force=True)
         self._preview_edit_active = False
         self.schedule_update()
         self.schedule_cursor_sync()
@@ -1949,7 +2100,7 @@ class CanvasPreviewPane(QWidget):
         self._preview_edit_active = True
         self._preview_to_markdown_timer.stop()
         action()
-        self._commit_preview_edit_to_markdown()
+        self._commit_preview_edit_to_markdown(force=True)
         self._refresh_preview_from_markdown_preserve_cursor()
         self._view.setFocus(Qt.FocusReason.OtherFocusReason)
 
@@ -2204,7 +2355,7 @@ class CanvasPreviewPane(QWidget):
     @staticmethod
     def _normalize_markdown_line(line: str) -> str:
         """Map a markdown source line to plain text for preview matching."""
-        text = (line or "").strip()
+        text = str(line or "").replace("\u200B", "").replace("\u00A0", " ").strip()
         if not text:
             return ""
         text = re.sub(r"^#{1,6}\s*", "", text)
@@ -2280,6 +2431,11 @@ class CanvasPreviewPane(QWidget):
                 self._content_stack.setCurrentWidget(self._view)
             self._sync_preview_interaction_mode()
             return
+
+        # Structured graph mode is read-only from the graph canvas. Any pending
+        # preview->markdown sync would write stale QTextBrowser content back.
+        self._preview_to_markdown_timer.stop()
+        self._preview_edit_active = False
 
         signature = graph_spec_signature(spec)
         if signature != self._structured_graph_signature:

@@ -118,9 +118,9 @@ pylint_report.json
 longtext.md
 test.md
 flake8_report.txt
-*untitled*.docx
-*untitled*.md
-*untitled*.pdf
+*untitled*.docx*
+*untitled*.md*
+*untitled*.pdf*
 
 # Security: secrets / credentials
 .env

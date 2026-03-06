@@ -12,6 +12,7 @@ class DocumentViewerPanel(QWidget):
     """Multi-tab document viewer with shared markdown split-view panels."""
 
     file_remove_requested = Signal(str, str)   # (doc_key, visible_title)
+    document_rename_requested = Signal(str, str)  # (old_doc_key, new_doc_key)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -79,6 +80,35 @@ class DocumentViewerPanel(QWidget):
             self.tabs._refresh_tab_labels()
             self.tabs._update_close_buttons()
 
+    def apply_document_rename(self, old_doc_key: str, new_doc_key: str) -> bool:
+        """
+        Apply a global document rename across all viewer tabs of that document.
+
+        This updates:
+        - internal ``_doc_key`` bindings
+        - visible tab titles for all matching tabs
+        """
+        old_key = str(old_doc_key or "").strip()
+        new_key = str(new_doc_key or "").strip()
+        if not old_key or not new_key or old_key == new_key:
+            return False
+
+        tab_widget = self.tabs.tab_widget
+        changed = False
+        for i in range(tab_widget.count()):
+            panel = tab_widget.widget(i)
+            panel_key = str(getattr(panel, "_doc_key", "") or "").strip()
+            if panel_key != old_key:
+                continue
+            setattr(panel, "_doc_key", new_key)
+            self.tabs._set_full_tab_title(i, new_key)
+            changed = True
+
+        if changed:
+            self.tabs._refresh_tab_labels()
+            self.tabs._update_close_buttons()
+        return changed
+
     def _on_tab_close_requested(self, index: int):
         tab_widget = self.tabs.tab_widget
         if index < 0 or index >= tab_widget.count():
@@ -118,3 +148,7 @@ class DocumentViewerPanel(QWidget):
             old_name=old_title,
             new_name=new_title,
         )
+        old_key = str(old_title or "").strip()
+        new_key = str(new_title or "").strip()
+        if old_key and new_key and old_key != new_key:
+            self.document_rename_requested.emit(old_key, new_key)

@@ -147,6 +147,47 @@ class ContextSelectorPanel(QWidget):
         self._cbs[name] = cb
         self._schedule_height_refresh()
 
+    @staticmethod
+    def _unique_name(target: str, existing: set[str], current: str) -> str:
+        desired = str(target or "").strip() or str(current or "").strip() or "Document"
+        if desired == current or desired not in existing:
+            return desired
+
+        stem, dot, ext = desired.rpartition(".")
+        root = stem if dot else desired
+        suffix = f".{ext}" if dot else ""
+
+        idx = 1
+        while True:
+            candidate = f"{root} ({idx}){suffix}"
+            if candidate not in existing or candidate == current:
+                return candidate
+            idx += 1
+
+    def rename_document(self, old_name: str, new_name: str) -> str:
+        """Rename one imported document row while preserving checkbox state."""
+        old_key = str(old_name or "").strip()
+        if not old_key or old_key not in self._docs:
+            return ""
+
+        cb = self._cbs.get(old_key)
+        if cb is None:
+            return ""
+
+        final = self._unique_name(new_name, set(self._docs.keys()), old_key)
+        if final == old_key:
+            return old_key
+
+        content = self._docs.pop(old_key)
+        self._docs[final] = content
+
+        self._cbs.pop(old_key, None)
+        self._cbs[final] = cb
+        cb.setText(final)
+        cb.setToolTip(final)
+        self._schedule_height_refresh()
+        return final
+
     def remove_document(self, name: str):
         cb = self._cbs.pop(name, None)
         if cb:
