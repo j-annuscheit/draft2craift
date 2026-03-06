@@ -111,3 +111,58 @@ tmp/
 runs/
 
 models/
+
+.pylint_cache/
+pylint_report.json
+
+longtext.md
+test.md
+flake8_report.txt
+*untitled*.docx
+*untitled*.md
+*untitled*.pdf
+
+# Security: secrets / credentials
+.env
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+
+# Security: local user/runtime data (chat/search/history/highlights)
+highlights.json*
+**/autosave_project/
+**/project.json
+**/chat/history.json
+**/logs/entries.json
+**/rag/index.pkl
+**/rag/embeddings.pt
+**/canvas/doc_*.md
+**/knowledge/doc_*.md
+
+# Feedback / dislikes / testcase studio (can contain user text/payloads)
+**/feedback_events.jsonl
+**/feedback_counters.json
+**/test_cases.jsonl
+**/testcase_counter.json
+
+# Evaluator run outputs (often include prompts, answers, context excerpts)
+*.debug.jsonl
+*.artifacts/
+
+# Additional test/cache artefacts
+.coverage.*
+coverage.xml
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+*.sqlite
+*.sqlite3
+*.db
+*.db-*
