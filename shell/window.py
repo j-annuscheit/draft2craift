@@ -21,11 +21,11 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QPushButton, QLabel, QFileDialog,
     QStatusBar, QMessageBox, QDialog, QDialogButtonBox,
-    QTextEdit, QApplication, QMenu, QInputDialog,
+    QTextEdit, QApplication, QMenu, QInputDialog, QCheckBox, QLineEdit,
 )
 from PySide6.QtCore import QObject, QSettings, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import (
-    QAction, QActionGroup, QKeySequence,
+    QAction, QActionGroup, QKeySequence, QTextCursor, QTextDocument, QShortcut,
 )
 
 from widgets.markdown.editor import MarkdownEditor
@@ -52,16 +52,23 @@ from core.user_modes import (
     normalize_user_mode,
 )
 from features.canvas.widget import CanvasTabWidget
+from features.canvas.preview import CanvasPreviewPane
 from features.feedback import (
     FeedbackFreeformDialog,
     FeedbackSettingsDialog,
     FeedbackStatsDialog,
 )
 from features.feedback.bar import FeedbackBar
+from features.glossary import GlossaryEditorDialog
 from services.feedback.service import FeedbackService
 from services.feedback.settings import FeedbackSettings
 from widgets.markdown.split_view import MarkdownSplitPanel
-from shell.theme import apply_dark_theme
+from shell.theme import (
+    apply_theme,
+    available_themes,
+    normalize_theme_id,
+    theme_tokens,
+)
 
 # ── Main Window ────────────────────────────────────────────────────────────────
 
@@ -138,6 +145,9 @@ class MainWindow(QMainWindow):
     """
 
     _AUTOSAVE_SETTING_KEY = "autosave/enabled"
+    _THEME_SETTING_KEY = "ui/theme"
+    _PREVIEW_MARGIN_ENABLED_KEY = "preview/page_margin_enabled"
+    _PREVIEW_MARGIN_EM_KEY = "preview/page_margin_em"
 
     def __init__(self):
         super().__init__()
@@ -158,6 +168,17 @@ class MainWindow(QMainWindow):
         self._speech_settings = SpeechSettings()
         self._tts_manager = TextToSpeechManager(self)
         self._app_settings = QSettings("draft2craift", "draft2craift")
+        self._theme_id = self._load_theme_id()
+        self._theme_actions: dict[str, QAction] = {}
+        self._model_status_success: bool | None = None
+        self.apply_theme_id(self._theme_id, persist=False)
+        preview_margin_enabled, preview_margin_em = (
+            self._load_preview_page_margin_settings()
+        )
+        CanvasPreviewPane.apply_global_page_margin_settings(
+            enabled=preview_margin_enabled,
+            em=preview_margin_em,
+        )
         self._feedback_settings = self._load_feedback_settings()
         self._feedback_service = FeedbackService(self._feedback_settings)
         self._status_feedback_payload: dict[str, object] = {}
@@ -192,7 +213,12 @@ class MainWindow(QMainWindow):
         self._init_docks()
         self._init_menubar()
         self._init_statusbar()
+        self._init_global_shortcuts()
         self._connect_global_signals()
+        self._find_replace_dialog: QDialog | None = None
+        self._find_editor: MarkdownEditor | None = None
+        self._find_target: dict | None = None
+        self._find_read_only_editor: MarkdownEditor | None = None
         self.set_user_mode(self._user_mode, notify=False)
         restored_from_tmp = self._maybe_restore_autosave_project()
         if not restored_from_tmp:
@@ -220,17 +246,86 @@ class MainWindow(QMainWindow):
         )
         self.resize(1440, 900)
         self.setDockNestingEnabled(True)
-        self.setStyleSheet("""
-            QMainWindow {
-                background: #1E1E2E;
-            }
-            QMainWindow::separator {
-                background: #45475A; width: 3px; height: 3px;
-            }
-            QMainWindow::separator:hover {
-                background: #89B4FA;
-            }
-        """)
+        self._apply_window_chrome_theme()
+
+    def _apply_window_chrome_theme(self):
+        tokens = theme_tokens(self.get_theme_id())
+        self.setStyleSheet(
+            f"""
+            QMainWindow {{
+                background: {tokens['base_bg']};
+            }}
+            QMainWindow::separator {{
+                background: {tokens['border']};
+                width: 3px;
+                height: 3px;
+            }}
+            QMainWindow::separator:hover {{
+                background: {tokens['accent']};
+            }}
+            """
+        )
+
+        bar = self.menuBar()
+        if bar is not None:
+            bar.setStyleSheet(
+                f"""
+                QMenuBar {{
+                    background: {tokens['menu_bg']};
+                    color: {tokens['text']};
+                    border-bottom: 1px solid {tokens['border_strong']};
+                    font-size: 11px;
+                }}
+                QMenuBar::item:selected {{
+                    background: {tokens['menu_item_hover']};
+                }}
+                QMenu {{
+                    background: {tokens['panel_alt_bg']};
+                    color: {tokens['text']};
+                    border: 1px solid {tokens['border']};
+                    font-size: 11px;
+                }}
+                QMenu::item:selected {{
+                    background: {tokens['menu_item_hover']};
+                }}
+                QMenu::separator {{
+                    background: {tokens['border']};
+                    height: 1px;
+                    margin: 2px 0;
+                }}
+                """
+            )
+
+        sb = self.findChild(QStatusBar)
+        if isinstance(sb, QStatusBar):
+            sb.setStyleSheet(
+                f"""
+                QStatusBar {{
+                    background: {tokens['menu_bg']};
+                    color: {tokens['muted_text']};
+                    border-top: 1px solid {tokens['border_strong']};
+                    font-size: 10px;
+                }}
+                """
+            )
+
+        self._apply_status_label_styles()
+
+    def _apply_status_label_styles(self):
+        tokens = theme_tokens(self.get_theme_id())
+        model_color = (
+            tokens["success"]
+            if self._model_status_success is True
+            else tokens["danger"]
+        )
+        muted_style = f"color: {tokens['muted_text']}; padding: 0 8px;"
+
+        if hasattr(self, "_model_lbl"):
+            self._model_lbl.setStyleSheet(f"color: {model_color}; padding: 0 8px;")
+        if hasattr(self, "_backend_lbl"):
+            self._backend_lbl.setStyleSheet(muted_style)
+        if hasattr(self, "_mode_lbl"):
+            self._mode_lbl.setStyleSheet(muted_style)
 
     def _init_central(self):
         self.canvas = CanvasTabWidget()
@@ -251,6 +346,9 @@ class MainWindow(QMainWindow):
 
         # Inject context getter
         self.chat_dock.set_context_getter(self._build_llm_context)
+        self.chat_dock.set_canvas_selection_getter(
+            self._get_canvas_selected_text_for_context
+        )
         self.chat_dock.set_selection_apply_handler(self._apply_llm_selection_rewrite)
         self.chat_dock.set_fact_result_handler(self._open_fact_check_canvas)
         self.chat_dock.set_glossary_request_handler(
@@ -263,6 +361,9 @@ class MainWindow(QMainWindow):
         self.chat_dock.read_aloud_requested.connect(self._speak_chat_text)
         self.chat_dock.read_aloud_stop_requested.connect(self._stop_tts)
         self.chat_dock.tts_mode_changed.connect(self._on_chat_tts_mode_changed)
+        self.chat_dock.visibilityChanged.connect(
+            lambda _visible: self._sync_model_controls_toggle_action()
+        )
         self.knowledge_dock.set_feedback_service(self._feedback_service)
 
         # ── Debug Log Dock (bottom, hidden by default)
@@ -278,21 +379,11 @@ class MainWindow(QMainWindow):
             Qt.Orientation.Horizontal,
         )
 
+    def _get_canvas_selected_text_for_context(self) -> str:
+        return str(self.canvas.get_selected_text(allow_cached=True) or "")
+
     def _init_menubar(self):
         bar = self.menuBar()
-        bar.setStyleSheet("""
-            QMenuBar {
-                background: #181825; color: #CDD6F4;
-                border-bottom: 1px solid #313244; font-size: 11px;
-            }
-            QMenuBar::item:selected { background: #313244; }
-            QMenu {
-                background: #313244; color: #CDD6F4;
-                border: 1px solid #45475A; font-size: 11px;
-            }
-            QMenu::item:selected { background: #45475A; }
-            QMenu::separator { background: #45475A; height: 1px; margin: 2px 0; }
-        """)
 
         # File
         file_menu = bar.addMenu("&File")
@@ -316,16 +407,34 @@ class MainWindow(QMainWindow):
         tk = self.knowledge_dock.toggleViewAction()
         tk.setText("Knowledge Dock")
         tk.setShortcut(QKeySequence("Ctrl+1"))
+        tk.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         tc = self.chat_dock.toggleViewAction()
         tc.setText("AI Chat Dock")
         tc.setShortcut(QKeySequence("Ctrl+2"))
+        tc.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         tl = self.log_dock.toggleViewAction()
         tl.setText("Debug Log")
         tl.setShortcut(QKeySequence("Ctrl+3"))
+        tl.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self._log_toggle_action = tl
         view_menu.addAction(tk)
         view_menu.addAction(tc)
         view_menu.addAction(tl)
+        self._model_controls_toggle_action = QAction(
+            "Model Load + Generation",
+            self,
+        )
+        self._model_controls_toggle_action.setCheckable(True)
+        self._model_controls_toggle_action.setChecked(True)
+        self._model_controls_toggle_action.setShortcut(QKeySequence("Ctrl+4"))
+        self._model_controls_toggle_action.setShortcutContext(
+            Qt.ShortcutContext.ApplicationShortcut
+        )
+        self._model_controls_toggle_action.toggled.connect(
+            self._set_model_controls_visible
+        )
+        view_menu.addAction(self._model_controls_toggle_action)
+        self._sync_model_controls_toggle_action()
         mode_menu = view_menu.addMenu("Nutzermodus")
         self._mode_group = QActionGroup(self)
         self._mode_group.setExclusive(True)
@@ -336,6 +445,19 @@ class MainWindow(QMainWindow):
             self._mode_group.addAction(act)
             mode_menu.addAction(act)
             self._mode_actions[mode] = act
+        theme_menu = view_menu.addMenu("Theme")
+        self._theme_group = QActionGroup(self)
+        self._theme_group.setExclusive(True)
+        for theme_id, label in available_themes():
+            act = QAction(label, self)
+            act.setCheckable(True)
+            act.triggered.connect(
+                lambda _checked=False, t=theme_id: self.apply_theme_id(t, persist=True)
+            )
+            self._theme_group.addAction(act)
+            theme_menu.addAction(act)
+            self._theme_actions[theme_id] = act
+        self._sync_theme_actions()
         view_menu.addSeparator()
         text_size_menu = view_menu.addMenu("Textgröße")
         self._add_action(text_size_menu, "Aktive Ansicht größer", "Ctrl+=", self._increase_active_text_size)
@@ -345,6 +467,27 @@ class MainWindow(QMainWindow):
         self._add_action(text_size_menu, "HTML-Vorschau größer", "", self._increase_preview_text_size)
         self._add_action(text_size_menu, "HTML-Vorschau kleiner", "", self._decrease_preview_text_size)
         self._add_action(text_size_menu, "HTML-Vorschau Standard (100%)", "", self._reset_preview_text_size)
+        page_margin_menu = view_menu.addMenu("Seitenrand")
+        self._action_page_margin_enabled = QAction("Seitenrand aktiv", self)
+        self._action_page_margin_enabled.setCheckable(True)
+        self._action_page_margin_enabled.triggered.connect(
+            self._toggle_preview_page_margin_enabled
+        )
+        page_margin_menu.addAction(self._action_page_margin_enabled)
+        page_margin_menu.addSeparator()
+        self._page_margin_group = QActionGroup(self)
+        self._page_margin_group.setExclusive(True)
+        self._page_margin_actions: list[tuple[float, QAction]] = []
+        for label, em_value in CanvasPreviewPane._PAGE_MARGIN_PRESETS:
+            action = QAction(str(label), self)
+            action.setCheckable(True)
+            action.triggered.connect(
+                lambda _checked=False, em=float(em_value): self._set_preview_page_margin_preset(em)
+            )
+            self._page_margin_group.addAction(action)
+            page_margin_menu.addAction(action)
+            self._page_margin_actions.append((float(em_value), action))
+        self._sync_preview_page_margin_actions()
         view_menu.addSeparator()
         self._action_glossary_overlay = QAction("Glossar-Overlay anzeigen", self)
         self._action_glossary_overlay.setCheckable(True)
@@ -355,6 +498,12 @@ class MainWindow(QMainWindow):
             self._toggle_glossary_overlays
         )
         view_menu.addAction(self._action_glossary_overlay)
+        self._add_action(
+            view_menu,
+            "Glossar verwalten…",
+            "",
+            self._open_glossary_editor,
+        )
         view_menu.addSeparator()
         self._add_action(view_menu, "Reset Layout", "", self._reset_layout)
 
@@ -432,6 +581,7 @@ class MainWindow(QMainWindow):
         help_menu = bar.addMenu("&Help")
         self._add_action(help_menu, "Keyboard Shortcuts",   "",           self._show_shortcuts)
         self._add_action(help_menu, "About draft2craift",  "",           self._show_about)
+        self._apply_window_chrome_theme()
 
     def _add_action(self, menu, label: str, shortcut: str, slot) -> QAction:
         act = QAction(label, self)
@@ -441,15 +591,26 @@ class MainWindow(QMainWindow):
         menu.addAction(act)
         return act
 
+    def _init_global_shortcuts(self):
+        self._global_shortcuts: list[QShortcut] = []
+
+        def _bind(sequence: str, slot):
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            shortcut.activated.connect(slot)
+            self._global_shortcuts.append(shortcut)
+
+        _bind("Ctrl+Tab", self._select_next_draft_tab)
+        _bind("Ctrl+Shift+Tab", self._select_previous_draft_tab)
+        _bind("Ctrl+F", self._open_find_replace_dialog)
+        _bind("Alt+1", lambda: self._set_canvas_view_mode_shortcut("markdown"))
+        _bind("Alt+2", lambda: self._set_canvas_view_mode_shortcut("preview"))
+        _bind("Alt+3", lambda: self._set_canvas_view_mode_shortcut("both"))
+        _bind("Ctrl+Alt+S", self._toggle_autosave_shortcut)
+
     def _init_statusbar(self):
         sb = QStatusBar()
         self.setStatusBar(sb)
-        sb.setStyleSheet("""
-            QStatusBar {
-                background: #181825; color: #6C7086;
-                border-top: 1px solid #313244; font-size: 10px;
-            }
-        """)
 
         # Inline FeedbackBar für Glossar (rechts, versteckt bis nach Generierung)
         self._glossary_feedback_bar = FeedbackBar(inline=True)
@@ -459,17 +620,15 @@ class MainWindow(QMainWindow):
         sb.addPermanentWidget(self._glossary_feedback_bar)
 
         self._model_lbl = QLabel("No model loaded")
-        self._model_lbl.setStyleSheet("color: #F38BA8; padding: 0 8px;")
         sb.addPermanentWidget(self._model_lbl)
 
         self._backend_lbl = QLabel(f"backend: {self.rag_system.current_backend()}")
-        self._backend_lbl.setStyleSheet("color: #6C7086; padding: 0 8px;")
         sb.addPermanentWidget(self._backend_lbl)
 
         self._mode_lbl = QLabel(f"mode: {USER_MODE_LABELS[self._user_mode]}")
-        self._mode_lbl.setStyleSheet("color: #6C7086; padding: 0 8px;")
         sb.addPermanentWidget(self._mode_lbl)
 
+        self._apply_window_chrome_theme()
         sb.showMessage("Ready")
 
     def _connect_global_signals(self):
@@ -490,6 +649,12 @@ class MainWindow(QMainWindow):
                 f"RAG indexed {n} document{'s' if n != 1 else ''}", 3000
             )
         )
+        try:
+            self.chat_dock.history.content_changed.connect(
+                lambda: self._autosave_schedule_full(delay_ms=350)
+            )
+        except Exception:
+            pass
         self._on_tts_speaking_changed(self._tts_manager.is_speaking())
         self._apply_speech_runtime_settings()
 
@@ -514,9 +679,132 @@ class MainWindow(QMainWindow):
         raw = self._app_settings.value(self._AUTOSAVE_SETTING_KEY, True)
         return self._as_bool(raw, True)
 
+    def _load_theme_id(self) -> str:
+        raw = self._app_settings.value(self._THEME_SETTING_KEY, "dark")
+        return normalize_theme_id(raw)
+
+    def _persist_theme_id(self, theme_id: str):
+        normalized = normalize_theme_id(theme_id)
+        self._app_settings.setValue(self._THEME_SETTING_KEY, normalized)
+        self._app_settings.sync()
+
+    def get_theme_id(self) -> str:
+        return normalize_theme_id(getattr(self, "_theme_id", "dark"))
+
+    def _sync_theme_actions(self):
+        current = self.get_theme_id()
+        actions = getattr(self, "_theme_actions", {}) or {}
+        for theme_id, action in actions.items():
+            if not isinstance(action, QAction):
+                continue
+            old = action.blockSignals(True)
+            action.setChecked(theme_id == current)
+            action.blockSignals(old)
+
+    def apply_theme_id(self, theme_id: object, persist: bool = True):
+        normalized = normalize_theme_id(theme_id)
+        app = QApplication.instance()
+        if app is not None:
+            normalized = apply_theme(app, normalized)
+        self._theme_id = normalized
+        self._apply_window_chrome_theme()
+        self._sync_theme_actions()
+        if hasattr(self, "canvas"):
+            self._refresh_all_preview_overlays()
+        if persist:
+            self._persist_theme_id(normalized)
+            if getattr(self, "_autosave_runtime_connected", False):
+                self._autosave_schedule_full(delay_ms=220)
+
     def _persist_autosave_enabled(self, enabled: bool):
         self._app_settings.setValue(self._AUTOSAVE_SETTING_KEY, bool(enabled))
         self._app_settings.sync()
+
+    def _load_preview_page_margin_settings(self) -> tuple[bool, float]:
+        enabled_raw = self._app_settings.value(
+            self._PREVIEW_MARGIN_ENABLED_KEY,
+            True,
+        )
+        em_raw = self._app_settings.value(
+            self._PREVIEW_MARGIN_EM_KEY,
+            CanvasPreviewPane._PAGE_MARGIN_DEFAULT_EM,
+        )
+        enabled = self._as_bool(enabled_raw, True)
+        try:
+            em = float(em_raw)
+        except Exception:
+            em = float(CanvasPreviewPane._PAGE_MARGIN_DEFAULT_EM)
+        return enabled, em
+
+    def _persist_preview_page_margin_settings(self):
+        settings = self.get_preview_page_margin_settings()
+        self._app_settings.setValue(
+            self._PREVIEW_MARGIN_ENABLED_KEY,
+            bool(settings.get("enabled", True)),
+        )
+        self._app_settings.setValue(
+            self._PREVIEW_MARGIN_EM_KEY,
+            float(settings.get("em", CanvasPreviewPane._PAGE_MARGIN_DEFAULT_EM)),
+        )
+        self._app_settings.sync()
+
+    def get_preview_page_margin_settings(self) -> dict:
+        enabled, em = CanvasPreviewPane.global_page_margin_settings()
+        return {
+            "enabled": bool(enabled),
+            "em": float(em),
+        }
+
+    def _sync_preview_page_margin_actions(self):
+        enabled, em = CanvasPreviewPane.global_page_margin_settings()
+        action_enabled = getattr(self, "_action_page_margin_enabled", None)
+        if isinstance(action_enabled, QAction):
+            old = action_enabled.blockSignals(True)
+            action_enabled.setChecked(bool(enabled))
+            action_enabled.blockSignals(old)
+
+        for preset_em, action in list(
+            getattr(self, "_page_margin_actions", []) or []
+        ):
+            if not isinstance(action, QAction):
+                continue
+            old = action.blockSignals(True)
+            action.setEnabled(bool(enabled))
+            action.setChecked(abs(float(preset_em) - float(em)) < 0.001)
+            action.blockSignals(old)
+
+    def _toggle_preview_page_margin_enabled(self, checked: bool):
+        _enabled, em = CanvasPreviewPane.global_page_margin_settings()
+        self.apply_preview_page_margin_settings(
+            {
+                "enabled": bool(checked),
+                "em": float(em),
+            }
+        )
+
+    def _set_preview_page_margin_preset(self, em: float):
+        enabled, _em = CanvasPreviewPane.global_page_margin_settings()
+        self.apply_preview_page_margin_settings(
+            {
+                "enabled": bool(enabled),
+                "em": float(em),
+            }
+        )
+
+    def apply_preview_page_margin_settings(self, raw: object):
+        if not isinstance(raw, dict):
+            return
+        enabled = self._as_bool(raw.get("enabled", True), True)
+        try:
+            em = float(raw.get("em", CanvasPreviewPane._PAGE_MARGIN_DEFAULT_EM))
+        except Exception:
+            em = float(CanvasPreviewPane._PAGE_MARGIN_DEFAULT_EM)
+        CanvasPreviewPane.apply_global_page_margin_settings(
+            enabled=enabled,
+            em=em,
+        )
+        self._persist_preview_page_margin_settings()
+        self._sync_preview_page_margin_actions()
 
     @staticmethod
     def _resolve_autosave_dir() -> Path:
@@ -779,7 +1067,9 @@ class MainWindow(QMainWindow):
             ],
             "imported_docs": sorted(self._file_registry.keys()),
             "user_mode": self._user_mode,
+            "theme": self.get_theme_id(),
             "chat_tts_mode": self.chat_dock.chat_tts_mode(),
+            "preview_page_margin": self.get_preview_page_margin_settings(),
         }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
@@ -904,7 +1194,7 @@ class MainWindow(QMainWindow):
             if canvas_text:
                 tab_idx   = self.canvas.tabs.tab_widget.currentIndex()
                 tab_title = self.canvas.tabs.tab_widget.tabText(tab_idx) or "Draft"
-                file_contents.insert(0, (f"Draft: {tab_title}", canvas_text))
+                file_contents.append((f"Draft: {tab_title}", canvas_text))
 
         # Currently visible RAG results tab
         rag_results: list[tuple[str, float, str]] = []
@@ -917,16 +1207,23 @@ class MainWindow(QMainWindow):
 
         grounding_required = bool(use_rag or selected_doc_count > 0)
         grounding_has_sources = bool(rag_has_data or selected_doc_count > 0)
+        # Always capture current draft selection (including one-shot cached
+        # handoff) so side actions like Faktencheck can use it reliably,
+        # even when "Current Draft" context toggle is off.
+        selection_needed = True
         selected_text = ""
-        if use_canvas:
+        selected_span: tuple[int, int] | None = None
+        if selection_needed:
             selected_text = str(
-                self.canvas.get_selected_text(allow_cached=False) or ""
+                self.canvas.get_selected_text(allow_cached=True) or ""
             )
+            selected_span = self.canvas.get_selected_span(allow_cached=True)
 
         return {
             "file_contents": file_contents,
             "rag_results":   rag_results,
             "selected_text": selected_text,
+            "selected_span": selected_span,
             "grounding_required": grounding_required,
             "grounding_has_sources": grounding_has_sources,
             "grounding_reason": (
@@ -943,8 +1240,8 @@ class MainWindow(QMainWindow):
 
     def _on_model_loaded(self, success: bool, message: str):
         self._model_lbl.setText(message)
-        color = "#A6E3A1" if success else "#F38BA8"
-        self._model_lbl.setStyleSheet(f"color: {color}; padding: 0 8px;")
+        self._model_status_success = bool(success)
+        self._apply_status_label_styles()
         if success:
             # Provide differentiated HyDE expanders to the RAG system
             self.rag_system.set_tfidf_query_expander(
@@ -973,6 +1270,591 @@ class MainWindow(QMainWindow):
                 return w
             w = w.parentWidget()
         return None
+
+    def _select_next_draft_tab(self):
+        tabs = self.canvas.tabs.tab_widget
+        count = int(tabs.count())
+        if count <= 1:
+            return
+        index = int(tabs.currentIndex())
+        tabs.setCurrentIndex((index + 1) % count)
+
+    def _select_previous_draft_tab(self):
+        tabs = self.canvas.tabs.tab_widget
+        count = int(tabs.count())
+        if count <= 1:
+            return
+        index = int(tabs.currentIndex())
+        tabs.setCurrentIndex((index - 1) % count)
+
+    def _set_canvas_view_mode_shortcut(self, mode: str):
+        panel = self._resolve_active_split_panel()
+        if panel is None or not hasattr(panel, "set_view_mode"):
+            return
+        normalized = str(mode or "").strip().lower()
+        if normalized not in {"markdown", "preview", "both"}:
+            return
+        panel.set_view_mode(normalized)
+        label_map = {
+            "markdown": "nur Markdown",
+            "preview": "nur HTML",
+            "both": "Split (Markdown + HTML)",
+        }
+        self.statusBar().showMessage(
+            f"Ansicht: {label_map.get(normalized, normalized)}",
+            1800,
+        )
+
+    def _toggle_autosave_shortcut(self):
+        target = not bool(self._autosave_enabled)
+        self._toggle_autosave_enabled(target)
+        action = getattr(self, "_action_autosave_toggle", None)
+        if action is None:
+            return
+        blocked = action.blockSignals(True)
+        action.setChecked(bool(self._autosave_enabled))
+        action.blockSignals(blocked)
+
+    @staticmethod
+    def _widget_belongs_to(widget: QWidget | None, root: QWidget | None) -> bool:
+        w = widget
+        while w is not None:
+            if w is root:
+                return True
+            w = w.parentWidget()
+        return False
+
+    @staticmethod
+    def _editor_from_widget_chain(widget: QWidget | None) -> MarkdownEditor | None:
+        w = widget
+        while w is not None:
+            editor = getattr(w, "editor", None)
+            if isinstance(editor, MarkdownEditor):
+                return editor
+            w = w.parentWidget()
+        return None
+
+    @staticmethod
+    def _split_panel_from_widget_chain(widget: QWidget | None) -> QWidget | None:
+        w = widget
+        while w is not None:
+            if (
+                hasattr(w, "set_view_mode")
+                and hasattr(w, "view_mode")
+                and hasattr(w, "editor")
+            ):
+                return w
+            w = w.parentWidget()
+        return None
+
+    def _resolve_active_split_panel(self) -> QWidget | None:
+        focus = QApplication.focusWidget()
+        panel = self._split_panel_from_widget_chain(focus)
+        if panel is not None:
+            return panel
+
+        if self._widget_belongs_to(focus, self.knowledge_dock):
+            current = self.knowledge_dock.tab_widget.currentWidget()
+            if current is self.knowledge_dock.doc_viewer:
+                return self.knowledge_dock.doc_viewer.tabs.current_panel()
+            if current is self.knowledge_dock.rag_tab:
+                return self.knowledge_dock.rag_panel.tabs.current_panel()
+
+        return self.canvas.tabs.current_panel()
+
+    def _is_valid_find_target(self, target: dict | None) -> bool:
+        if not isinstance(target, dict):
+            return False
+        kind = str(target.get("kind", "")).strip().lower()
+        if kind == "editor":
+            editor = target.get("editor")
+            if not isinstance(editor, MarkdownEditor):
+                return False
+            try:
+                _ = editor.document()
+                return True
+            except Exception:
+                return False
+        if kind == "preview":
+            panel = target.get("panel")
+            return (
+                panel is not None
+                and hasattr(panel, "find_preview_text")
+                and hasattr(panel, "count_preview_matches")
+            )
+        return False
+
+    def _resolve_find_target(self) -> dict | None:
+        focus = QApplication.focusWidget()
+        panel = self._split_panel_from_widget_chain(focus)
+        if panel is None:
+            if self._widget_belongs_to(focus, self.knowledge_dock):
+                current = self.knowledge_dock.tab_widget.currentWidget()
+                if current is self.knowledge_dock.doc_viewer:
+                    panel = self.knowledge_dock.doc_viewer.tabs.current_panel()
+                elif current is self.knowledge_dock.rag_tab:
+                    panel = self.knowledge_dock.rag_panel.tabs.current_panel()
+            elif self._widget_belongs_to(focus, self.canvas):
+                panel = self.canvas.tabs.current_panel()
+
+        if panel is not None and hasattr(panel, "is_preview_widget"):
+            try:
+                if panel.is_preview_widget(focus):
+                    target = {"kind": "preview", "panel": panel}
+                    if self._is_valid_find_target(target):
+                        self._find_target = target
+                        return target
+            except Exception:
+                pass
+
+        if panel is not None:
+            editor = getattr(panel, "editor", None)
+            if isinstance(editor, MarkdownEditor):
+                target = {"kind": "editor", "editor": editor, "panel": panel}
+                if self._is_valid_find_target(target):
+                    self._find_target = target
+                    self._find_editor = editor
+                    return target
+
+        cached_target = getattr(self, "_find_target", None)
+        if self._is_valid_find_target(cached_target):
+            return cached_target
+
+        panel = self.canvas.tabs.current_panel()
+        if panel is not None:
+            editor = getattr(panel, "editor", None)
+            if isinstance(editor, MarkdownEditor):
+                target = {"kind": "editor", "editor": editor, "panel": panel}
+                self._find_target = target
+                self._find_editor = editor
+                return target
+        return None
+
+    def _count_find_matches_editor(self, editor: MarkdownEditor, needle: str) -> int:
+        query = str(needle or "")
+        if not query:
+            return 0
+        flags = self._build_find_flags(backward=False)
+        doc = editor.document()
+        count = 0
+        cursor = doc.find(query, 0, flags)
+        while not cursor.isNull():
+            count += 1
+            cursor = doc.find(query, cursor.position(), flags)
+        return count
+
+    def _count_find_matches(self, target: dict, needle: str) -> int:
+        kind = str(target.get("kind", "")).strip().lower()
+        if kind == "editor":
+            editor = target.get("editor")
+            if isinstance(editor, MarkdownEditor):
+                return self._count_find_matches_editor(editor, needle)
+            return 0
+        if kind == "preview":
+            panel = target.get("panel")
+            if panel is None:
+                return 0
+            case_cb = getattr(self, "_find_case_cb", None)
+            whole_cb = getattr(self, "_find_whole_cb", None)
+            case_sensitive = bool(case_cb is not None and case_cb.isChecked())
+            whole_words = bool(whole_cb is not None and whole_cb.isChecked())
+            try:
+                return int(
+                    panel.count_preview_matches(
+                        str(needle or ""),
+                        case_sensitive=case_sensitive,
+                        whole_words=whole_words,
+                    )
+                )
+            except Exception:
+                return 0
+        return 0
+
+    def _disconnect_find_read_only_hook(self):
+        hooked = getattr(self, "_find_read_only_editor", None)
+        if isinstance(hooked, MarkdownEditor):
+            try:
+                hooked.read_only_changed.disconnect(
+                    self._on_find_target_read_only_changed
+                )
+            except Exception:
+                pass
+        self._find_read_only_editor = None
+
+    def _track_find_target_read_only(self, target: dict | None):
+        if not self._is_valid_find_target(target):
+            self._disconnect_find_read_only_hook()
+            return
+        if str(target.get("kind", "")).strip().lower() != "editor":
+            self._disconnect_find_read_only_hook()
+            return
+        editor = target.get("editor")
+        if not isinstance(editor, MarkdownEditor):
+            self._disconnect_find_read_only_hook()
+            return
+        if editor is self._find_read_only_editor:
+            return
+        self._disconnect_find_read_only_hook()
+        try:
+            editor.read_only_changed.connect(self._on_find_target_read_only_changed)
+        except Exception:
+            return
+        self._find_read_only_editor = editor
+
+    def _on_find_target_read_only_changed(self, _read_only: bool):
+        if self._find_replace_dialog is None:
+            return
+        if not self._find_replace_dialog.isVisible():
+            return
+        self._update_find_replace_controls_state()
+
+    def _find_target_is_read_only(self, target: dict | None) -> bool:
+        if not self._is_valid_find_target(target):
+            return True
+        kind = str(target.get("kind", "")).strip().lower()
+        if kind == "editor":
+            editor = target.get("editor")
+            if isinstance(editor, MarkdownEditor):
+                try:
+                    return bool(editor.isReadOnly())
+                except Exception:
+                    return True
+            return True
+        # HTML preview search is supported, but replace is not handled there.
+        return True
+
+    def _update_find_replace_controls_state(self, target: dict | None = None):
+        tgt = target if self._is_valid_find_target(target) else self._resolve_find_target()
+        self._track_find_target_read_only(tgt)
+        replace_enabled = bool(tgt is not None and not self._find_target_is_read_only(tgt))
+        replace_edit = getattr(self, "_replace_query_edit", None)
+        if replace_edit is not None:
+            replace_edit.setEnabled(replace_enabled)
+        replace_btn = getattr(self, "_find_replace_btn", None)
+        if replace_btn is not None:
+            replace_btn.setEnabled(replace_enabled)
+        replace_all_btn = getattr(self, "_find_replace_all_btn", None)
+        if replace_all_btn is not None:
+            replace_all_btn.setEnabled(replace_enabled)
+
+    def _update_find_match_count(self):
+        label = getattr(self, "_find_count_lbl", None)
+        if label is None:
+            return
+        find_edit = getattr(self, "_find_query_edit", None)
+        query = str(find_edit.text() if find_edit is not None else "")
+        target = self._resolve_find_target()
+        if target is None:
+            label.setText("Treffer: —")
+            self._update_find_replace_controls_state(None)
+            return
+        label.setText(f"Treffer: {self._count_find_matches(target, query)}")
+        self._update_find_replace_controls_state(target)
+
+    def _build_find_flags(self, *, backward: bool = False):
+        flags = QTextDocument.FindFlag(0)
+        if backward:
+            flags |= QTextDocument.FindFlag.FindBackward
+        case_cb = getattr(self, "_find_case_cb", None)
+        if case_cb is not None and case_cb.isChecked():
+            flags |= QTextDocument.FindFlag.FindCaseSensitively
+        whole_cb = getattr(self, "_find_whole_cb", None)
+        if whole_cb is not None and whole_cb.isChecked():
+            flags |= QTextDocument.FindFlag.FindWholeWords
+        return flags
+
+    def _find_in_target(self, target: dict, needle: str, *, backward: bool = False) -> bool:
+        kind = str(target.get("kind", "")).strip().lower()
+        if kind == "preview":
+            panel = target.get("panel")
+            if panel is None:
+                return False
+            case_cb = getattr(self, "_find_case_cb", None)
+            whole_cb = getattr(self, "_find_whole_cb", None)
+            case_sensitive = bool(case_cb is not None and case_cb.isChecked())
+            whole_words = bool(whole_cb is not None and whole_cb.isChecked())
+            try:
+                return bool(
+                    panel.find_preview_text(
+                        needle,
+                        backward=backward,
+                        case_sensitive=case_sensitive,
+                        whole_words=whole_words,
+                        wrap=True,
+                    )
+                )
+            except Exception:
+                return False
+
+        editor = target.get("editor")
+        if not isinstance(editor, MarkdownEditor):
+            return False
+        flags = self._build_find_flags(backward=backward)
+        doc = editor.document()
+        cursor = editor.textCursor()
+        current_start = int(cursor.selectionStart())
+        current_end = int(cursor.selectionEnd())
+        current_has_selection = current_end > current_start
+        start = int(cursor.selectionStart()) if backward else int(cursor.selectionEnd())
+        probe = QTextCursor(doc)
+        if backward:
+            probe.setPosition(max(0, start - 1))
+        else:
+            probe.setPosition(max(0, start))
+        found = doc.find(str(needle or ""), probe, flags)
+        if found.isNull():
+            restart = QTextCursor(doc)
+            if backward:
+                restart.setPosition(max(0, int(doc.characterCount()) - 1))
+            else:
+                restart.setPosition(0)
+            found = doc.find(str(needle or ""), restart, flags)
+        if (
+            not found.isNull()
+            and current_has_selection
+            and int(found.selectionStart()) == current_start
+            and int(found.selectionEnd()) == current_end
+        ):
+            probe2 = QTextCursor(doc)
+            if backward:
+                probe2.setPosition(max(0, int(found.selectionStart()) - 1))
+            else:
+                probe2.setPosition(max(0, int(found.selectionEnd())))
+            alt = doc.find(str(needle or ""), probe2, flags)
+            if alt.isNull():
+                restart = QTextCursor(doc)
+                if backward:
+                    restart.setPosition(max(0, int(doc.characterCount()) - 1))
+                else:
+                    restart.setPosition(0)
+                alt = doc.find(str(needle or ""), restart, flags)
+            if (
+                not alt.isNull()
+                and (
+                    int(alt.selectionStart()) != current_start
+                    or int(alt.selectionEnd()) != current_end
+                )
+            ):
+                found = alt
+        if found.isNull():
+            return False
+        editor.setTextCursor(found)
+        editor.ensureCursorVisible()
+        return True
+
+    def _find_in_editor_from_dialog(self, *, backward: bool = False) -> bool:
+        target = self._resolve_find_target()
+        if target is None:
+            self.statusBar().showMessage("Kein aktiver Editor für Suche.", 2000)
+            self._update_find_replace_controls_state(None)
+            return False
+        self._update_find_replace_controls_state(target)
+
+        find_edit = getattr(self, "_find_query_edit", None)
+        needle = str(find_edit.text() if find_edit is not None else "").strip()
+        if not needle:
+            self.statusBar().showMessage("Bitte Suchtext eingeben.", 2000)
+            return False
+
+        if self._find_in_target(target, needle, backward=backward):
+            return True
+
+        self.statusBar().showMessage("Kein Treffer gefunden.", 1800)
+        return False
+
+    def _replace_from_dialog(self):
+        target = self._resolve_find_target()
+        if target is None:
+            self.statusBar().showMessage("Kein aktiver Editor für Ersetzen.", 2000)
+            return
+        if self._find_target_is_read_only(target):
+            self.statusBar().showMessage("Ersetzen ist in dieser Ansicht gesperrt.", 2000)
+            self._update_find_replace_controls_state(target)
+            return
+        editor = target.get("editor")
+        if not isinstance(editor, MarkdownEditor):
+            self.statusBar().showMessage("Ersetzen ist in dieser Ansicht nicht verfügbar.", 2000)
+            self._update_find_replace_controls_state(target)
+            return
+
+        find_edit = getattr(self, "_find_query_edit", None)
+        replace_edit = getattr(self, "_replace_query_edit", None)
+        needle = str(find_edit.text() if find_edit is not None else "")
+        replacement = str(replace_edit.text() if replace_edit is not None else "")
+        if not needle:
+            self.statusBar().showMessage("Bitte Suchtext eingeben.", 2000)
+            return
+
+        cursor = editor.textCursor()
+        selected = str(cursor.selectedText() or "").replace("\u2029", "\n")
+        case_cb = getattr(self, "_find_case_cb", None)
+        case_sensitive = bool(case_cb is not None and case_cb.isChecked())
+        if case_sensitive:
+            match_selected = selected == needle
+        else:
+            match_selected = selected.casefold() == needle.casefold()
+
+        if match_selected:
+            cursor.insertText(replacement)
+            editor.setTextCursor(cursor)
+
+        self._find_in_editor_from_dialog(backward=False)
+        self._update_find_match_count()
+
+    def _replace_all_from_dialog(self):
+        target = self._resolve_find_target()
+        if target is None:
+            self.statusBar().showMessage("Kein aktiver Editor für Ersetzen.", 2000)
+            return
+        if self._find_target_is_read_only(target):
+            self.statusBar().showMessage("Ersetzen ist in dieser Ansicht gesperrt.", 2000)
+            self._update_find_replace_controls_state(target)
+            return
+        editor = target.get("editor")
+        if not isinstance(editor, MarkdownEditor):
+            self.statusBar().showMessage("Ersetzen ist in dieser Ansicht nicht verfügbar.", 2000)
+            self._update_find_replace_controls_state(target)
+            return
+
+        find_edit = getattr(self, "_find_query_edit", None)
+        replace_edit = getattr(self, "_replace_query_edit", None)
+        needle = str(find_edit.text() if find_edit is not None else "")
+        replacement = str(replace_edit.text() if replace_edit is not None else "")
+        if not needle:
+            self.statusBar().showMessage("Bitte Suchtext eingeben.", 2000)
+            return
+
+        flags = self._build_find_flags(backward=False)
+        doc = editor.document()
+        edit_cursor = editor.textCursor()
+        edit_cursor.beginEditBlock()
+        count = 0
+        hit = doc.find(needle, 0, flags)
+        while not hit.isNull():
+            hit.insertText(replacement)
+            count += 1
+            hit = doc.find(needle, hit.position(), flags)
+        edit_cursor.endEditBlock()
+
+        self.statusBar().showMessage(
+            f"{count} Treffer ersetzt." if count else "Keine Treffer zum Ersetzen.",
+            2000,
+        )
+        self._update_find_match_count()
+
+    def _open_find_replace_dialog(self):
+        target = self._resolve_find_target()
+        if target is None:
+            self.statusBar().showMessage("Kein aktiver Editor für Suche.", 2000)
+            return
+        self._find_target = target
+        editor = target.get("editor")
+        if isinstance(editor, MarkdownEditor):
+            self._find_editor = editor
+
+        if self._find_replace_dialog is None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Suchen / Ersetzen")
+            dlg.setModal(False)
+            dlg.resize(520, 170)
+            layout = QVBoxLayout(dlg)
+            layout.setContentsMargins(10, 10, 10, 10)
+            layout.setSpacing(6)
+
+            row_find = QHBoxLayout()
+            row_find.setContentsMargins(0, 0, 0, 0)
+            row_find.setSpacing(6)
+            row_find.addWidget(QLabel("Suchen:"))
+            self._find_query_edit = QLineEdit()
+            row_find.addWidget(self._find_query_edit, 1)
+            layout.addLayout(row_find)
+
+            row_replace = QHBoxLayout()
+            row_replace.setContentsMargins(0, 0, 0, 0)
+            row_replace.setSpacing(6)
+            row_replace.addWidget(QLabel("Ersetzen:"))
+            self._replace_query_edit = QLineEdit()
+            row_replace.addWidget(self._replace_query_edit, 1)
+            layout.addLayout(row_replace)
+
+            flags_row = QHBoxLayout()
+            flags_row.setContentsMargins(0, 0, 0, 0)
+            flags_row.setSpacing(10)
+            self._find_case_cb = QCheckBox("Groß/Kleinschreibung")
+            self._find_whole_cb = QCheckBox("Ganzes Wort")
+            flags_row.addWidget(self._find_case_cb)
+            flags_row.addWidget(self._find_whole_cb)
+            flags_row.addStretch(1)
+            self._find_count_lbl = QLabel("Treffer: 0")
+            self._find_count_lbl.setStyleSheet(
+                "color: palette(placeholder-text); font-size: 10px;"
+            )
+            flags_row.addWidget(self._find_count_lbl)
+            layout.addLayout(flags_row)
+
+            btn_row = QHBoxLayout()
+            btn_row.setContentsMargins(0, 0, 0, 0)
+            btn_row.setSpacing(6)
+            btn_prev = QPushButton("Vorheriges")
+            btn_next = QPushButton("Nächstes")
+            self._find_replace_btn = QPushButton("Ersetzen")
+            self._find_replace_all_btn = QPushButton("Alle ersetzen")
+            btn_close = QPushButton("Schließen")
+            btn_prev.clicked.connect(
+                lambda: self._find_in_editor_from_dialog(backward=True)
+            )
+            btn_next.clicked.connect(
+                lambda: self._find_in_editor_from_dialog(backward=False)
+            )
+            self._find_replace_btn.clicked.connect(self._replace_from_dialog)
+            self._find_replace_all_btn.clicked.connect(self._replace_all_from_dialog)
+            btn_close.clicked.connect(dlg.hide)
+            btn_row.addWidget(btn_prev)
+            btn_row.addWidget(btn_next)
+            btn_row.addWidget(self._find_replace_btn)
+            btn_row.addWidget(self._find_replace_all_btn)
+            btn_row.addStretch(1)
+            btn_row.addWidget(btn_close)
+            layout.addLayout(btn_row)
+
+            self._find_query_edit.textChanged.connect(
+                lambda _text: self._update_find_match_count()
+            )
+            self._find_case_cb.toggled.connect(
+                lambda _on: self._update_find_match_count()
+            )
+            self._find_whole_cb.toggled.connect(
+                lambda _on: self._update_find_match_count()
+            )
+            self._find_query_edit.returnPressed.connect(
+                lambda: self._find_in_editor_from_dialog(backward=False)
+            )
+            self._replace_query_edit.returnPressed.connect(self._replace_from_dialog)
+            self._find_replace_dialog = dlg
+
+        find_edit = getattr(self, "_find_query_edit", None)
+        if find_edit is not None:
+            selected = ""
+            if str(target.get("kind", "")).strip().lower() == "preview":
+                panel = target.get("panel")
+                if panel is not None and hasattr(panel, "get_preview_selected_text"):
+                    try:
+                        selected = str(panel.get_preview_selected_text() or "")
+                    except Exception:
+                        selected = ""
+            else:
+                if isinstance(editor, MarkdownEditor):
+                    selected = str(editor.textCursor().selectedText() or "")
+            selected = selected.replace("\u2029", "\n")
+            if selected.strip():
+                find_edit.setText(selected)
+            find_edit.setFocus()
+            find_edit.selectAll()
+
+        self._update_find_match_count()
+        self._find_replace_dialog.show()
+        self._find_replace_dialog.raise_()
+        self._find_replace_dialog.activateWindow()
 
     def _is_focus_on_html_preview(self) -> bool:
         return self.canvas.is_preview_widget(QApplication.focusWidget())
@@ -1038,8 +1920,13 @@ class MainWindow(QMainWindow):
         self,
         replacement: str,
         expected_original: str,
+        preferred_span: tuple[int, int] | None = None,
     ) -> tuple[bool, str]:
-        return self.canvas.replace_selected_text(replacement, expected_original)
+        return self.canvas.replace_selected_text(
+            replacement,
+            expected_original,
+            preferred_span,
+        )
 
     def _open_fact_check_canvas(
         self,
@@ -1068,10 +1955,12 @@ class MainWindow(QMainWindow):
         if docs:
             parts.append(f"{len(docs)} doc{'s' if len(docs) != 1 else ''}")
         sel = ""
-        if use_canvas:
-            sel = str(
-                self.canvas.get_selected_text(allow_cached=False) or ""
-            ).strip()
+        sel = str(
+            self.canvas.get_selected_text(
+                allow_cached=True,
+                consume_cached=False,
+            ) or ""
+        ).strip()
         if sel:
             parts.append("selection")
         self.chat_dock.update_context_bar(parts)
@@ -1176,37 +2065,60 @@ class MainWindow(QMainWindow):
         *,
         max_chars: int = 22000,
     ) -> str:
-        _ = max_chars
         parts: list[str] = []
+        try:
+            char_limit = max(1, int(max_chars))
+        except Exception:
+            char_limit = 22000
+        total_len = 0
+        truncated = False
 
-        def add_chunk(label: str, content: str):
+        def add_chunk(label: str, content: str) -> bool:
+            nonlocal total_len, truncated
             body = str(content or "").strip()
             if not body:
-                return
+                return True
             header = f"## {label}\n"
             footer = "\n\n"
+            room = char_limit - total_len - len(header) - len(footer)
+            if room <= 0:
+                truncated = True
+                return False
+            if len(body) > room:
+                suffix = "\n\n[... gekürzt ...]"
+                keep = max(0, room - len(suffix))
+                body = body[:keep].rstrip()
+                if keep > 0:
+                    body += suffix
+                truncated = True
             chunk = f"{header}{body}{footer}"
             parts.append(chunk)
+            total_len += len(chunk)
+            return total_len < char_limit
 
         # Exactly the same sources as Chat/Faktencheck (`_build_llm_context`):
         # file_contents + rag_results + selected_text and nothing else.
         for name, content in list(ctx.get("file_contents", []) or []):
-            add_chunk(f"Quelle: {name}", str(content or ""))
+            if not add_chunk(f"Quelle: {name}", str(content or "")):
+                break
 
-        for path, score, excerpt in list(ctx.get("rag_results", []) or []):
-            label = str(path or "").strip() or "RAG Results"
-            try:
-                score_text = f"{float(score):.2f}"
-            except Exception:
-                score_text = "?"
-            add_chunk(
-                f"RAG: {label} (score {score_text})",
-                str(excerpt or ""),
-            )
+        if total_len < char_limit:
+            for path, score, excerpt in list(ctx.get("rag_results", []) or []):
+                label = str(path or "").strip() or "RAG Results"
+                try:
+                    score_text = f"{float(score):.2f}"
+                except Exception:
+                    score_text = "?"
+                if not add_chunk(
+                    f"RAG: {label} (score {score_text})",
+                    str(excerpt or ""),
+                ):
+                    break
 
-        selected_text = str(ctx.get("selected_text", "") or "").strip()
-        if selected_text:
-            add_chunk("Ausgewählter Text (Draft)", selected_text)
+        if total_len < char_limit:
+            selected_text = str(ctx.get("selected_text", "") or "").strip()
+            if selected_text:
+                add_chunk("Ausgewählter Text (Draft)", selected_text)
 
         # Recovery path: selected docs checked but context payload arrived empty.
         if not parts:
@@ -1218,9 +2130,13 @@ class MainWindow(QMainWindow):
                 resolved = self._resolve_imported_doc_content(doc_name)
                 if not resolved:
                     continue
-                add_chunk(f"Quelle: {doc_name}", resolved)
+                if not add_chunk(f"Quelle: {doc_name}", resolved):
+                    break
 
-        return "".join(parts).strip()
+        text = "".join(parts).strip()
+        if truncated and text:
+            return f"{text}\n\n[Hinweis: Kontext wurde aus Platzgründen gekürzt.]"
+        return text
 
     def _fallback_context_text_from_ctx(
         self,
@@ -1233,17 +2149,36 @@ class MainWindow(QMainWindow):
 
         Keeps exactly the same source set as chat context.
         """
-        _ = max_chars
         out: list[str] = []
+        try:
+            char_limit = max(1, int(max_chars))
+        except Exception:
+            char_limit = 22000
+        total_len = 0
+        truncated = False
 
-        def add_raw(label: str, content: str):
+        def add_raw(label: str, content: str) -> bool:
+            nonlocal total_len, truncated
             body = str(content or "").strip()
             if not body:
-                return
+                return True
             header = f"[{label}]\n"
             footer = "\n\n"
+            room = char_limit - total_len - len(header) - len(footer)
+            if room <= 0:
+                truncated = True
+                return False
+            if len(body) > room:
+                suffix = "\n\n[... gekürzt ...]"
+                keep = max(0, room - len(suffix))
+                body = body[:keep].rstrip()
+                if keep > 0:
+                    body += suffix
+                truncated = True
             block = f"{header}{body}{footer}"
             out.append(block)
+            total_len += len(block)
+            return total_len < char_limit
 
         for item in list(ctx.get("file_contents", []) or []):
             if not isinstance(item, (tuple, list)) or len(item) < 2:
@@ -1252,20 +2187,27 @@ class MainWindow(QMainWindow):
             body = str(item[1] or "")
             if not body.strip():
                 body = self._resolve_imported_doc_content(name)
-            add_raw(f"Quelle: {name}", body)
+            if not add_raw(f"Quelle: {name}", body):
+                break
 
-        for item in list(ctx.get("rag_results", []) or []):
-            if not isinstance(item, (tuple, list)) or len(item) < 3:
-                continue
-            path = str(item[0] or "").strip() or "RAG Results"
-            excerpt = str(item[2] or "")
-            add_raw(f"RAG: {path}", excerpt)
+        if total_len < char_limit:
+            for item in list(ctx.get("rag_results", []) or []):
+                if not isinstance(item, (tuple, list)) or len(item) < 3:
+                    continue
+                path = str(item[0] or "").strip() or "RAG Results"
+                excerpt = str(item[2] or "")
+                if not add_raw(f"RAG: {path}", excerpt):
+                    break
 
-        selected = str(ctx.get("selected_text", "") or "")
-        if selected.strip():
-            add_raw("Ausgewählter Text (Draft)", selected)
+        if total_len < char_limit:
+            selected = str(ctx.get("selected_text", "") or "")
+            if selected.strip():
+                add_raw("Ausgewählter Text (Draft)", selected)
 
-        return "".join(out).strip()
+        text = "".join(out).strip()
+        if truncated and text:
+            return f"{text}\n\n[Hinweis: Kontext wurde aus Platzgründen gekürzt.]"
+        return text
 
     @staticmethod
     def _resolve_mindmap_mode_and_query(
@@ -1322,6 +2264,26 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             "Glossar-Overlay: AN" if enabled else "Glossar-Overlay: AUS",
             2500,
+        )
+
+    def _open_glossary_editor(self):
+        dialog = GlossaryEditorDialog(self)
+        dialog.glossary_saved.connect(self._on_glossary_saved_from_editor)
+        dialog.exec()
+
+    def _on_glossary_saved_from_editor(self, count: int):
+        self._refresh_all_preview_overlays()
+        overlays_on = get_highlight_store().is_glossary_enabled()
+        self.statusBar().showMessage(
+            (
+                f"Glossar gespeichert: {int(count)} Begriffe."
+                if overlays_on
+                else (
+                    f"Glossar gespeichert: {int(count)} Begriffe "
+                    "(Overlay aktuell AUS)."
+                )
+            ),
+            4500,
         )
 
     def _llm_side_task_active(self) -> bool:
@@ -1410,6 +2372,15 @@ class MainWindow(QMainWindow):
             detail = str(meta.get("error", "") or "").strip()
             if reason == "context_too_large" and detail:
                 return False, detail
+            if reason in {"empty", "parse_failed"}:
+                retried = bool(meta.get("retried", False))
+                parse_mode = str(meta.get("parse", "") or "").strip() or "n/a"
+                return (
+                    False,
+                    "Es konnten keine Glossar-Einträge erzeugt werden.\n"
+                    "Die Modellausgabe war leer oder nicht als Glossar parsebar.\n"
+                    f"Retry ausgeführt: {'ja' if retried else 'nein'} | Parse-Modus: {parse_mode}",
+                )
             return (
                 False,
                 "Es konnten keine Glossar-Einträge erzeugt werden.\n"
@@ -2029,17 +3000,40 @@ class MainWindow(QMainWindow):
     def _focus_model_panel(self):
         self.chat_dock.show()
         self.chat_dock.raise_()
+        self.chat_dock.set_model_panel_visible(True)
+        self._sync_model_controls_toggle_action()
 
     def _reset_layout(self):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea,  self.knowledge_dock)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.chat_dock)
         self.knowledge_dock.show()
         self.chat_dock.show()
+        self.chat_dock.set_model_panel_visible(True)
         self.resizeDocks(
             [self.knowledge_dock, self.chat_dock],
             [340, 380],
             Qt.Orientation.Horizontal,
         )
+        self._sync_model_controls_toggle_action()
+
+    def _set_model_controls_visible(self, visible: bool):
+        show_model = bool(visible)
+        if show_model:
+            self.chat_dock.show()
+            self.chat_dock.raise_()
+        self.chat_dock.set_model_panel_visible(show_model)
+        self._sync_model_controls_toggle_action()
+
+    def _sync_model_controls_toggle_action(self):
+        action = getattr(self, "_model_controls_toggle_action", None)
+        if action is None or not hasattr(self, "chat_dock"):
+            return
+        checked = bool(
+            self.chat_dock.isVisible() and self.chat_dock.is_model_panel_visible()
+        )
+        blocked = action.blockSignals(True)
+        action.setChecked(checked)
+        action.blockSignals(blocked)
 
     def _edit_system_prompt(self):
         if self._user_mode == USER_MODE_SIMPLE:
@@ -2054,7 +3048,7 @@ class MainWindow(QMainWindow):
         dlg = QDialog(self)
         dlg.setWindowTitle("Edit Prompts")
         dlg.resize(980, 700)
-        dlg.setStyleSheet("background: #1E1E2E; color: #CDD6F4;")
+        dlg.setStyleSheet("background: palette(window); color: palette(window-text);")
 
         layout = QVBoxLayout(dlg)
         lbl = QLabel(
@@ -2062,7 +3056,7 @@ class MainWindow(QMainWindow):
             "System = Rollenregeln, User = Aufgabenblock, Struktur = Aufbau-/Titeltexte.\n"
             "Ablauf pro LLM-Aufruf: <|system|> + (optional Strukturblöcke) + <|user|>."
         )
-        lbl.setStyleSheet("color: #A6ADC8; font-size: 11px;")
+        lbl.setStyleSheet("color: palette(placeholder-text); font-size: 11px;")
         lbl.setWordWrap(True)
         layout.addWidget(lbl)
 
@@ -2071,20 +3065,20 @@ class MainWindow(QMainWindow):
         top_tabs = QTabWidget()
         top_tabs.setStyleSheet("""
             QTabWidget::pane {
-                border: 1px solid #45475A;
+                border: 1px solid palette(mid);
                 border-radius: 4px;
-                background: #181825;
+                background: palette(base);
             }
             QTabBar::tab {
-                background: #313244;
-                color: #CDD6F4;
+                background: palette(alternate-base);
+                color: palette(text);
                 padding: 6px 12px;
-                border: 1px solid #45475A;
+                border: 1px solid palette(mid);
                 border-bottom: none;
             }
             QTabBar::tab:selected {
-                background: #181825;
-                color: #89B4FA;
+                background: palette(base);
+                color: palette(highlight);
             }
         """)
 
@@ -2425,26 +3419,26 @@ class MainWindow(QMainWindow):
         group_keys: dict[str, list[str]] = {}
         tab_style_inner = """
             QTabWidget::pane {
-                border: 1px solid #313244;
+                border: 1px solid palette(mid);
                 border-radius: 4px;
-                background: #11111B;
+                background: palette(base);
             }
             QTabBar::tab {
-                background: #2A2A3E;
-                color: #CDD6F4;
+                background: palette(alternate-base);
+                color: palette(text);
                 padding: 5px 10px;
-                border: 1px solid #313244;
+                border: 1px solid palette(mid);
                 border-bottom: none;
             }
             QTabBar::tab:selected {
-                background: #11111B;
-                color: #A6E3A1;
+                background: palette(base);
+                color: palette(highlight);
             }
         """
         editor_style = """
             QTextEdit {
-                background: #181825; color: #CDD6F4;
-                border: 1px solid #45475A; border-radius: 4px;
+                background: palette(base); color: palette(text);
+                border: 1px solid palette(mid); border-radius: 4px;
                 padding: 6px; font-size: 11px;
             }
         """
@@ -2465,7 +3459,7 @@ class MainWindow(QMainWindow):
                 else "Legacy-Prompts sind nur für alte Projekte vorhanden und aktuell nicht aktiv verdrahtet."
             )
             info.setWordWrap(True)
-            info.setStyleSheet("color: #6C7086; font-size: 10px;")
+            info.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
             group_layout.addWidget(info)
 
             inner_tabs = QTabWidget()
@@ -2511,19 +3505,19 @@ class MainWindow(QMainWindow):
                     meta_lines.append(pair_hint)
                 meta = QLabel("\n".join(meta_lines))
                 meta.setWordWrap(True)
-                meta.setStyleSheet("color: #A6ADC8; font-size: 10px;")
+                meta.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
                 tab_layout.addWidget(meta)
 
                 flow_lbl = QLabel("Prompt-Flow-Vorschau")
-                flow_lbl.setStyleSheet("color: #89B4FA; font-size: 10px; font-weight: bold;")
+                flow_lbl.setStyleSheet("color: palette(highlight); font-size: 10px; font-weight: bold;")
                 tab_layout.addWidget(flow_lbl)
 
                 flow_view = QTextEdit()
                 flow_view.setReadOnly(True)
                 flow_view.setStyleSheet("""
                     QTextEdit {
-                        background: #11111B; color: #BAC2DE;
-                        border: 1px solid #313244; border-radius: 4px;
+                        background: palette(base); color: palette(placeholder-text);
+                        border: 1px solid palette(mid); border-radius: 4px;
                         padding: 6px; font-size: 10px;
                     }
                 """)
@@ -2550,16 +3544,16 @@ class MainWindow(QMainWindow):
         reset_group_btn = QPushButton("Reset Group To Default")
         reset_all_btn = QPushButton("Reset All To Default")
         reset_btn.setStyleSheet(
-            "QPushButton{background:#313244;color:#CDD6F4;border:none;border-radius:4px;padding:6px 10px;}"
-            "QPushButton:hover{background:#45475A;}"
+            "QPushButton{background:palette(alternate-base);color:palette(text);border:none;border-radius:4px;padding:6px 10px;}"
+            "QPushButton:hover{border:1px solid palette(highlight);}"
         )
         reset_group_btn.setStyleSheet(
-            "QPushButton{background:#313244;color:#CDD6F4;border:none;border-radius:4px;padding:6px 10px;}"
-            "QPushButton:hover{background:#45475A;}"
+            "QPushButton{background:palette(alternate-base);color:palette(text);border:none;border-radius:4px;padding:6px 10px;}"
+            "QPushButton:hover{border:1px solid palette(highlight);}"
         )
         reset_all_btn.setStyleSheet(
-            "QPushButton{background:#45475A;color:#CDD6F4;border:none;border-radius:4px;padding:6px 10px;}"
-            "QPushButton:hover{background:#585B70;}"
+            "QPushButton{background:palette(alternate-base);color:palette(text);border:none;border-radius:4px;padding:6px 10px;}"
+            "QPushButton:hover{border:1px solid palette(highlight);}"
         )
 
         def _current_key() -> str | None:
@@ -2745,6 +3739,15 @@ Ctrl+I         Import files
 Ctrl+1         Toggle Knowledge Dock
 Ctrl+2         Toggle AI Chat Dock
 Ctrl+3         Toggle Debug Log
+Ctrl+4         Toggle Model Load + Generation
+
+Ctrl+Tab       Nächster Draft-Tab
+Ctrl+Shift+Tab Vorheriger Draft-Tab
+Ctrl+F         Suchen/Ersetzen im aktiven Editor
+Alt+1          Ansicht: nur Markdown
+Alt+2          Ansicht: nur HTML
+Alt+3          Ansicht: Split (Markdown + HTML)
+Ctrl+Alt+S     Auto-Save ein/aus
 
 Ctrl+=         Aktive Ansicht größer
 Ctrl+-         Aktive Ansicht kleiner
@@ -2953,6 +3956,8 @@ Happy writing.
             event.ignore()
             return
 
+        self._persist_preview_page_margin_settings()
+        self._persist_theme_id(self.get_theme_id())
         self._autosave_flush_before_close()
 
         # Stop Whisper dictation

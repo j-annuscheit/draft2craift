@@ -214,6 +214,37 @@ class HighlightStore:
             self._save_unlocked()
             return len(rows)
 
+    def list_glossary_entries(self) -> list[dict]:
+        """
+        Return current glossary entries as a simple editable list.
+
+        Each entry has the shape:
+        ``{"term": str, "definition": str}``
+        """
+        with self._lock:
+            self._load_if_needed()
+            out: list[dict] = []
+            seen: set[str] = set()
+            for record in self._highlights():
+                if not _is_glossary_record(record):
+                    continue
+                anchor = record.get("anchor", {})
+                term = str(anchor.get("exact", "") or "").strip()
+                if len(term) < 2:
+                    continue
+                key = term.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(
+                    {
+                        "term": term,
+                        "definition": str(record.get("hover_text", "") or "").strip(),
+                    }
+                )
+            out.sort(key=lambda row: str(row.get("term", "")).casefold())
+            return out
+
     def resolve_matches(
         self,
         *,

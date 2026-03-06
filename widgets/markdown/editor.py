@@ -26,17 +26,17 @@ _FONT_STACK = "'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Consolas', monos
 
 def _editor_style(read_only: bool, font_size_pt: float) -> str:
     if read_only:
-        bg, fg, border = "#181825", "#A6ADC8", "#45475A"
+        bg, fg, border = "palette(base)", "palette(text)", "palette(mid)"
     else:
-        bg, fg, border = "#1E1E2E", "#CDD6F4", "#89B4FA"
+        bg, fg, border = "palette(base)", "palette(text)", "palette(highlight)"
     return f"""
 QPlainTextEdit {{
     background-color: {bg};
     color: {fg};
     border: 1px solid {border};
     padding: 8px;
-    selection-background-color: #264F78;
-    selection-color: #CDD6F4;
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
     font-family: {_FONT_STACK};
     font-size: {font_size_pt:.1f}pt;
 }}
@@ -45,20 +45,20 @@ QPlainTextEdit {{
 
 _TOOLBAR_STYLE = """
 QWidget#toolbar {
-    background: #2A2A3E;
-    border-bottom: 1px solid #45475A;
+    background: palette(alternate-base);
+    border-bottom: 1px solid palette(mid);
 }
 QPushButton {
     background: transparent;
-    color: #A6ADC8;
+    color: palette(text);
     border: none;
     padding: 2px 10px;
     font-size: 11px;
     border-radius: 3px;
 }
-QPushButton:hover  { background: #45475A; color: #CDD6F4; }
-QPushButton:checked { background: #89B4FA; color: #1E1E2E; }
-QLabel { color: #6C7086; font-size: 10px; padding: 0 6px; }
+QPushButton:hover  { background: palette(mid); }
+QPushButton:checked { background: palette(highlight); color: palette(highlighted-text); }
+QLabel { color: palette(placeholder-text); font-size: 10px; padding: 0 6px; }
 """
 
 
@@ -290,39 +290,39 @@ class EditorPanel(QWidget):
 _TAB_STYLE = """
 QTabWidget::pane  { border: none; }
 QTabBar::tab {
-    background: #2A2A3E;
-    color: #6C7086;
+    background: palette(alternate-base);
+    color: palette(placeholder-text);
     padding: 4px 14px;
     border: none;
-    border-right: 1px solid #181825;
+    border-right: 1px solid palette(base);
     min-width: 80px;
 }
 QTabBar::tab:selected {
-    background: #1E1E2E;
-    color: #CDD6F4;
-    border-top: 2px solid #89B4FA;
+    background: palette(base);
+    color: palette(text);
+    border-top: 2px solid palette(highlight);
 }
-QTabBar::tab:hover { background: #313244; color: #CDD6F4; }
+QTabBar::tab:hover { background: palette(mid); color: palette(text); }
 """
 
 _TAB_STYLE_COMPACT = """
 QTabWidget::pane  { border: none; }
 QTabBar::tab {
-    background: #2A2A3E;
-    color: #6C7086;
+    background: palette(alternate-base);
+    color: palette(placeholder-text);
     padding: 4px 6px;
     border: none;
-    border-right: 1px solid #181825;
+    border-right: 1px solid palette(base);
     min-width: 18px;
 }
 QTabBar::tab:selected {
-    background: #1E1E2E;
-    color: #CDD6F4;
-    border-top: 2px solid #89B4FA;
+    background: palette(base);
+    color: palette(text);
+    border-top: 2px solid palette(highlight);
     min-width: 90px;
     padding: 4px 10px;
 }
-QTabBar::tab:hover { background: #313244; color: #CDD6F4; }
+QTabBar::tab:hover { background: palette(mid); color: palette(text); }
 """
 
 

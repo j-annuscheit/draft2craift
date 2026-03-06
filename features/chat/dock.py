@@ -1,6 +1,7 @@
 """Chat dock orchestration for model load, chat and fact-check flows."""
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 from typing import Callable
 
 from PySide6.QtCore import Qt, Signal
@@ -56,7 +57,10 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         self.llm = llm_manager
         self._user_mode = USER_MODE_PLUS
         self._context_getter: Callable[[], dict] | None = None
-        self._selection_apply_handler: Callable[[str, str], tuple[bool, str]] | None = None
+        self._canvas_selection_getter: Callable[[], str] | None = None
+        self._selection_apply_handler: (
+            Callable[[str, str, tuple[int, int] | None], tuple[bool, str]] | None
+        ) = None
         self._fact_result_handler: Callable[[str, str], tuple[bool, str]] | None = None
         self._glossary_request_handler: (
             Callable[[dict, Callable[[bool, str], None]], tuple[bool, str]] | None
@@ -71,6 +75,10 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
 
         self._pending_apply_to_canvas = False
         self._pending_selected_text = ""
+        self._pending_selected_span: tuple[int, int] | None = None
+        self._pending_apply_retry_count = 0
+        self._pending_apply_retry_limit = 1
+        self._pending_apply_context: dict = {}
         self._history_stream_open = False
         self._chat_tts_mode = "off"
         self._read_aloud_active = False
@@ -85,6 +93,7 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         self._pending_fact_index = 0
         self._llm_generating = False
         self._aux_generating = False
+        self._model_panel_last_size = 160
 
         self._feedback_service: FeedbackService | None = None
         self._last_user_msg = ""
@@ -110,9 +119,12 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
     def set_context_getter(self, getter: Callable[[], dict]):
         self._context_getter = getter
 
+    def set_canvas_selection_getter(self, getter: Callable[[], str] | None):
+        self._canvas_selection_getter = getter
+
     def set_selection_apply_handler(
         self,
-        handler: Callable[[str, str], tuple[bool, str]],
+        handler: Callable[[str, str, tuple[int, int] | None], tuple[bool, str]],
     ):
         self._selection_apply_handler = handler
 
@@ -191,6 +203,62 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         btn.setText("🔊")
         btn.setToolTip("Letzte Modellantwort vorlesen")
 
+    def is_model_panel_visible(self) -> bool:
+        splitter = getattr(self, "_main_splitter", None)
+        if splitter is None:
+            return True
+        sizes = splitter.sizes()
+        if len(sizes) != 3:
+            return True
+        return int(sizes[0]) > 8
+
+    def set_model_panel_visible(self, visible: bool):
+        splitter = getattr(self, "_main_splitter", None)
+        if splitter is None:
+            return
+        sizes = splitter.sizes()
+        if len(sizes) != 3:
+            return
+
+        total = int(sum(sizes))
+        if total <= 0:
+            total = 1
+        model_size, ctx_size, chat_size = [int(s) for s in sizes]
+
+        min_model = 72
+        min_ctx = 52
+        min_chat = 96
+
+        if not bool(visible):
+            if model_size > 8:
+                self._model_panel_last_size = model_size
+            remaining = total
+            ctx_chat_total = max(1, ctx_size + chat_size)
+            ctx_target = int(round(remaining * (ctx_size / ctx_chat_total)))
+            ctx_target = max(min_ctx, min(ctx_target, max(min_ctx, remaining - min_chat)))
+            chat_target = max(min_chat, remaining - ctx_target)
+            splitter.setSizes([0, ctx_target, chat_target])
+            return
+
+        available_for_model = max(0, total - (min_ctx + min_chat))
+        if available_for_model <= 0:
+            splitter.setSizes([0, max(min_ctx, total // 3), max(min_chat, total // 2)])
+            return
+
+        desired = int(self._model_panel_last_size or min_model)
+        model_target = max(min_model, min(desired, available_for_model))
+        remaining = max(0, total - model_target)
+        ctx_chat_total = max(1, ctx_size + chat_size)
+        ctx_target = int(round(remaining * (ctx_size / ctx_chat_total)))
+        ctx_target = max(min_ctx, min(ctx_target, max(min_ctx, remaining - min_chat)))
+        chat_target = max(min_chat, remaining - ctx_target)
+        splitter.setSizes([model_target, ctx_target, chat_target])
+
+    def toggle_model_panel(self) -> bool:
+        new_visible = not self.is_model_panel_visible()
+        self.set_model_panel_visible(new_visible)
+        return new_visible
+
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
@@ -205,8 +273,8 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         splitter = QSplitter(Qt.Orientation.Vertical)
         self._main_splitter = splitter
         splitter.setStyleSheet(
-            "QSplitter::handle { background: #45475A; height: 2px; }"
-            "QSplitter::handle:hover { background: #89B4FA; }"
+            "QSplitter::handle { background: palette(mid); height: 2px; }"
+            "QSplitter::handle:hover { background: palette(highlight); }"
         )
 
         self.model_panel = ModelLoadPanel()
@@ -221,19 +289,19 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         splitter.setCollapsible(1, True)
 
         chat_widget = QWidget()
-        chat_widget.setStyleSheet("background: #1E1E2E;")
+        chat_widget.setStyleSheet("background: palette(base);")
         chat_layout = QVBoxLayout(chat_widget)
         chat_layout.setContentsMargins(0, 0, 0, 0)
         chat_layout.setSpacing(0)
 
         inner = QSplitter(Qt.Orientation.Vertical)
         inner.setStyleSheet(
-            "QSplitter::handle { background: #45475A; height: 3px; }"
-            "QSplitter::handle:hover { background: #89B4FA; }"
+            "QSplitter::handle { background: palette(mid); height: 3px; }"
+            "QSplitter::handle:hover { background: palette(highlight); }"
         )
 
         history_widget = QWidget()
-        history_widget.setStyleSheet("background: #1E1E2E;")
+        history_widget.setStyleSheet("background: palette(base);")
         history_layout = QVBoxLayout(history_widget)
         history_layout.setContentsMargins(0, 0, 0, 0)
         history_layout.setSpacing(0)
@@ -243,7 +311,7 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
 
         ctx_row = QWidget()
         ctx_row.setStyleSheet(
-            "background: #181825; border-top: 1px solid #313244;"
+            "background: palette(alternate-base); border-top: 1px solid palette(mid);"
         )
         ctx_layout = QHBoxLayout(ctx_row)
         ctx_layout.setContentsMargins(8, 2, 8, 2)
@@ -255,7 +323,7 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
             QSizePolicy.Policy.Fixed,
         )
         self._ctx_bar.setStyleSheet(
-            "background: transparent; color: #6C7086; font-size: 9px;"
+            "background: transparent; color: palette(placeholder-text); font-size: 9px;"
         )
         ctx_layout.addWidget(self._ctx_bar, 0, Qt.AlignmentFlag.AlignLeft)
         ctx_layout.addStretch(1)
@@ -322,7 +390,7 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
     def _build_input_area(self) -> QWidget:
         area = QWidget()
         area.setMinimumHeight(80)
-        area.setStyleSheet("background: #2A2A3E; border-top: 1px solid #45475A;")
+        area.setStyleSheet("background: palette(alternate-base); border-top: 1px solid palette(mid);")
         layout = QVBoxLayout(area)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(4)
@@ -332,11 +400,11 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         self.input_box.setStyleSheet(
             """
             QPlainTextEdit {
-                background: #1E1E2E; color: #CDD6F4;
-                border: 1px solid #45475A; border-radius: 4px;
+                background: palette(base); color: palette(text);
+                border: 1px solid palette(mid); border-radius: 4px;
                 padding: 4px; font-size: 11px;
             }
-            QPlainTextEdit:focus { border-color: #89B4FA; }
+            QPlainTextEdit:focus { border-color: palette(highlight); }
             """
         )
         layout.addWidget(self.input_box)
@@ -472,6 +540,7 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
             "file_contents": list(ctx.get("file_contents", []) or []),
             "rag_results": list(ctx.get("rag_results", []) or []),
             "selected_text": str(ctx.get("selected_text", "") or ""),
+            "selected_span": ctx.get("selected_span", None),
             "grounding_required": bool(ctx.get("grounding_required", False)),
             "grounding_has_sources": bool(
                 ctx.get("grounding_has_sources", False)
@@ -499,6 +568,219 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
             if str(excerpt or "").strip():
                 return True
         return False
+
+    def _reset_pending_canvas_rewrite(self):
+        self._pending_apply_to_canvas = False
+        self._pending_selected_text = ""
+        self._pending_selected_span = None
+        self._pending_apply_retry_count = 0
+        self._pending_apply_context = {}
+
+    @staticmethod
+    def _canvas_rewrite_retry_user_message() -> str:
+        return (
+            "Es wurde nicht die richtige Markierung für den ersetzten Text verwendet.\n"
+            "Die Aufgabe bleibt unverändert dieselbe, inklusive Ausgabeform und Struktur.\n"
+            "Behalte die Form standardmäßig bei: Liste bleibt Liste, Tabelle bleibt Tabelle, "
+            "JSON bleibt JSON, Markdown bleibt Markdown.\n"
+            "Nur wenn die ursprüngliche Nutzeranweisung explizit eine "
+            "Format-Umwandlung fordert (z. B. zu Fließtext), darf die Form geändert werden.\n"
+            "Bitte gib NUR den finalen Ersatzinhalt in folgendem exakten Format aus:\n"
+            f"{CANVAS_REWRITE_OPEN}\n"
+            "TEXT_DER_DEN_ZU_ERSETZENDEN_TEXT_ERSETZT\n"
+            f"{CANVAS_REWRITE_CLOSE}\n"
+            "Keine Erklärung, keine zusätzlichen Präfixe/Suffixe."
+        )
+
+    @staticmethod
+    def _canvas_scope_retry_user_message() -> str:
+        return (
+            "Es wurde offenbar Text außerhalb der Auswahl wiederholt.\n"
+            "Bitte korrigiere das und ersetze NUR den selektierten Bereich, "
+            "NICHT den gesamten Canvas/Draft.\n"
+            "Die Aufgabe bleibt unverändert dieselbe, inklusive Ausgabeform und Struktur.\n"
+            "Behalte die Form standardmäßig bei.\n"
+            "Nur wenn die ursprüngliche Nutzeranweisung explizit eine "
+            "Format-Umwandlung fordert, darf die Form geändert werden.\n"
+            "Gib NUR den finalen Ersatzinhalt in folgendem exakten Format aus:\n"
+            f"{CANVAS_REWRITE_OPEN}\n"
+            "TEXT_DER_DEN_ZU_ERSETZENDEN_TEXT_ERSETZT\n"
+            f"{CANVAS_REWRITE_CLOSE}\n"
+            "Keine Erklärung, keine zusätzlichen Präfixe/Suffixe."
+        )
+
+    @staticmethod
+    def _contains_non_selected_canvas_repeat(
+        draft_text: str,
+        selected_text: str,
+        replacement: str,
+    ) -> bool:
+        draft = ChatDock._normalize_context_text(draft_text)
+        selected = ChatDock._normalize_context_text(selected_text)
+        rewritten = ChatDock._normalize_context_text(replacement)
+        if not draft or not selected or not rewritten:
+            return False
+        if draft == selected or rewritten == selected:
+            return False
+        if rewritten in draft and rewritten != selected:
+            return True
+        if draft in rewritten and draft != selected:
+            return True
+
+        start = draft.find(selected)
+        if start < 0:
+            return False
+
+        before = draft[:start].strip()
+        after = draft[start + len(selected):].strip()
+        before_hint = before[-200:].strip()
+        after_hint = after[:200].strip()
+        if before_hint and len(before_hint) >= 24 and before_hint in rewritten:
+            return True
+        if after_hint and len(after_hint) >= 24 and after_hint in rewritten:
+            return True
+        return False
+
+    @staticmethod
+    def _extract_selected_replacement_from_full_draft(
+        draft_text: str,
+        selected_text: str,
+        rewritten_text: str,
+    ) -> str:
+        """
+        Detect exact A+B'+C pattern and extract only B'.
+
+        Returns empty string when no unique 1:1 decomposition is possible.
+        """
+        draft = (
+            str(draft_text or "")
+            .replace("\u2029", "\n")
+            .replace("\r\n", "\n")
+        )
+        selected = (
+            str(selected_text or "")
+            .replace("\u2029", "\n")
+            .replace("\r\n", "\n")
+        )
+        rewritten = (
+            str(rewritten_text or "")
+            .replace("\u2029", "\n")
+            .replace("\r\n", "\n")
+        )
+        if not draft or not selected or not rewritten:
+            return ""
+        if draft == selected:
+            return ""
+
+        candidates: list[str] = []
+
+        def _similarity(a: str, b: str) -> float:
+            if a == b:
+                return 1.0
+            if not a or not b:
+                return 0.0
+            max_len = max(len(a), len(b))
+            if max_len <= 0:
+                return 1.0
+            if abs(len(a) - len(b)) / max_len > 0.05:
+                return 0.0
+            return SequenceMatcher(None, a, b).ratio()
+
+        def _nearby_positions(target: int, total: int, window: int) -> list[int]:
+            start = max(0, target - window)
+            end = min(total, target + window)
+            positions = list(range(start, end + 1))
+            positions.sort(key=lambda pos: (abs(pos - target), pos))
+            return positions
+
+        similarity_threshold = 0.95
+        start = 0
+        while True:
+            idx = draft.find(selected, start)
+            if idx < 0:
+                break
+            end = idx + len(selected)
+            prefix = draft[:idx]
+            suffix = draft[end:]
+            if rewritten.startswith(prefix) and rewritten.endswith(suffix):
+                repl_end = len(rewritten) - len(suffix) if suffix else len(rewritten)
+                candidate = rewritten[len(prefix):repl_end]
+                candidates.append(candidate)
+                start = idx + 1
+                continue
+
+            # Fuzzy fallback: accept minimal edits in A/C if both parts are still >=95% similar.
+            total_len = len(rewritten)
+            prefix_target = len(prefix)
+            suffix_target = total_len - len(suffix)
+            shift_window = max(4, min(64, int(max(prefix_target, len(suffix)) * 0.02)))
+
+            prefix_hits: list[tuple[int, float]] = []
+            for pos in _nearby_positions(prefix_target, total_len, shift_window):
+                score = _similarity(prefix, rewritten[:pos])
+                if score >= similarity_threshold:
+                    prefix_hits.append((pos, score))
+                    if len(prefix_hits) >= 12:
+                        break
+
+            suffix_hits: list[tuple[int, float]] = []
+            for pos in _nearby_positions(suffix_target, total_len, shift_window):
+                score = _similarity(suffix, rewritten[pos:])
+                if score >= similarity_threshold:
+                    suffix_hits.append((pos, score))
+                    if len(suffix_hits) >= 12:
+                        break
+
+            best: tuple[float, int, str] | None = None
+            for prefix_pos, prefix_score in prefix_hits:
+                for suffix_pos, suffix_score in suffix_hits:
+                    if prefix_pos > suffix_pos:
+                        continue
+                    edge_score = min(prefix_score, suffix_score)
+                    edge_shift = abs(prefix_pos - prefix_target) + abs(suffix_pos - suffix_target)
+                    middle = rewritten[prefix_pos:suffix_pos]
+                    rank = (edge_score, -edge_shift, middle)
+                    if best is None or rank > best:
+                        best = rank
+            if best is not None:
+                candidates.append(best[2])
+            start = idx + 1
+
+        if len(candidates) != 1:
+            return ""
+        return candidates[0]
+
+    def _retry_canvas_rewrite_format(self, retry_message: str | None = None) -> bool:
+        if self._pending_apply_retry_count >= self._pending_apply_retry_limit:
+            return False
+        if not self.llm.is_model_loaded():
+            return False
+        context = dict(self._pending_apply_context or {})
+        if not context:
+            return False
+
+        message = str(retry_message or self._canvas_rewrite_retry_user_message())
+        self.history.add_message("user", message)
+
+        send_ok = self.llm.send_message(
+            user_message=message,
+            file_contents=list(context.get("file_contents", []) or []),
+            rag_results=list(context.get("rag_results", []) or []),
+            selected_text=str(context.get("selected_text", "") or ""),
+            chat_history=self.history.get_history()[:-1],
+            selection_apply_mode=True,
+            grounding_required=bool(context.get("grounding_required", False)),
+            grounding_has_sources=bool(context.get("grounding_has_sources", True)),
+            **dict(context.get("gen_params", {}) or {}),
+        )
+        if not send_ok:
+            return False
+
+        self._pending_apply_retry_count += 1
+        self._pending_apply_to_canvas = True
+        self.history.begin_streaming()
+        self._history_stream_open = True
+        return True
 
     def _send_glossary_generation(self):
         if not self.llm.is_model_loaded():
@@ -663,6 +945,7 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         ctx = self._collect_shared_context()
 
         selected_text = ctx.get("selected_text", "")
+        selected_span = ctx.get("selected_span", None)
         selection_apply_mode = bool(
             self.apply_selection_cb.isChecked() and selected_text and selected_text.strip()
         )
@@ -691,8 +974,12 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         self.history.add_message("user", msg)
         self.input_box.clear()
 
+        self._reset_pending_canvas_rewrite()
         self._pending_apply_to_canvas = selection_apply_mode
         self._pending_selected_text = selected_text if selection_apply_mode else ""
+        self._pending_selected_span = (
+            selected_span if selection_apply_mode else None
+        )
 
         file_contents = list(ctx.get("file_contents", []))
         if selection_apply_mode:
@@ -712,6 +999,18 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
             file_contents = filtered
 
         history = self.history.get_history()[:-1]
+        gen_params = self.model_panel.get_generation_params()
+        if selection_apply_mode:
+            self._pending_apply_context = {
+                "file_contents": list(file_contents),
+                "rag_results": list(ctx.get("rag_results", []) or []),
+                "selected_text": selected_text,
+                "selected_span": selected_span,
+                "grounding_required": grounding_required,
+                "grounding_has_sources": grounding_has_sources,
+                "gen_params": dict(gen_params),
+            }
+
         started = self.llm.send_message(
             user_message=msg,
             file_contents=file_contents,
@@ -721,11 +1020,13 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
             selection_apply_mode=selection_apply_mode,
             grounding_required=grounding_required,
             grounding_has_sources=grounding_has_sources,
-            **self.model_panel.get_generation_params(),
+            **gen_params,
         )
         if started:
             self.history.begin_streaming()
             self._history_stream_open = True
+            return
+        self._reset_pending_canvas_rewrite()
 
     def _on_token(self, token: str):
         if self._pending_fact_check:
@@ -749,31 +1050,54 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         self._maybe_auto_read_response(response)
 
         if not self._pending_apply_to_canvas:
+            self._pending_apply_context = {}
+            self._pending_apply_retry_count = 0
             self.history.activate_feedback(self._last_use_case)
             return
 
-        self._pending_apply_to_canvas = False
-        replacement = extract_canvas_rewrite(
+        draft_text = ""
+        for name, content in list(
+            self._pending_apply_context.get("file_contents", []) or []
+        ):
+            if str(name or "").startswith("Draft:"):
+                draft_text = str(content or "")
+                break
+
+        raw_replacement = extract_canvas_rewrite(
             response,
             CANVAS_REWRITE_OPEN,
             CANVAS_REWRITE_CLOSE,
         )
-        if not replacement:
-            self._pending_selected_text = ""
+        if not raw_replacement:
             if GROUNDING_INSUFFICIENT_MESSAGE in response:
+                self._reset_pending_canvas_rewrite()
                 self.history.add_message(
                     "system",
                     f"⚠ {GROUNDING_INSUFFICIENT_MESSAGE}",
                 )
                 return
+            if self._retry_canvas_rewrite_format():
+                return
+            self._reset_pending_canvas_rewrite()
             self.history.add_message(
                 "system",
                 "⚠ No valid rewrite block found. Draft selection was not changed.",
             )
             return
 
+        replacement = raw_replacement
+        strict_full_draft_match = False
+        selected_only_replacement = self._extract_selected_replacement_from_full_draft(
+            draft_text,
+            self._pending_selected_text,
+            raw_replacement,
+        )
+        if selected_only_replacement:
+            replacement = selected_only_replacement
+            strict_full_draft_match = True
+
         if self._selection_apply_handler is None:
-            self._pending_selected_text = ""
+            self._reset_pending_canvas_rewrite()
             self.history.add_message(
                 "system",
                 "⚠ No draft apply handler configured.",
@@ -783,16 +1107,63 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         ok, info = self._selection_apply_handler(
             replacement,
             self._pending_selected_text,
+            self._pending_selected_span,
         )
-        self._pending_selected_text = ""
         if ok:
+            self._reset_pending_canvas_rewrite()
             self.history.add_message(
                 "system",
                 f"✅ Selection updated in draft workspace. {info}".strip(),
             )
             self.history.activate_feedback("canvas_edit")
-        else:
-            self.history.add_message("system", f"⚠ Could not apply rewrite: {info}")
+            return
+
+        ambiguous_message = "Selection is ambiguous in source text."
+        if ambiguous_message in str(info or ""):
+            if strict_full_draft_match and draft_text:
+                ok, info = self._selection_apply_handler(
+                    raw_replacement,
+                    draft_text,
+                    None,
+                )
+                if ok:
+                    self._reset_pending_canvas_rewrite()
+                    self.history.add_message(
+                        "system",
+                        f"✅ Selection updated in draft workspace. {info}".strip(),
+                    )
+                    self.history.activate_feedback("canvas_edit")
+                    return
+            if (
+                not strict_full_draft_match
+                and self._contains_non_selected_canvas_repeat(
+                    draft_text,
+                    self._pending_selected_text,
+                    replacement,
+                )
+            ):
+                if self._retry_canvas_rewrite_format(
+                    self._canvas_scope_retry_user_message()
+                ):
+                    return
+            self._reset_pending_canvas_rewrite()
+            self.history.add_message(
+                "system",
+                (
+                    "⚠ Could not apply rewrite automatically. "
+                    "Please reselect the target passage and retry."
+                ),
+            )
+            return
+
+        self._reset_pending_canvas_rewrite()
+        info_text = str(info or "")
+        if ambiguous_message in info_text:
+            info_text = (
+                "Selection mapping unavailable. "
+                "Please reselect the target passage and retry."
+            )
+        self.history.add_message("system", f"⚠ Could not apply rewrite: {info_text}")
 
     def _play_last_answer(self):
         if self._read_aloud_active:
@@ -872,8 +1243,7 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         )
 
     def _on_error(self, msg: str):
-        self._pending_apply_to_canvas = False
-        self._pending_selected_text = ""
+        self._reset_pending_canvas_rewrite()
         self._reset_fact_pipeline_state()
         if self._history_stream_open:
             self.history.finish_streaming()

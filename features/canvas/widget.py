@@ -69,7 +69,7 @@ class CanvasTabWidget(QWidget):
 
         title = QLabel("✦ draft2craift")
         title.setStyleSheet(
-            "color: #89B4FA; font-weight: bold; "
+            "color: palette(highlight); font-weight: bold; "
             "font-size: 13px; background: transparent;"
         )
         hbox.addWidget(title)
@@ -196,17 +196,34 @@ class CanvasTabWidget(QWidget):
     # Context helpers API (consumed by chat/llm orchestration)
     # ------------------------------------------------------------------
 
-    def get_selected_text(self, *, allow_cached: bool = True) -> str:
-        return self._selection.get_selected_text(allow_cached=allow_cached)
+    def get_selected_text(
+        self,
+        *,
+        allow_cached: bool = True,
+        consume_cached: bool = True,
+    ) -> str:
+        return self._selection.get_selected_text(
+            allow_cached=allow_cached,
+            consume_cached=consume_cached,
+        )
+
+    def get_selected_span(
+        self,
+        *,
+        allow_cached: bool = True,
+    ) -> tuple[int, int] | None:
+        return self._selection.get_selected_span(allow_cached=allow_cached)
 
     def replace_selected_text(
         self,
         replacement: str,
         expected_original: str = "",
+        preferred_span: tuple[int, int] | None = None,
     ) -> tuple[bool, str]:
         return self._selection.replace_selected_text(
             replacement,
             expected_original,
+            preferred_span,
         )
 
     def get_current_text(self) -> str:

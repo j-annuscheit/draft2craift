@@ -20,14 +20,14 @@ from .rag_results_panel import RAGResultsPanel
 _DOCK_TAB_STYLE = """
 QTabWidget::pane { border: none; }
 QTabBar::tab {
-    background: #2A2A3E; color: #6C7086;
+    background: palette(alternate-base); color: palette(placeholder-text);
     padding: 5px 14px; border: none;
 }
 QTabBar::tab:selected {
-    background: #1E1E2E; color: #CDD6F4;
-    border-top: 2px solid #CBA6F7;
+    background: palette(base); color: palette(text);
+    border-top: 2px solid palette(highlight);
 }
-QTabBar::tab:hover { background: #313244; color: #CDD6F4; }
+QTabBar::tab:hover { background: palette(mid); color: palette(text); }
 """
 
 

@@ -30,6 +30,7 @@ class ChatHistoryWidget(QWidget):
     """Tabbed chat history, each tab with its own markdown split-view."""
 
     feedback_submitted = Signal(str, str, list, str)  # use_case, sentiment, tags, note
+    content_changed = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -50,12 +51,12 @@ class ChatHistoryWidget(QWidget):
         tabs.setMovable(True)
         tabs.setStyleSheet(
             "QTabWidget::pane { border: none; }"
-            "QTabBar::tab { background: #2A2A3E; color: #A6ADC8; "
+            "QTabBar::tab { background: palette(alternate-base); color: palette(placeholder-text); "
             "padding: 4px 10px; border: none; "
-            "border-right: 1px solid #181825; }"
-            "QTabBar::tab:selected { background: #1E1E2E; color: #CDD6F4; "
-            "border-top: 2px solid #89B4FA; }"
-            "QTabBar::tab:hover { background: #313244; color: #CDD6F4; }"
+            "border-right: 1px solid palette(base); }"
+            "QTabBar::tab:selected { background: palette(base); color: palette(text); "
+            "border-top: 2px solid palette(highlight); }"
+            "QTabBar::tab:hover { background: palette(mid); color: palette(text); }"
         )
         tabs.tabCloseRequested.connect(self._close_tab)
         tabs.tabBar().setContextMenuPolicy(
@@ -114,6 +115,7 @@ class ChatHistoryWidget(QWidget):
 
         index = tabs.addTab(page, tab_title)
         tabs.setCurrentIndex(index)
+        self.content_changed.emit()
         return index
 
     def activate_feedback(self, use_case: str):
@@ -150,6 +152,7 @@ class ChatHistoryWidget(QWidget):
         session.history.append((role, content))
         self._append_message_markdown(session, role, content)
         self._scroll_bottom(session)
+        self.content_changed.emit()
 
     def begin_streaming(self, role: str = "assistant"):
         """Start a streaming response on the active tab."""
@@ -183,12 +186,115 @@ class ChatHistoryWidget(QWidget):
         self._scroll_bottom(session)
         if self._stream_page is session.page:
             self._stream_page = None
+        self.content_changed.emit()
 
     def get_history(self) -> list[tuple[str, str]]:
         session = self._active_session()
         if session is None:
             return []
         return list(session.history)
+
+    def export_sessions(self) -> dict:
+        """Return all chat tabs including titles/history for persistence."""
+        tabs = self._tabs
+        if tabs is None:
+            return {"current_tab": 0, "tabs": []}
+
+        out_tabs: list[dict] = []
+        for i in range(tabs.count()):
+            page = tabs.widget(i)
+            session = self._sessions.get(page)
+            if session is None:
+                continue
+            out_tabs.append(
+                {
+                    "title": str(tabs.tabText(i) or f"Chat {i + 1}"),
+                    "view_mode": str(session.display.view_mode() or "both"),
+                    "history": [
+                        {"role": str(role or ""), "content": str(content or "")}
+                        for role, content in session.history
+                    ],
+                }
+            )
+        return {
+            "current_tab": int(tabs.currentIndex()),
+            "tabs": out_tabs,
+        }
+
+    def import_sessions(self, payload: dict | list):
+        """
+        Restore all chat tabs from persisted payload.
+
+        Backward-compatible:
+        - list[{"role","content"}] loads into one tab.
+        - dict with {"current_tab","tabs":[...]} loads all tabs.
+        """
+        tabs = self._tabs
+        if tabs is None:
+            return
+
+        current_idx = 0
+        tabs_payload: list[dict] = []
+        if isinstance(payload, list):
+            tabs_payload = [
+                {
+                    "title": "Chat 1",
+                    "view_mode": "both",
+                    "history": payload,
+                }
+            ]
+        elif isinstance(payload, dict):
+            current_idx = int(payload.get("current_tab", 0) or 0)
+            raw_tabs = payload.get("tabs", [])
+            if isinstance(raw_tabs, list):
+                tabs_payload = [row for row in raw_tabs if isinstance(row, dict)]
+
+        self._stream_page = None
+        self._sessions.clear()
+        while tabs.count() > 0:
+            page = tabs.widget(0)
+            tabs.removeTab(0)
+            if page is not None:
+                page.deleteLater()
+
+        if not tabs_payload:
+            self.add_tab("Chat 1")
+            return
+
+        for idx, row in enumerate(tabs_payload):
+            title = str(row.get("title", "") or "").strip() or f"Chat {idx + 1}"
+            tab_idx = self.add_tab(title)
+            page = tabs.widget(tab_idx)
+            session = self._sessions.get(page)
+            if session is None:
+                continue
+
+            view_mode = str(row.get("view_mode", "") or "").strip().lower()
+            if view_mode in {"preview", "markdown", "both"}:
+                session.display.set_view_mode(view_mode)
+
+            messages = row.get("history", [])
+            if not isinstance(messages, list):
+                continue
+            for entry in messages:
+                if not isinstance(entry, dict):
+                    continue
+                role = str(entry.get("role", "") or "").strip()
+                content = str(entry.get("content", "") or "")
+                if not role:
+                    continue
+                session.history.append((role, content))
+                self._append_message_markdown(session, role, content)
+            self._scroll_bottom(session)
+
+        if tabs.count() <= 0:
+            self.add_tab("Chat 1")
+            self.content_changed.emit()
+            return
+        if current_idx < 0 or current_idx >= tabs.count():
+            current_idx = tabs.count() - 1
+        tabs.setCurrentIndex(current_idx)
+        self.content_changed.emit()
 
     def get_last_message(self, role: str = "") -> str:
         session = self._active_session()
@@ -213,6 +319,7 @@ class ChatHistoryWidget(QWidget):
         session.display.clear_text()
         if self._stream_page is session.page:
             self._stream_page = None
+        self.content_changed.emit()
 
     def _close_tab(self, index: int):
         tabs = self._tabs
@@ -231,6 +338,7 @@ class ChatHistoryWidget(QWidget):
         self._sessions.pop(page, None)
         tabs.removeTab(index)
         page.deleteLater()
+        self.content_changed.emit()
 
     def _open_tab_context_menu(self, pos):
         tabs = self._tabs

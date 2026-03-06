@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import html
 import math
 import re
+import weakref
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
@@ -16,6 +17,7 @@ from PySide6.QtGui import (
     QDesktopServices,
     QFont,
     QKeySequence,
+    QPalette,
     QPainter,
     QPen,
     QPolygonF,
@@ -242,6 +244,16 @@ class CanvasPreviewPane(QWidget):
     _ZOOM_STEP = 10
     _BASE_PT = 11.0
     _TITLE_BASE_PT = 11.0
+    _PAGE_MARGIN_DEFAULT_EM = 2.2
+    _PAGE_MARGIN_PRESETS: tuple[tuple[str, float], ...] = (
+        ("Schmal", 1.4),
+        ("Normal", 2.2),
+        ("Breit", 3.0),
+        ("Sehr breit", 4.0),
+    )
+    _GLOBAL_PAGE_MARGIN_ENABLED = True
+    _GLOBAL_PAGE_MARGIN_EM = _PAGE_MARGIN_DEFAULT_EM
+    _INSTANCES: "weakref.WeakSet[CanvasPreviewPane]" = weakref.WeakSet()
     _PREVIEW_TO_MARKDOWN_DELAY_MS = 140
     _HIGHLIGHT_SYNC_DELAY_MS = 240
     _DEFAULT_HOVER_TEXT = "Info"
@@ -267,6 +279,10 @@ class CanvasPreviewPane(QWidget):
         self._allow_editing = bool(allow_editing)
         self._show_title = bool(show_title)
         self._sync_cursor_with_editor = bool(sync_cursor_with_editor)
+        self._page_margin_enabled = bool(self._GLOBAL_PAGE_MARGIN_ENABLED)
+        self._page_margin_em = self._normalize_page_margin_em(
+            float(self._GLOBAL_PAGE_MARGIN_EM)
+        )
         self._format_bar: QWidget | None = None
         self._title: QLabel | None = None
         self._preview_edit_active = False
@@ -291,9 +307,26 @@ class CanvasPreviewPane(QWidget):
         self._py_to_qt_map: list[int] = [0]
         self._qt_to_py_map: list[int] = [0]
         self._preserve_view_state_once = False
+        self._view_scroll_guard_epoch = 0
+        self._restoring_view_scroll = False
+        self._pending_wheel_scroll_delta_px = 0
         self._render_cycle_id = 0
+        self._INSTANCES.add(self)
         self._setup_ui()
         self._setup_timers()
+
+    def _palette_hex(
+        self,
+        role: QPalette.ColorRole,
+        fallback: str = "#000000",
+    ) -> str:
+        color = self.palette().color(role)
+        if isinstance(color, QColor) and color.isValid():
+            return color.name(QColor.NameFormat.HexRgb)
+        fallback_color = QColor(str(fallback or ""))
+        if fallback_color.isValid():
+            return fallback_color.name(QColor.NameFormat.HexRgb)
+        return "#000000"
 
     def _setup_ui(self):
         self.setStyleSheet(PREVIEW_PANEL_STYLE)
@@ -318,6 +351,9 @@ class CanvasPreviewPane(QWidget):
         self._view.viewport().setMouseTracking(True)
         self._view.setStyleSheet(PREVIEW_VIEW_STYLE)
         self._view.textChanged.connect(self._on_preview_text_changed)
+        self._view.verticalScrollBar().valueChanged.connect(
+            self._on_view_scrollbar_value_changed
+        )
         self._view.installEventFilter(self)
         self._view.viewport().installEventFilter(self)
 
@@ -361,16 +397,21 @@ class CanvasPreviewPane(QWidget):
         )
         button_style = (
             "QPushButton {"
-            "background: #313244;"
-            "color: #CDD6F4;"
-            "border: 1px solid #45475A;"
+            "background: palette(alternate-base);"
+            "color: palette(text);"
+            "border: 1px solid palette(mid);"
             "padding: 2px 8px;"
             "border-radius: 3px;"
             "font-size: 11px;"
             "min-height: 20px;"
             "}"
-            "QPushButton:hover { background: #45475A; }"
-            "QPushButton:pressed { background: #585B70; }"
+            "QPushButton:hover { border: 1px solid palette(highlight); }"
+            "QPushButton:pressed { background: palette(mid); }"
+            "QPushButton:checked {"
+            "background: palette(highlight);"
+            "color: palette(highlighted-text);"
+            "border: 1px solid palette(highlight);"
+            "}"
         )
         for label, tooltip, slot in button_specs:
             btn = QPushButton(label)
@@ -381,6 +422,7 @@ class CanvasPreviewPane(QWidget):
             btn.clicked.connect(slot)
             row.addWidget(btn)
         row.addStretch()
+
         bar.setVisible(self._allow_editing)
         return bar
 
@@ -391,16 +433,16 @@ class CanvasPreviewPane(QWidget):
         row.setSpacing(4)
         button_style = (
             "QPushButton {"
-            "background: #313244;"
-            "color: #CDD6F4;"
-            "border: 1px solid #45475A;"
+            "background: palette(alternate-base);"
+            "color: palette(text);"
+            "border: 1px solid palette(mid);"
             "padding: 2px 8px;"
             "border-radius: 3px;"
             "font-size: 11px;"
             "min-height: 20px;"
             "}"
-            "QPushButton:hover { background: #45475A; }"
-            "QPushButton:pressed { background: #585B70; }"
+            "QPushButton:hover { border: 1px solid palette(highlight); }"
+            "QPushButton:pressed { background: palette(mid); }"
         )
 
         self._graph_expand_btn = QPushButton("Alle +")
@@ -443,7 +485,7 @@ class CanvasPreviewPane(QWidget):
         row.addWidget(self._graph_layout_fresh_btn)
 
         hint = QLabel("Klick: Fokus | Doppelklick: auf/zu oder Link")
-        hint.setStyleSheet("color: #6C7086; font-size: 10px;")
+        hint.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
         row.addWidget(hint)
         row.addStretch()
         bar.setVisible(False)
@@ -468,6 +510,12 @@ class CanvasPreviewPane(QWidget):
         self._highlight_sync_timer.setSingleShot(True)
         self._highlight_sync_timer.timeout.connect(
             self._sync_highlights_from_editor
+        )
+
+        self._wheel_scroll_flush_timer = QTimer(self)
+        self._wheel_scroll_flush_timer.setSingleShot(True)
+        self._wheel_scroll_flush_timer.timeout.connect(
+            self._flush_pending_wheel_scroll
         )
 
     def bind_editor(self, editor: Any | None):
@@ -595,6 +643,22 @@ class CanvasPreviewPane(QWidget):
             "\n",
         )
 
+    def connect_copy_available(self, slot) -> bool:
+        """Connect slot(bool) to preview selection availability changes."""
+        try:
+            self._view.copyAvailable.connect(slot)
+            return True
+        except Exception:
+            return False
+
+    def disconnect_copy_available(self, slot) -> bool:
+        """Disconnect slot(bool) from preview selection availability."""
+        try:
+            self._view.copyAvailable.disconnect(slot)
+            return True
+        except Exception:
+            return False
+
     def eventFilter(self, watched, event):
         is_preview_target = watched in (self._view, self._view.viewport())
         if is_preview_target and event.type() == QEvent.Type.ContextMenu:
@@ -618,6 +682,15 @@ class CanvasPreviewPane(QWidget):
                     self.increase_preview_text_size()
                 elif delta < 0:
                     self.decrease_preview_text_size()
+                event.accept()
+                return True
+            # Keep wheel scrolling responsive on complex HTML layouts
+            # (e.g. large tables) and stop delayed restore timers from
+            # snapping the view back while the user scrolls.
+            self._mark_view_scroll_interaction()
+            delta = self._wheel_scroll_delta_px(event)
+            if delta:
+                self._queue_wheel_scroll(int(delta))
                 event.accept()
                 return True
         if is_preview_target and event.type() == QEvent.Type.MouseMove:
@@ -1044,6 +1117,114 @@ class CanvasPreviewPane(QWidget):
         self._view.ensureCursorVisible()
         return True
 
+    def find_text(
+        self,
+        query: str,
+        *,
+        backward: bool = False,
+        case_sensitive: bool = False,
+        whole_words: bool = False,
+        wrap: bool = True,
+    ) -> bool:
+        if self._structured_view_active:
+            return False
+        needle = str(query or "")
+        if not needle:
+            return False
+
+        flags = QTextDocument.FindFlag(0)
+        if backward:
+            flags |= QTextDocument.FindFlag.FindBackward
+        if case_sensitive:
+            flags |= QTextDocument.FindFlag.FindCaseSensitively
+        if whole_words:
+            flags |= QTextDocument.FindFlag.FindWholeWords
+
+        doc = self._view.document()
+        cursor = self._view.textCursor()
+        current_start = int(cursor.selectionStart())
+        current_end = int(cursor.selectionEnd())
+        current_has_selection = current_end > current_start
+        start = int(cursor.selectionStart()) if backward else int(cursor.selectionEnd())
+        probe = QTextCursor(doc)
+        if backward:
+            probe.setPosition(max(0, start - 1))
+        else:
+            probe.setPosition(max(0, start))
+
+        found = doc.find(needle, probe, flags)
+        if found.isNull() and wrap:
+            restart = QTextCursor(doc)
+            if backward:
+                restart.setPosition(max(0, int(doc.characterCount()) - 1))
+            else:
+                restart.setPosition(0)
+            found = doc.find(needle, restart, flags)
+
+        if (
+            not found.isNull()
+            and current_has_selection
+            and int(found.selectionStart()) == current_start
+            and int(found.selectionEnd()) == current_end
+        ):
+            probe2 = QTextCursor(doc)
+            if backward:
+                probe2.setPosition(max(0, int(found.selectionStart()) - 1))
+            else:
+                probe2.setPosition(max(0, int(found.selectionEnd())))
+            alt = doc.find(needle, probe2, flags)
+            if alt.isNull() and wrap:
+                restart = QTextCursor(doc)
+                if backward:
+                    restart.setPosition(max(0, int(doc.characterCount()) - 1))
+                else:
+                    restart.setPosition(0)
+                alt = doc.find(needle, restart, flags)
+            if (
+                not alt.isNull()
+                and (
+                    int(alt.selectionStart()) != current_start
+                    or int(alt.selectionEnd()) != current_end
+                )
+            ):
+                found = alt
+        if found.isNull():
+            return False
+
+        self._view.setTextCursor(found)
+        self._view.ensureCursorVisible()
+        return True
+
+    def count_text_matches(
+        self,
+        query: str,
+        *,
+        case_sensitive: bool = False,
+        whole_words: bool = False,
+    ) -> int:
+        if self._structured_view_active:
+            return 0
+        needle = str(query or "")
+        if not needle:
+            return 0
+
+        flags = QTextDocument.FindFlag(0)
+        if case_sensitive:
+            flags |= QTextDocument.FindFlag.FindCaseSensitively
+        if whole_words:
+            flags |= QTextDocument.FindFlag.FindWholeWords
+
+        doc = self._view.document()
+        count = 0
+        found = doc.find(needle, 0, flags)
+        while not found.isNull():
+            count += 1
+            found = doc.find(needle, found.position(), flags)
+        return count
+
+    def is_read_only(self) -> bool:
+        return bool(self._view.isReadOnly())
+
     def _span_at_position(self, position: int) -> _RenderedHighlight | None:
         for item in self._rendered_highlights:
             if item.start <= position < item.end:
@@ -1135,6 +1316,53 @@ class CanvasPreviewPane(QWidget):
         QApplication.clipboard().setText(text)
         return True
 
+    def _mark_view_scroll_interaction(self):
+        self._view_scroll_guard_epoch = int(self._view_scroll_guard_epoch) + 1
+
+    def _on_view_scrollbar_value_changed(self, _value: int):
+        if self._restoring_view_scroll:
+            return
+        self._mark_view_scroll_interaction()
+
+    def _wheel_scroll_delta_px(self, event) -> int:
+        scrollbar = self._view.verticalScrollBar()
+        angle = int(event.angleDelta().y() or 0)
+        pixel = int(event.pixelDelta().y() or 0)
+
+        # Mouse wheels usually report robust angle deltas; trackpads often
+        # provide pixel deltas. Prefer the stronger signal when both exist.
+        step_px = max(20, int(scrollbar.singleStep() or 20))
+        lines = max(1, int(QApplication.wheelScrollLines() or 1))
+        angle_px = int(round((float(angle) / 120.0) * float(step_px * lines)))
+        if angle_px and pixel:
+            return angle_px if abs(angle_px) >= abs(pixel) else pixel
+        return angle_px or pixel
+
+    def _queue_wheel_scroll(self, delta_px: int):
+        if int(delta_px) == 0:
+            return
+        self._pending_wheel_scroll_delta_px += int(delta_px)
+        timer = self._wheel_scroll_flush_timer
+        if not timer.isActive():
+            timer.start(12)
+
+    def _flush_pending_wheel_scroll(self):
+        pending = int(self._pending_wheel_scroll_delta_px)
+        self._pending_wheel_scroll_delta_px = 0
+        if pending == 0:
+            return
+        scrollbar = self._view.verticalScrollBar()
+        target = int(scrollbar.value()) - pending
+        new_value = max(
+            int(scrollbar.minimum()),
+            min(target, int(scrollbar.maximum())),
+        )
+        self._restoring_view_scroll = True
+        try:
+            scrollbar.setValue(new_value)
+        finally:
+            self._restoring_view_scroll = False
+
     def _capture_view_state(self) -> tuple[int, int, int, int]:
         cursor = self._view.textCursor()
         scrollbar = self._view.verticalScrollBar()
@@ -1174,18 +1402,28 @@ class CanvasPreviewPane(QWidget):
 
         was_at_end = bool(old_max > 0 and int(old_scroll) >= int(old_max) - 2)
         token = int(self._render_cycle_id)
+        scroll_guard = int(self._view_scroll_guard_epoch)
 
         def apply_scroll():
             if token != self._render_cycle_id:
                 return
+            if scroll_guard != self._view_scroll_guard_epoch:
+                return
             scrollbar = self._view.verticalScrollBar()
             new_max = int(scrollbar.maximum())
+            self._restoring_view_scroll = True
             if was_at_end:
-                scrollbar.setValue(new_max)
+                try:
+                    scrollbar.setValue(new_max)
+                finally:
+                    self._restoring_view_scroll = False
                 return
-            # Preserve exact pixel position by default. Ratio-based restore can
-            # cause visible drift on small relayouts (e.g. tables, inline wraps).
-            scrollbar.setValue(max(0, min(int(old_scroll), new_max)))
+            try:
+                # Preserve exact pixel position by default. Ratio-based restore can
+                # cause visible drift on small relayouts (e.g. tables, inline wraps).
+                scrollbar.setValue(max(0, min(int(old_scroll), new_max)))
+            finally:
+                self._restoring_view_scroll = False
 
         # Apply now and repeatedly after layout settles.
         apply_scroll()
@@ -1340,26 +1578,36 @@ class CanvasPreviewPane(QWidget):
             return
         title_pt = self._TITLE_BASE_PT * (self._zoom_percent / 100.0)
         self._title.setStyleSheet(
-            f"color: #A6ADC8; font-size: {title_pt:.1f}pt; font-weight: bold;"
+            f"color: {self._palette_hex(QPalette.ColorRole.PlaceholderText, '#6C7086')}; "
+            f"font-size: {title_pt:.1f}pt; font-weight: bold;"
         )
 
     def _markdown_stylesheet(self) -> str:
         zoom = self._zoom_percent / 100.0
         body_pt = self._BASE_PT * zoom
         code_pt = max(8.0, body_pt * 0.95)
+        paragraph_gap_em = 0.95
+        text_color = self._palette_hex(QPalette.ColorRole.Text, "#CDD6F4")
+        code_color = self._palette_hex(
+            QPalette.ColorRole.PlaceholderText,
+            "#BAC2DE",
+        )
+        link_color = self._palette_hex(QPalette.ColorRole.Highlight, "#89B4FA")
+        table_border = self._palette_hex(QPalette.ColorRole.Mid, "#D0D0D0")
         body_rule = (
             "body { "
             "font-family: 'Segoe UI', sans-serif; "
             "font-size: 1em; "
             "line-height: 1.45; "
-            "color: #CDD6F4; "
+            f"color: {text_color}; "
+            "background: transparent; "
             "}"
         )
         code_rule = (
             "pre, code { "
             "font-family: 'Cascadia Code', 'Consolas', monospace; "
             f"font-size: {code_pt:.1f}pt; "
-            "color: #BAC2DE; "
+            f"color: {code_color}; "
             "}"
         )
         return "".join(
@@ -1368,10 +1616,13 @@ class CanvasPreviewPane(QWidget):
                 "h1 { font-size: 2.00em; } ",
                 "h2 { font-size: 1.60em; } ",
                 "h3 { font-size: 1.30em; } ",
-                "a { color: #89B4FA; } ",
+                f"p {{ margin: 0 0 {paragraph_gap_em:.2f}em 0; }} ",
+                f"ul, ol {{ margin: 0.35em 0 {paragraph_gap_em:.2f}em 1.35em; }} ",
+                "li { margin: 0.20em 0; } ",
+                f"a {{ color: {link_color}; }} ",
                 code_rule,
                 "table { border-collapse: collapse; } ",
-                "th, td { border: 1px solid #D0D0D0; padding: 4px 8px; }",
+                f"th, td {{ border: 1px solid {table_border}; padding: 4px 8px; }}",
             ]
         )
 
@@ -1381,7 +1632,81 @@ class CanvasPreviewPane(QWidget):
         font = QFont(doc.defaultFont())
         font.setPointSizeF(body_pt)
         doc.setDefaultFont(font)
+        self._apply_title_style()
+        margin_px = 0.0
+        if self._page_margin_enabled:
+            margin_px = max(8.0, body_pt * float(self._page_margin_em))
+        doc.setDocumentMargin(float(margin_px))
         doc.setDefaultStyleSheet(self._markdown_stylesheet())
+
+    @classmethod
+    def _normalize_page_margin_em(cls, value: float) -> float:
+        try:
+            numeric = float(value)
+        except Exception:
+            numeric = float(cls._PAGE_MARGIN_DEFAULT_EM)
+        choices = [float(v) for _label, v in cls._PAGE_MARGIN_PRESETS]
+        if not choices:
+            return float(cls._PAGE_MARGIN_DEFAULT_EM)
+        nearest = min(choices, key=lambda current: abs(current - numeric))
+        return float(nearest)
+
+    @classmethod
+    def global_page_margin_settings(cls) -> tuple[bool, float]:
+        return (
+            bool(cls._GLOBAL_PAGE_MARGIN_ENABLED),
+            float(cls._normalize_page_margin_em(cls._GLOBAL_PAGE_MARGIN_EM)),
+        )
+
+    @classmethod
+    def apply_global_page_margin_settings(
+        cls,
+        *,
+        enabled: bool,
+        em: float,
+    ):
+        normalized_em = cls._normalize_page_margin_em(em)
+        cls._GLOBAL_PAGE_MARGIN_ENABLED = bool(enabled)
+        cls._GLOBAL_PAGE_MARGIN_EM = float(normalized_em)
+        for pane in list(cls._INSTANCES):
+            try:
+                pane.set_page_margin_settings(
+                    enabled=bool(enabled),
+                    em=float(normalized_em),
+                )
+            except Exception:
+                continue
+
+    def page_margin_settings(self) -> tuple[bool, float]:
+        return bool(self._page_margin_enabled), float(self._page_margin_em)
+
+    def _sync_page_margin_controls(self):
+        # Page-margin controls are global and live in the main View menu.
+        return
+
+    def set_page_margin_settings(
+        self,
+        *,
+        enabled: bool | None = None,
+        em: float | None = None,
+    ) -> bool:
+        changed = False
+        if enabled is not None:
+            next_enabled = bool(enabled)
+            if next_enabled != bool(self._page_margin_enabled):
+                self._page_margin_enabled = next_enabled
+                changed = True
+        if em is not None:
+            next_em = self._normalize_page_margin_em(em)
+            if abs(next_em - float(self._page_margin_em)) >= 0.001:
+                self._page_margin_em = float(next_em)
+                changed = True
+        if not changed:
+            self._sync_page_margin_controls()
+            return False
+        self._sync_page_margin_controls()
+        self._apply_view_document_style()
+        return True
 
     @staticmethod
     def _canonical_markdown(text: str) -> str:
@@ -1806,7 +2131,7 @@ class CanvasPreviewPane(QWidget):
                 md = self._editor.get_full_text()
                 if not md.strip():
                     self._set_structured_graph_state(None)
-                    self._view.setHtml("<p><em>Leer.</em></p>")
+                    self._view.clear()
                     self._last_rendered_markdown = None
                     did_replace_document = True
                     self._rendered_highlights = []
@@ -1839,10 +2164,10 @@ class CanvasPreviewPane(QWidget):
                 self._preserve_view_state_once = False
                 return
             if self._sync_cursor_with_editor:
-                # In scheduled rerenders we preserve viewport, not selection/caret.
-                # Keeping anchor/selection here causes Qt auto-scroll drift on long
-                # documents (especially when a selection spans far upwards).
-                preserve_cursor = False
+                # Keep preview caret stable while the user is interacting in
+                # HTML view. Otherwise QTextBrowser resets the caret to start
+                # when setMarkdown()/setHtml() replaces the document.
+                preserve_cursor = self._focus_is_inside_preview()
                 editor_visible = (
                     self._editor is not None and self._editor.isVisible()
                 )
@@ -2821,13 +3146,28 @@ class CanvasPreviewPane(QWidget):
             return
 
         scene.clear()
+        palette = self.palette()
+        text_color = QColor(palette.color(QPalette.ColorRole.Text))
+        muted_color = QColor(palette.color(QPalette.ColorRole.PlaceholderText))
+        base_color = QColor(palette.color(QPalette.ColorRole.Base))
+        alt_color = QColor(palette.color(QPalette.ColorRole.AlternateBase))
+        highlight_color = QColor(palette.color(QPalette.ColorRole.Highlight))
+        link_color = QColor(palette.color(QPalette.ColorRole.Link))
+        mid_color = QColor(palette.color(QPalette.ColorRole.Mid))
+        focus_fill = QColor(highlight_color)
+        focus_fill.setAlpha(58)
+        leaf_fill = QColor(alt_color)
+        leaf_fill = leaf_fill.lighter(108)
+        root_fill = QColor(base_color)
+        root_fill = root_fill.lighter(112)
+        normal_fill = QColor(alt_color)
         current_scale = abs(float(view.transform().m11() or 1.0))
         if current_scale < 0.45 or current_scale > 5.0:
             view.reset_zoom()
         node_ids, edges = self._visible_graph_data(spec)
         if not node_ids:
             text_item = scene.addText("Keine Knoten.")
-            text_item.setDefaultTextColor(QColor("#6C7086"))
+            text_item.setDefaultTextColor(muted_color)
             self._graph_plain_text = ""
             return
 
@@ -2949,24 +3289,24 @@ class CanvasPreviewPane(QWidget):
             node_item.setPos(center.x() - (width / 2.0), center.y() - (height / 2.0))
             node_item.setBrush(
                 QBrush(
-                    QColor("#3A2B1F")
+                    focus_fill
                     if is_focus
-                    else QColor("#2A3A35")
+                    else leaf_fill
                     if is_leaf
-                    else QColor("#263A52")
+                    else root_fill
                     if is_root
-                    else QColor("#313244")
+                    else normal_fill
                 )
             )
             node_item.setPen(
                 QPen(
-                    QColor("#F9E2AF")
+                    highlight_color
                     if is_focus
-                    else QColor("#A6E3A1")
+                    else link_color
                     if is_leaf
-                    else QColor("#89B4FA")
+                    else highlight_color
                     if is_root
-                    else QColor("#585B70"),
+                    else mid_color,
                     2.2 if is_focus else 1.4,
                 )
             )
@@ -2979,7 +3319,7 @@ class CanvasPreviewPane(QWidget):
                 tip_parts.append(f"Link: {node.href}")
             tip_parts.append("Klick: Fokus | Doppelklick: auf/zu oder Link")
             node_item.setToolTip("\n".join(tip_parts))
-            node_item.set_text_color(QColor("#CDD6F4"))
+            node_item.set_text_color(text_color)
             node_item.setZValue(2.0)
             scene.addItem(node_item)
             node_items[node_id] = node_item
@@ -2996,7 +3336,7 @@ class CanvasPreviewPane(QWidget):
             src_w, src_h = node_dims.get(source_id, (190.0, 50.0))
             dst_w, dst_h = node_dims.get(target_id, (190.0, 50.0))
             connected = focus in {source_id, target_id}
-            edge_color = QColor("#F9E2AF") if connected else QColor("#585B70")
+            edge_color = highlight_color if connected else mid_color
             line_pen = QPen(edge_color, 2.2 if connected else 1.35)
             line_item = QGraphicsLineItem()
             line_item.setPen(line_pen)
@@ -3013,7 +3353,7 @@ class CanvasPreviewPane(QWidget):
             if label:
                 label_item = QGraphicsTextItem(label)
                 label_item.setDefaultTextColor(
-                    QColor("#F9E2AF") if connected else QColor("#A6ADC8")
+                    highlight_color if connected else muted_color
                 )
                 label_item.setZValue(1.2)
                 label_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)

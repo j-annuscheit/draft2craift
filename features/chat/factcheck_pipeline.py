@@ -26,6 +26,46 @@ class FactCheckPipelineMixin:
         self._pending_fact_results = []
         self._pending_fact_index = 0
 
+    def _resolve_canvas_selected_text(self) -> str:
+        """
+        Resolve current canvas selection for fact-check target fallback.
+
+        Uses explicit getter when available and falls back to host window's
+        canvas widget, including cached one-shot selection after focus handoff.
+        """
+        getter = getattr(self, "_canvas_selection_getter", None)
+        if callable(getter):
+            try:
+                return str(getter() or "").strip()
+            except Exception:
+                pass
+
+        parent_fn = getattr(self, "parent", None)
+        host = None
+        if callable(parent_fn):
+            try:
+                host = parent_fn()
+            except Exception:
+                host = None
+        if host is None:
+            return ""
+
+        canvas = getattr(host, "canvas", None)
+        if canvas is None:
+            return ""
+        get_selected = getattr(canvas, "get_selected_text", None)
+        if not callable(get_selected):
+            return ""
+        try:
+            return str(get_selected(allow_cached=True) or "").strip()
+        except TypeError:
+            try:
+                return str(get_selected() or "").strip()
+            except Exception:
+                return ""
+        except Exception:
+            return ""
+
     def _send_fact_check(self):
         if not self.llm.is_model_loaded():
             self.history.add_message(
@@ -70,6 +110,8 @@ class FactCheckPipelineMixin:
         selected_text = str(ctx.get("selected_text", "") or "").strip()
         target_text = ""
         target_label = ""
+        if not selected_text:
+            selected_text = self._resolve_canvas_selected_text()
 
         if selected_text:
             target_text = selected_text

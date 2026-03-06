@@ -4,7 +4,13 @@ from __future__ import annotations
 from typing import Callable
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QSplitter, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QSplitter,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from features.canvas.preview import CanvasPreviewPane
 
@@ -126,6 +132,10 @@ class MarkdownSplitPanel(QWidget):
     def is_preview_widget(self, widget: QWidget | None) -> bool:
         return self._preview.is_preview_widget(widget)
 
+    def preview_has_focus(self) -> bool:
+        focus = QApplication.focusWidget()
+        return self._preview.is_preview_widget(focus)
+
     def refresh_preview_overlays(self):
         if hasattr(self._preview, "request_preserve_view_state"):
             self._preview.request_preserve_view_state()
@@ -142,6 +152,65 @@ class MarkdownSplitPanel(QWidget):
 
     def get_preview_selected_text(self) -> str:
         return self._preview.get_selected_text()
+
+    def find_preview_text(
+        self,
+        query: str,
+        *,
+        backward: bool = False,
+        case_sensitive: bool = False,
+        whole_words: bool = False,
+        wrap: bool = True,
+    ) -> bool:
+        if not hasattr(self._preview, "find_text"):
+            return False
+        return bool(
+            self._preview.find_text(
+                query,
+                backward=backward,
+                case_sensitive=case_sensitive,
+                whole_words=whole_words,
+                wrap=wrap,
+            )
+        )
+
+    def count_preview_matches(
+        self,
+        query: str,
+        *,
+        case_sensitive: bool = False,
+        whole_words: bool = False,
+    ) -> int:
+        if not hasattr(self._preview, "count_text_matches"):
+            return 0
+        try:
+            return int(
+                self._preview.count_text_matches(
+                    query,
+                    case_sensitive=case_sensitive,
+                    whole_words=whole_words,
+                )
+            )
+        except Exception:
+            return 0
+
+    def is_preview_read_only(self) -> bool:
+        if not hasattr(self._preview, "is_read_only"):
+            return True
+        try:
+            return bool(self._preview.is_read_only())
+        except Exception:
+            return True
+
+    def connect_preview_copy_available(self, slot) -> bool:
+        if hasattr(self._preview, "connect_copy_available"):
+            return bool(self._preview.connect_copy_available(slot))
+        return False
+
+    def disconnect_preview_copy_available(self, slot) -> bool:
+        if hasattr(self._preview, "disconnect_copy_available"):
+            return bool(self._preview.disconnect_copy_available(slot))
+        return False
 
     def should_use_preview_selection(self) -> bool:
         return self._preview_visible and not self._markdown_visible

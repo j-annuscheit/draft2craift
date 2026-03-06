@@ -17,7 +17,7 @@ Project folder structure
     index.pkl        — TF-IDF index + all chunk caches (pickle)
     embeddings.pt    — ST embeddings (torch.save, optional)
   chat/
-    history.json     — chat message history [{role, content}, …]
+    history.json     — chat tabs + history payload
   logs/
     entries.json     — debug log entries [{ts, level, category, message}, …]
 """
@@ -182,11 +182,15 @@ class ProjectManager:
                 except Exception:
                     pass  # embeddings are optional
 
-            # ── Chat history ──────────────────────────────────────────────────
-            history = [
-                {"role": r, "content": c}
-                for r, c in mw.chat_dock.history.get_history()
-            ]
+            # ── Chat history (all tabs) ─────────────────────────────────────
+            history_widget = mw.chat_dock.history
+            if hasattr(history_widget, "export_sessions"):
+                history = history_widget.export_sessions()
+            else:
+                history = [
+                    {"role": r, "content": c}
+                    for r, c in history_widget.get_history()
+                ]
             with open(base / "chat" / "history.json", "w", encoding="utf-8") as fh:
                 json.dump(history, fh, ensure_ascii=False, indent=2)
 
@@ -250,6 +254,16 @@ class ProjectManager:
                         mw.get_speech_settings()
                         if hasattr(mw, "get_speech_settings")
                         else {}
+                    ),
+                    "preview_page_margin": (
+                        mw.get_preview_page_margin_settings()
+                        if hasattr(mw, "get_preview_page_margin_settings")
+                        else {}
+                    ),
+                    "theme": (
+                        mw.get_theme_id()
+                        if hasattr(mw, "get_theme_id")
+                        else "dark"
                     ),
                 },
                 "llm": llm_data,
@@ -449,17 +463,25 @@ class ProjectManager:
                 except Exception:
                     pass
 
-            # 6. Chat history ──────────────────────────────────────────────────
+            # 6. Chat history (all tabs, backward-compatible) ────────────────
             chat_path = base / "chat" / "history.json"
             if chat_path.exists():
                 try:
                     with open(chat_path, "r", encoding="utf-8") as fh:
                         chat_history = json.load(fh)
-                    mw.chat_dock.history.clear_history()
-                    for entry in chat_history:
-                        mw.chat_dock.history.add_message(
-                            entry["role"], entry["content"]
-                        )
+                    history_widget = mw.chat_dock.history
+                    if hasattr(history_widget, "import_sessions"):
+                        history_widget.import_sessions(chat_history)
+                    else:
+                        history_widget.clear_history()
+                        if isinstance(chat_history, list):
+                            for entry in chat_history:
+                                if not isinstance(entry, dict):
+                                    continue
+                                history_widget.add_message(
+                                    entry.get("role", ""),
+                                    entry.get("content", ""),
+                                )
                 except Exception:
                     pass
 
@@ -511,6 +533,12 @@ class ProjectManager:
                 speech = settings.get("speech", {})
                 if hasattr(mw, "apply_speech_settings"):
                     mw.apply_speech_settings(speech)
+                preview_page_margin = settings.get("preview_page_margin", {})
+                if hasattr(mw, "apply_preview_page_margin_settings"):
+                    mw.apply_preview_page_margin_settings(preview_page_margin)
+                theme = settings.get("theme", "dark")
+                if hasattr(mw, "apply_theme_id"):
+                    mw.apply_theme_id(theme, persist=True)
 
             # 10. LLM UI fields (model is NOT reloaded automatically) ──────────
             llm_data = data.get("llm", {})

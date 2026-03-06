@@ -16,11 +16,13 @@ class CanvasSelectionActions:
         self._cached_selection_by_panel: dict[int, str] = {}
         self._cached_span_by_panel: dict[int, tuple[int, int, int]] = {}
         self._tracked_editor = None
+        self._tracked_panel = None
         self._tabs.tab_widget.currentChanged.connect(self._on_tab_changed)
         self._on_tab_changed()
 
     def _on_tab_changed(self, _index: int = -1):
         old_editor = self._tracked_editor
+        old_panel = self._tracked_panel
         if old_editor is not None:
             try:
                 old_editor.copyAvailable.disconnect(
@@ -28,20 +30,41 @@ class CanvasSelectionActions:
                 )
             except Exception:
                 pass
+        if old_panel is not None and hasattr(
+            old_panel,
+            "disconnect_preview_copy_available",
+        ):
+            try:
+                old_panel.disconnect_preview_copy_available(
+                    self._on_preview_copy_available
+                )
+            except Exception:
+                pass
         panel = self._tabs.current_panel()
         editor = panel.editor if panel is not None else None
+        self._tracked_panel = panel
         self._tracked_editor = editor
         if editor is not None:
             try:
                 editor.copyAvailable.connect(self._on_editor_copy_available)
             except Exception:
                 pass
+        if panel is not None and hasattr(panel, "connect_preview_copy_available"):
+            try:
+                panel.connect_preview_copy_available(
+                    self._on_preview_copy_available
+                )
+            except Exception:
+                pass
 
     def _on_editor_copy_available(self, available: bool):
-        if not bool(available):
-            return
         panel = self._tabs.current_panel()
         if panel is None:
+            return
+        if not bool(available):
+            if self._should_preserve_editor_cache(panel):
+                return
+            self._clear_cached_selection(panel)
             return
         cursor = panel.editor.textCursor()
         text = self._normalize_selection_text(panel.editor.get_selected_text())
@@ -54,11 +77,38 @@ class CanvasSelectionActions:
                     int(cursor.selectionEnd()),
                 )
 
-    def get_selected_text(self, *, allow_cached: bool = True) -> str:
+    def _on_preview_copy_available(self, available: bool):
+        panel = self._tabs.current_panel()
+        if panel is None:
+            return
+        if not bool(available):
+            if self._should_preserve_preview_cache(panel):
+                return
+            self._clear_cached_selection(panel)
+            return
+        text = self._normalize_selection_text(
+            self._get_preview_selected_text(panel)
+        )
+        if not text.strip():
+            return
+        self._cached_selection_by_panel[id(panel)] = text
+        span = self._find_selection_span(
+            panel.editor.get_full_text(),
+            text,
+        )
+        if span is not None and span != (-1, -1):
+            self._cache_span(panel, span[0], span[1])
+
+    def get_selected_text(
+        self,
+        *,
+        allow_cached: bool = True,
+        consume_cached: bool = True,
+    ) -> str:
         panel = self._tabs.current_panel()
         if panel is None:
             return ""
-        if self._should_use_preview_selection(panel):
+        if self._use_preview_selection_path(panel):
             selected = self._normalize_selection_text(
                 self._get_preview_selected_text(panel)
             )
@@ -85,20 +135,76 @@ class CanvasSelectionActions:
                 )
             return selected_editor
         if allow_cached:
-            return self._cached_selection_by_panel.get(id(panel), "")
+            key = id(panel)
+            cached = self._cached_selection_by_panel.get(key, "")
+            if cached.strip():
+                # One-shot fallback for focus handoff (e.g. click on Send).
+                if consume_cached:
+                    self._cached_selection_by_panel.pop(key, None)
+                return cached
         return ""
+
+    def get_selected_span(
+        self,
+        *,
+        allow_cached: bool = True,
+    ) -> tuple[int, int] | None:
+        panel = self._tabs.current_panel()
+        if panel is None:
+            return None
+
+        if self._use_preview_selection_path(panel):
+            selected = self._normalize_selection_text(
+                self._get_preview_selected_text(panel)
+            )
+            if selected.strip():
+                span = self._find_selection_span(
+                    panel.editor.get_full_text(),
+                    selected,
+                )
+                if span is not None and span != (-1, -1):
+                    self._cache_span(panel, span[0], span[1])
+                    return (int(span[0]), int(span[1]))
+
+        cursor = panel.editor.textCursor()
+        if cursor.hasSelection():
+            start = int(cursor.selectionStart())
+            end = int(cursor.selectionEnd())
+            self._cache_span(panel, start, end)
+            if end < start:
+                start, end = end, start
+            return (start, end)
+
+        if allow_cached:
+            return self._get_cached_span(panel)
+        return None
+
+    def _clear_cached_selection(self, panel):
+        key = id(panel)
+        self._cached_selection_by_panel.pop(key, None)
+        self._cached_span_by_panel.pop(key, None)
 
     def replace_selected_text(
         self,
         replacement: str,
         expected_original: str = "",
+        preferred_span: tuple[int, int] | None = None,
     ) -> tuple[bool, str]:
         panel = self._tabs.current_panel()
         if panel is None:
             return False, "No active canvas tab."
 
         editor = panel.editor
-        if self._should_use_preview_selection(panel):
+        if preferred_span is not None:
+            explicit = self._apply_preferred_span_replace(
+                editor,
+                replacement,
+                expected_original,
+                preferred_span,
+            )
+            if explicit[0]:
+                return explicit
+        if self._use_preview_selection_path(panel):
             selected_preview = self._normalize_selection_text(
                 self._get_preview_selected_text(panel)
             )
@@ -133,12 +239,23 @@ class CanvasSelectionActions:
                 self._replace_range(editor, start, end, replacement)
                 return True, "Applied (cached span)."
             if span == (-1, -1):
-                return False, (
-                    "Selection is ambiguous in source text. "
-                    "Please select a more specific passage."
-                )
+                cached = self._get_cached_span(panel)
+                if cached is None:
+                    return False, (
+                        "Selection is ambiguous in source text. "
+                        "Please select a more specific passage."
+                    )
+                start, end = cached
+                self._replace_range(editor, start, end, replacement)
+                return True, "Applied (cached span)."
 
             start, end = span
+            start, end = self._align_span_with_selection_boundaries(
+                editor.get_full_text(),
+                selected_preview,
+                start,
+                end,
+            )
             self._replace_range(editor, start, end, replacement)
             return True, "Applied."
 
@@ -164,11 +281,22 @@ class CanvasSelectionActions:
                 self._replace_range(editor, start, end, replacement)
                 return True, "Applied (cached span)."
             if span == (-1, -1):
-                return False, (
-                    "Selection is ambiguous in source text. "
-                    "Please select a more specific passage."
-                )
+                cached = self._get_cached_span(panel)
+                if cached is None:
+                    return False, (
+                        "Selection is ambiguous in source text. "
+                        "Please select a more specific passage."
+                    )
+                start, end = cached
+                self._replace_range(editor, start, end, replacement)
+                return True, "Applied (cached span)."
             start, end = span
+            start, end = self._align_span_with_selection_boundaries(
+                editor.get_full_text(),
+                expected,
+                start,
+                end,
+            )
             self._replace_range(editor, start, end, replacement)
             return True, "Applied."
 
@@ -185,6 +313,32 @@ class CanvasSelectionActions:
         editor.setTextCursor(cursor)
         return True, "Applied."
 
+    def _apply_preferred_span_replace(
+        self,
+        editor,
+        replacement: str,
+        expected_original: str,
+        preferred_span: tuple[int, int],
+    ) -> tuple[bool, str]:
+        text = editor.get_full_text()
+        text_len = len(text)
+        try:
+            start, end = preferred_span
+        except Exception:
+            return False, "Invalid selection span."
+        s = max(0, min(int(start), text_len))
+        e = max(0, min(int(end), text_len))
+        if e <= s:
+            return False, "Invalid selection span."
+
+        expected = self._normalize_selection_text(expected_original)
+        current = self._normalize_selection_text(text[s:e])
+        if expected and current != expected:
+            return False, "Selection changed since the request was sent."
+
+        self._replace_range(editor, s, e, replacement)
+        return True, "Applied (selection span)."
+
     def _cache_span(self, panel, start: int, end: int):
         editor = panel.editor
         if end < start:
@@ -194,6 +348,35 @@ class CanvasSelectionActions:
             int(end),
             int(editor.document().revision()),
         )
+
+    @staticmethod
+    def _should_preserve_editor_cache(panel) -> bool:
+        """
+        Keep one-shot selection cache when focus moved away from the editor.
+
+        This covers the common flow where users select text in canvas and then
+        click the chat input/send button. In that case selection disappears, but
+        rewrite should still use the just-selected span once.
+        """
+        editor = getattr(panel, "editor", None)
+        if editor is None or not hasattr(editor, "hasFocus"):
+            return False
+        try:
+            return not bool(editor.hasFocus())
+        except Exception:
+            return False
+
+    @staticmethod
+    def _should_preserve_preview_cache(panel) -> bool:
+        """
+        Keep one-shot preview selection cache when preview lost focus.
+        """
+        if hasattr(panel, "preview_has_focus"):
+            try:
+                return not bool(panel.preview_has_focus())
+            except Exception:
+                return False
+        return False
 
     def _get_cached_span(self, panel) -> tuple[int, int] | None:
         cached = self._cached_span_by_panel.get(id(panel))
@@ -235,6 +418,26 @@ class CanvasSelectionActions:
         except Exception:
             return False
 
+    def _use_preview_selection_path(self, panel) -> bool:
+        """
+        Decide whether selection handling should use HTML preview mapping.
+
+        Base rule stays intact (preview-only mode). Additionally, when both
+        panes are visible, prefer preview mapping if preview has a selection
+        and markdown editor currently has none.
+        """
+        if self._should_use_preview_selection(panel):
+            return True
+        selected_preview = self._normalize_selection_text(
+            self._get_preview_selected_text(panel)
+        )
+        if not selected_preview.strip():
+            return False
+        selected_editor = self._normalize_selection_text(
+            panel.editor.get_selected_text()
+        )
+        return not bool(selected_editor.strip())
+
     @staticmethod
     def _get_preview_selected_text(panel) -> str:
         if hasattr(panel, "get_preview_selected_text"):
@@ -256,6 +459,44 @@ class CanvasSelectionActions:
         cursor.insertText(replacement)
         cursor.endEditBlock()
         editor.setTextCursor(cursor)
+
+    @classmethod
+    def _align_span_with_selection_boundaries(
+        cls,
+        source: str,
+        selected: str,
+        start: int,
+        end: int,
+    ) -> tuple[int, int]:
+        """
+        Trim accidental boundary newlines from mapped spans.
+
+        HTML->Markdown mapping heuristics may return whole-line spans and include
+        the trailing newline of the last line. If the user's selected text did
+        not include that newline, replacing the span can merge the next line
+        into the replacement.
+        """
+        src = (source or "").replace("\r\n", "\n")
+        sel = cls._normalize_selection_text(selected)
+        text_len = len(src)
+        s = max(0, min(int(start), text_len))
+        e = max(0, min(int(end), text_len))
+        if e <= s:
+            return (s, e)
+        if not sel:
+            return (s, e)
+
+        if not sel.endswith("\n"):
+            while e > s and src[e - 1] == "\n":
+                e -= 1
+                if cls._normalize_selection_text(src[s:e]) == sel:
+                    break
+        if not sel.startswith("\n"):
+            while s < e and src[s] == "\n":
+                s += 1
+                if cls._normalize_selection_text(src[s:e]) == sel:
+                    break
+        return (s, e)
 
     def _find_selection_span(
         self,

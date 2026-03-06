@@ -13,6 +13,7 @@ Two classes:
 """
 from __future__ import annotations
 
+import gc
 import json
 import os
 import re
@@ -26,6 +27,14 @@ from features.canvas.structured_graph import extract_graph_spec, spec_to_markdow
 
 CANVAS_REWRITE_OPEN = "[[CANVAS_REWRITE]]"
 CANVAS_REWRITE_CLOSE = "[[/CANVAS_REWRITE]]"
+CANVAS_TARGET_SECTION_TITLE = (
+    "## DIESER TEXT WIRD ERSETZT (NUR DIESER ABSCHNITT)"
+)
+CANVAS_TARGET_START = "[[CANVAS_TARGET_START]]"
+CANVAS_TARGET_END = "[[CANVAS_TARGET_END]]"
+POST_CONTEXT_REWRITE_TITLE = (
+    "### WICHTIG: REWRITE-AUFTRAG (NACH KONTEXT) ###"
+)
 GROUNDING_INSUFFICIENT_MESSAGE = (
     "Nicht genug Informationen in den ausgewählten Dokumenten/RAG-Quellen."
 )
@@ -145,6 +154,7 @@ class LLMWorker(QThread):
 
     def _do_load(self):
         try:
+            self._release_loaded_model()
             from llama_cpp import Llama  # type: ignore
             self._model = Llama(model_path=self._model_path, **self._load_params)
             self._forbidden_bias_cache_model = None
@@ -157,6 +167,23 @@ class LLMWorker(QThread):
             )
         except Exception as exc:
             self.model_loaded.emit(False, f"Load failed: {exc}")
+
+    def _release_loaded_model(self):
+        """Release currently loaded model resources before loading another one."""
+        model = self._model
+        self._model = None
+        self._forbidden_bias_cache_model = None
+        self._forbidden_bias_cache.clear()
+        if model is None:
+            return
+        close_fn = getattr(model, "close", None)
+        if callable(close_fn):
+            try:
+                close_fn()
+            except Exception:
+                pass
+        del model
+        gc.collect()
 
     def _build_forbidden_logit_bias(self) -> dict[int, float]:
         """
@@ -1214,99 +1241,78 @@ class LLMManager(QObject):
 
         model = self.worker._model
         limit = max(1, min(64, int(max_terms)))
-        user_block = self._render_prompt_template(
-            "glossary_user",
-            {"context": context, "max_terms": str(limit)},
-        )
-        prompt = (
-            "<|system|>\n"
-            f"{self._prompts['glossary_system']}\n"
-            "<|user|>\n"
-            f"{user_block}\n"
-            "<|assistant|>\n"
-        )
-        max_out_tokens = max(240, min(2400, limit * 80))
-        window_err = self._check_prompt_window(prompt, max_out_tokens)
-        if window_err:
-            if self._log:
-                self._log.error("LLM", f"Glossary context too large: {window_err}")
-            return [], {
-                "applied": False,
-                "reason": "context_too_large",
-                "error": window_err,
-            }
 
-        try:
-            result = model(
-                prompt,
-                max_tokens=max_out_tokens,
-                temperature=0.2,
-                top_p=0.9,
-                repeat_penalty=1.05,
-                stop=["<|"],
-                stream=False,
+        def _compact_context(text: str, max_chars: int) -> tuple[str, bool]:
+            source = str(text or "")
+            cap = max(1200, int(max_chars))
+            if len(source) <= cap:
+                return source, False
+            marker = "\n\n[... Kontext gekürzt ...]\n\n"
+            if cap <= (len(marker) + 24):
+                return source[:cap], True
+            head_len = int(cap * 0.72)
+            tail_len = max(0, cap - head_len - len(marker))
+            compact = (
+                source[:head_len].rstrip()
+                + marker
+                + source[-tail_len:].lstrip()
             )
-            raw_full = result["choices"][0].get("text", "")
-            self._log_llm_io("Glossary", prompt, raw_full)
-            raw = str(raw_full or "").strip()
-            if not raw:
-                return [], {
-                    "applied": True,
-                    "reason": "empty",
-                }
+            return compact, True
 
-            parsed: Any = None
-            try:
-                parsed = json.loads(raw)
-            except Exception:
-                m = re.search(r"\[[\s\S]*\]", raw)
-                if m:
-                    parsed = json.loads(m.group(0))
+        def _normalize_entries(parsed: Any) -> list[dict[str, object]]:
             if isinstance(parsed, dict):
                 for key in ("entries", "glossary", "items", "begriffe"):
                     value = parsed.get(key)
                     if isinstance(value, list):
                         parsed = value
                         break
+                else:
+                    # Single object fallback.
+                    parsed = [parsed]
 
             if not isinstance(parsed, list):
-                return [], {
-                    "applied": False,
-                    "reason": "parse_failed",
-                    "raw_preview": raw[:320],
-                }
+                return []
 
             out: list[dict[str, object]] = []
             seen: set[str] = set()
             for item in parsed:
-                if not isinstance(item, dict):
-                    continue
-                term = str(
-                    item.get("term")
-                    or item.get("begriff")
-                    or item.get("keyword")
-                    or item.get("title")
-                    or ""
-                ).strip()
+                term = ""
+                definition = ""
+                aliases: list[str] = []
+                if isinstance(item, dict):
+                    term = str(
+                        item.get("term")
+                        or item.get("begriff")
+                        or item.get("keyword")
+                        or item.get("title")
+                        or ""
+                    ).strip()
+                    definition = str(
+                        item.get("definition")
+                        or item.get("erklaerung")
+                        or item.get("erklärung")
+                        or item.get("explanation")
+                        or item.get("desc")
+                        or ""
+                    ).strip()
+                    raw_aliases = item.get("aliases", [])
+                    if isinstance(raw_aliases, list):
+                        aliases = [
+                            str(alias or "").strip()
+                            for alias in raw_aliases
+                            if str(alias or "").strip()
+                        ]
+                    elif isinstance(raw_aliases, str):
+                        aliases = [
+                            token.strip()
+                            for token in re.split(r"[,\n;]+", raw_aliases)
+                            if token.strip()
+                        ]
+                elif isinstance(item, str):
+                    term = str(item or "").strip(" -*\t\"'`")
+
                 if len(term) < 2:
                     continue
-                definition = str(
-                    item.get("definition")
-                    or item.get("erklaerung")
-                    or item.get("erklärung")
-                    or item.get("explanation")
-                    or item.get("desc")
-                    or ""
-                ).strip()
-                aliases: list[str] = []
-                raw_aliases = item.get("aliases", [])
-                if isinstance(raw_aliases, list):
-                    aliases = [
-                        str(alias or "").strip()
-                        for alias in raw_aliases
-                        if str(alias or "").strip()
-                    ]
-
                 key = term.casefold()
                 if key in seen:
                     continue
@@ -1320,11 +1326,213 @@ class LLMManager(QObject):
                 )
                 if len(out) >= limit:
                     break
+            return out
 
-            return out, {
+        def _parse_glossary_output(raw_text: str) -> tuple[list[dict[str, object]], str]:
+            raw = str(raw_text or "").strip()
+            if not raw:
+                return [], "empty"
+
+            candidates: list[str] = [raw]
+            for m in re.finditer(r"```(?:json)?\s*([\s\S]*?)```", raw, flags=re.IGNORECASE):
+                candidate = str(m.group(1) or "").strip()
+                if candidate:
+                    candidates.append(candidate)
+            bracket_match = re.search(r"\[[\s\S]*\]", raw)
+            if bracket_match:
+                candidates.append(str(bracket_match.group(0) or "").strip())
+            object_match = re.search(r"\{[\s\S]*\}", raw)
+            if object_match:
+                candidates.append(str(object_match.group(0) or "").strip())
+
+            seen_candidates: set[str] = set()
+            for candidate in candidates:
+                token = str(candidate or "").strip()
+                if not token or token in seen_candidates:
+                    continue
+                seen_candidates.add(token)
+                try:
+                    parsed = json.loads(token)
+                except Exception:
+                    continue
+                normalized = _normalize_entries(parsed)
+                if normalized:
+                    return normalized, "json"
+
+            # Minimal text fallback: "- TERM: definition" / "TERM: definition".
+            fallback_rows: list[dict[str, object]] = []
+            seen_terms: set[str] = set()
+            for line in raw.splitlines():
+                entry = str(line or "").strip()
+                entry = re.sub(r"^\s*(?:[-*]+|\d+[\.\)])\s*", "", entry).strip()
+                if not entry:
+                    continue
+                term = ""
+                definition = ""
+                if ":" in entry:
+                    left, right = entry.split(":", 1)
+                    term = left.strip(" \"'`")
+                    definition = right.strip()
+                else:
+                    if len(entry.split()) <= 5:
+                        term = entry.strip(" \"'`")
+                if len(term) < 2:
+                    continue
+                key = term.casefold()
+                if key in seen_terms:
+                    continue
+                seen_terms.add(key)
+                fallback_rows.append(
+                    {
+                        "term": term,
+                        "definition": definition,
+                        "aliases": [],
+                    }
+                )
+                if len(fallback_rows) >= limit:
+                    break
+            if fallback_rows:
+                return fallback_rows, "lines"
+            return [], "parse_failed"
+
+        def _call_glossary(
+            *,
+            call_name: str,
+            prompt: str,
+            stop_tokens: list[str] | None,
+            temperature: float,
+            top_p: float,
+            repeat_penalty: float,
+            max_tokens: int,
+        ) -> str:
+            kwargs: dict[str, Any] = {
+                "max_tokens": int(max_tokens),
+                "temperature": float(temperature),
+                "top_p": float(top_p),
+                "repeat_penalty": float(repeat_penalty),
+                "stream": False,
+            }
+            if isinstance(stop_tokens, list):
+                kwargs["stop"] = list(stop_tokens)
+            result = model(prompt, **kwargs)
+            raw_full = result["choices"][0].get("text", "")
+            self._log_llm_io(call_name, prompt, raw_full)
+            return str(raw_full or "")
+
+        # Compact very long contexts for small models so they still produce output.
+        n_ctx = int(self._n_ctx())
+        context_char_budget = min(26000, max(7000, int(n_ctx * 2.8)))
+        compact_context, was_compacted = _compact_context(context, context_char_budget)
+
+        user_block = self._render_prompt_template(
+            "glossary_user",
+            {"context": compact_context, "max_terms": str(limit)},
+        )
+        prompt = (
+            "<|system|>\n"
+            f"{self._prompts['glossary_system']}\n"
+            "<|user|>\n"
+            f"{user_block}\n"
+            "<|assistant|>\n"
+        )
+        max_out_tokens = max(220, min(1800, limit * 70))
+        window_err = self._check_prompt_window(prompt, max_out_tokens)
+        if window_err:
+            if self._log:
+                self._log.error("LLM", f"Glossary context too large: {window_err}")
+            return [], {
+                "applied": False,
+                "reason": "context_too_large",
+                "error": window_err,
+            }
+
+        try:
+            raw_primary = _call_glossary(
+                call_name="Glossary",
+                prompt=prompt,
+                stop_tokens=["<|"],
+                temperature=0.2,
+                top_p=0.9,
+                repeat_penalty=1.05,
+                max_tokens=max_out_tokens,
+            )
+            primary_entries, primary_parse_reason = _parse_glossary_output(raw_primary)
+            if primary_entries:
+                return primary_entries, {
+                    "applied": True,
+                    "reason": "ok",
+                    "generated": len(primary_entries),
+                    "parse": primary_parse_reason,
+                    "retried": False,
+                    "context_compacted": was_compacted,
+                    "context_chars_used": len(compact_context),
+                }
+
+            if self._log:
+                self._log.warning(
+                    "LLM",
+                    "Glossary primary parse empty/failed. Retrying with compact strict prompt.",
+                )
+
+            retry_context, retry_compacted = _compact_context(compact_context, 9000)
+            retry_prompt = (
+                "<|system|>\n"
+                "Extrahiere ein Glossar aus dem Kontext.\n"
+                "Antworte ausschließlich als gültiges JSON-Array.\n"
+                "Jedes Element: {\"term\":\"...\",\"definition\":\"...\",\"aliases\":[\"...\"]}\n"
+                "Keine Erklärungen, kein Markdown, kein zusätzlicher Text.\n"
+                "<|user|>\n"
+                f"Maximal {limit} Einträge.\n"
+                "Nur Begriffe aus dem Kontext verwenden.\n"
+                "Kontext:\n"
+                f"{retry_context}\n"
+                "<|assistant|>\n"
+            )
+            retry_window_err = self._check_prompt_window(retry_prompt, max_out_tokens)
+            if retry_window_err:
+                return [], {
+                    "applied": False,
+                    "reason": "context_too_large_retry",
+                    "error": retry_window_err,
+                    "parse": primary_parse_reason,
+                    "retried": True,
+                }
+
+            raw_retry = _call_glossary(
+                call_name="Glossary-Retry",
+                prompt=retry_prompt,
+                stop_tokens=None,
+                temperature=0.1,
+                top_p=0.85,
+                repeat_penalty=1.0,
+                max_tokens=max_out_tokens,
+            )
+            retry_entries, retry_parse_reason = _parse_glossary_output(raw_retry)
+            if retry_entries:
+                return retry_entries, {
+                    "applied": True,
+                    "reason": "ok_retry",
+                    "generated": len(retry_entries),
+                    "parse": retry_parse_reason,
+                    "retried": True,
+                    "context_compacted": bool(was_compacted or retry_compacted),
+                    "context_chars_used": len(retry_context),
+                }
+
+            final_reason = (
+                "empty"
+                if (not str(raw_primary or "").strip() and not str(raw_retry or "").strip())
+                else "parse_failed"
+            )
+            return [], {
                 "applied": True,
-                "reason": "ok" if out else "empty",
-                "generated": len(out),
+                "reason": final_reason,
+                "generated": 0,
+                "retried": True,
+                "parse": retry_parse_reason or primary_parse_reason,
+                "raw_preview": str(raw_retry or raw_primary or "")[:320],
+                "context_compacted": bool(was_compacted or retry_compacted),
+                "context_chars_used": len(retry_context),
             }
         except Exception as exc:
             self._log_llm_io("Glossary", prompt, error=str(exc))
@@ -1460,6 +1668,25 @@ class LLMManager(QObject):
         system_prompt_text: str,
     ) -> str:
         parts: list[str] = []
+        rewrite_instruction_block = ""
+        prompt_file_contents = list(file_contents or [])
+        selection_marked_in_canvas = False
+
+        if selection_apply_mode and selected_text.strip() and prompt_file_contents:
+            adjusted: list[tuple[str, str]] = []
+            for name, content in prompt_file_contents:
+                entry_name = str(name or "")
+                entry_content = str(content or "")
+                if (not selection_marked_in_canvas) and entry_name.startswith("Draft:"):
+                    entry_content, applied = self._inject_canvas_target_markers(
+                        entry_content,
+                        selected_text,
+                    )
+                    selection_marked_in_canvas = (
+                        selection_marked_in_canvas or applied
+                    )
+                adjusted.append((entry_name, entry_content))
+            prompt_file_contents = adjusted
 
         parts.append(f"<|system|>\n{system_prompt_text}\n")
 
@@ -1491,20 +1718,40 @@ class LLMManager(QObject):
                 if (grounding_required and grounding_has_sources) else ""
             )
             rewrite_enforcer = (
-                "Verbindliche Ausführungsregel:\n"
-                "- Die Nutzeranweisung hat höchste Priorität.\n"
-                "- Überarbeite ausschließlich den markierten Abschnitt "
-                "('Ausgewählter Text (Draft)').\n"
-                "- Weitere Draft-/Dokument-Kontexte sind nur Referenz "
-                "(Stil, Konsistenz, Fakten), nicht direkte Ersetzung.\n"
-                "- Gib NICHT den gesamten Draft zurück, außer der gesamte "
-                "Draft ist tatsächlich markiert.\n"
-                "- Wenn die Anweisung eine Änderung verlangt "
-                "(z. B. entfernen, ergänzen, umschreiben, kürzen), "
-                "muss der ausgegebene Text entsprechend geändert sein.\n"
-                "- Gib den Text NICHT unverändert zurück, außer die "
-                "Nutzeranweisung fordert explizit keine Änderung.\n"
+                "Rewrite-Pflicht (streng, auch für kleine Modelle):\n"
+                "1) Die Nutzeranweisung hat höchste Priorität.\n"
+                "2) Ersetze ausschließlich den Zielbereich.\n"
+                "3) Weitere Draft-/Dokument-Kontexte sind nur Referenz "
+                "(Stil, Konsistenz, Fakten).\n"
+                "4) Gib NICHT den gesamten Draft zurück, außer der gesamte "
+                "Draft ist tatsächlich der Zielbereich.\n"
+                "5) Wenn eine Änderung verlangt ist (z. B. entfernen, ergänzen, "
+                "umschreiben, kürzen), muss sich der ausgegebene Text inhaltlich "
+                "ändern.\n"
+                "6) Wenn der Auftrag Löschen/Entfernen/Streichen verlangt, dürfen "
+                "diese Inhalte im Ergebnis nicht wieder auftauchen "
+                "(auch nicht paraphrasiert).\n"
+                "7) Vermeide allgemeine Floskeln; schreibe konkret zur Aufgabe.\n"
+                "8) Behalte die Form des Zielbereichs standardmäßig bei "
+                "(Liste bleibt Liste, Tabelle bleibt Tabelle, JSON bleibt JSON).\n"
+                "9) Wenn der Nutzer ausdrücklich eine Format-Umwandlung verlangt "
+                "(z. B. Stichpunkte -> Fließtext), dann führe genau diese "
+                "Umwandlung aus.\n"
+                "10) Wenn der Nutzer ein Ausgabeformat vorgibt, halte es exakt ein.\n"
             )
+            if selection_marked_in_canvas:
+                rewrite_enforcer += (
+                    f"11) Im Draft-Kontext markiert {CANVAS_TARGET_START} den Anfang "
+                    f"und {CANVAS_TARGET_END} das Ende des zu ersetzenden Abschnitts.\n"
+                    f"12) Ersetze nur den Text zwischen {CANVAS_TARGET_START} und "
+                    f"{CANVAS_TARGET_END}; Text außerhalb dieser Marker darf nicht "
+                    "in der Antwort erscheinen.\n"
+                )
+            else:
+                rewrite_enforcer += (
+                    "11) Der zu ersetzende Abschnitt steht unter der Überschrift "
+                    f"'{CANVAS_TARGET_SECTION_TITLE}'.\n"
+                )
             rewrite_block = self._render_prompt_template(
                 "chat_canvas_rewrite_rules",
                 {
@@ -1531,15 +1778,16 @@ class LLMManager(QObject):
             rewrite_title = self._render_prompt_template(
                 "chat_section_rewrite_title"
             ).strip() or "### Ausgabeformat für Draft-Rewrite ###"
-            parts.append(
+            rewrite_instruction_block = (
                 f"\n{rewrite_title}\n"
                 + rewrite_enforcer
                 + rewrite_block
                 + "\n"
             )
+            parts.append(rewrite_instruction_block)
 
         has_context = (
-            bool(file_contents)
+            bool(prompt_file_contents)
             or bool(rag_results)
             or bool(selected_text and selected_text.strip())
         )
@@ -1549,12 +1797,12 @@ class LLMManager(QObject):
             ).strip() or "### Kontext ###"
             parts.append(f"\n{context_title}\n")
 
-            if file_contents:
+            if prompt_file_contents:
                 files_title = self._render_prompt_template(
                     "chat_section_files_title"
                 ).strip() or "## Angehängte Dokumente"
                 parts.append(f"{files_title}\n")
-                for name, content in file_contents:
+                for name, content in prompt_file_contents:
                     parts.append(f"### {name}\n```\n{content}\n```\n")
 
             if rag_results:
@@ -1569,17 +1817,28 @@ class LLMManager(QObject):
                     )
 
             if selected_text and selected_text.strip():
-                selected_title = self._render_prompt_template(
-                    "chat_section_selected_title"
-                ).strip() or "## Ausgewählter Text (Draft)"
-                parts.append(
-                    f"{selected_title}\n```\n{selected_text}\n```\n"
-                )
+                if selection_apply_mode and selection_marked_in_canvas:
+                    selected_title = ""
+                elif selection_apply_mode:
+                    selected_title = CANVAS_TARGET_SECTION_TITLE
+                else:
+                    selected_title = self._render_prompt_template(
+                        "chat_section_selected_title"
+                    ).strip() or CANVAS_TARGET_SECTION_TITLE
+                if selected_title:
+                    parts.append(
+                        f"{selected_title}\n```\n{selected_text}\n```\n"
+                    )
 
             context_end = self._render_prompt_template(
                 "chat_section_context_end"
             ).strip() or "### Ende Kontext ###"
             parts.append(f"{context_end}\n")
+            if rewrite_instruction_block:
+                parts.append(
+                    f"\n{POST_CONTEXT_REWRITE_TITLE}\n"
+                    + rewrite_instruction_block.lstrip()
+                )
 
         for role, content in (chat_history or []):
             parts.append(f"\n<|{role}|>\n{content}")
@@ -1588,6 +1847,28 @@ class LLMManager(QObject):
         parts.append("\n<|assistant|>\n")
 
         return "".join(parts)
+
+    @staticmethod
+    def _inject_canvas_target_markers(
+        draft_text: str,
+        selected_text: str,
+    ) -> tuple[str, bool]:
+        source = str(draft_text or "")
+        selected = str(selected_text or "")
+        if not source or not selected.strip():
+            return source, False
+        start = source.find(selected)
+        if start < 0:
+            return source, False
+        end = start + len(selected)
+        marked = (
+            source[:start]
+            + f"{CANVAS_TARGET_START}\n"
+            + selected
+            + f"\n{CANVAS_TARGET_END}"
+            + source[end:]
+        )
+        return marked, True
 
     # ── Context-window guard ───────────────────────────────────────────────────
 
@@ -1657,7 +1938,7 @@ class LLMManager(QObject):
         if selected_text and selected_text.strip():
             selected_title = self._render_prompt_template(
                 "chat_section_selected_title"
-            ).strip() or "## Ausgewählter Text (Draft)"
+            ).strip() or CANVAS_TARGET_SECTION_TITLE
             breakdown.append((
                 "Ausgewählter Text",
                 tok(f"{selected_title}\n```\n{selected_text}\n```\n"),

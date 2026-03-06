@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
@@ -48,14 +49,14 @@ class ModelLoadPanel(QWidget):
     def _setup_ui(self):
         self.setStyleSheet(
             """
-            QWidget  { background: #252535; }
-            QLabel   { color: #A6ADC8; font-size: 10px; }
+            QWidget  { background: palette(alternate-base); }
+            QLabel   { color: palette(text); font-size: 10px; }
             QLineEdit, QSpinBox, QDoubleSpinBox {
-                background: #1E1E2E; color: #CDD6F4;
-                border: 1px solid #45475A; border-radius: 3px;
+                background: palette(base); color: palette(text);
+                border: 1px solid palette(mid); border-radius: 3px;
                 padding: 3px 6px; font-size: 11px;
             }
-            QLineEdit:focus, QSpinBox:focus { border-color: #89B4FA; }
+            QLineEdit:focus, QSpinBox:focus { border-color: palette(highlight); }
             """
         )
 
@@ -65,11 +66,11 @@ class ModelLoadPanel(QWidget):
 
         model_lbl = QLabel("Model Load")
         model_lbl.setStyleSheet(
-            "color: #89B4FA; font-size: 10px; font-weight: bold;"
+            "color: palette(highlight); font-size: 10px; font-weight: bold;"
         )
         layout.addWidget(model_lbl)
         model_hint = QLabel("Changes here require clicking 'Load Model'.")
-        model_hint.setStyleSheet("color: #6C7086; font-size: 9px;")
+        model_hint.setStyleSheet("color: palette(placeholder-text); font-size: 9px;")
         layout.addWidget(model_hint)
 
         path_row = QHBoxLayout()
@@ -117,16 +118,16 @@ class ModelLoadPanel(QWidget):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #313244; margin: 4px 0;")
+        sep.setStyleSheet("color: palette(mid); margin: 4px 0;")
         layout.addWidget(sep)
 
         gen_lbl = QLabel("Generation")
         gen_lbl.setStyleSheet(
-            "color: #89B4FA; font-size: 10px; font-weight: bold;"
+            "color: palette(highlight); font-size: 10px; font-weight: bold;"
         )
         layout.addWidget(gen_lbl)
         gen_hint = QLabel("Applied immediately for next message (no model reload).")
-        gen_hint.setStyleSheet("color: #6C7086; font-size: 9px;")
+        gen_hint.setStyleSheet("color: palette(placeholder-text); font-size: 9px;")
         layout.addWidget(gen_hint)
 
         self._gen_form = QFormLayout()
@@ -195,14 +196,24 @@ class ModelLoadPanel(QWidget):
         }
         self.load_btn.setEnabled(False)
         self.status_lbl.setText("⏳ Loading…")
-        self.status_lbl.setStyleSheet("color: #F9E2AF; font-size: 10px;")
+        color = QColor(self.palette().color(QPalette.ColorRole.Highlight))
+        self.status_lbl.setStyleSheet(
+            f"color: {color.name(QColor.NameFormat.HexRgb)}; font-size: 10px;"
+        )
         self.load_requested.emit(path, params)
 
     def on_model_loaded(self, success: bool, message: str):
         self.load_btn.setEnabled(True)
         self.status_lbl.setText(message)
-        color = "#A6E3A1" if success else "#F38BA8"
-        self.status_lbl.setStyleSheet(f"color: {color}; font-size: 10px;")
+        role = (
+            QPalette.ColorRole.Link
+            if success
+            else QPalette.ColorRole.BrightText
+        )
+        color = QColor(self.palette().color(role))
+        self.status_lbl.setStyleSheet(
+            f"color: {color.name(QColor.NameFormat.HexRgb)}; font-size: 10px;"
+        )
 
     def get_generation_params(self) -> dict:
         return {

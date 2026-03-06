@@ -48,14 +48,14 @@ class ContextSelectorPanel(QWidget):
         hdr = QWidget()
         hdr.setFixedHeight(26)
         hdr.setStyleSheet(
-            "background: #2A2A3E; border-bottom: 1px solid #45475A;"
+            "background: palette(alternate-base); border-bottom: 1px solid palette(mid);"
         )
         self._header = hdr
         hbox = QHBoxLayout(hdr)
         hbox.setContentsMargins(8, 0, 8, 0)
         lbl = QLabel("Context Sources")
         lbl.setStyleSheet(
-            "color: #89B4FA; font-size: 10px; "
+            "color: palette(highlight); font-size: 10px; "
             "font-weight: bold; background: transparent;"
         )
         hbox.addWidget(lbl)
@@ -65,12 +65,12 @@ class ContextSelectorPanel(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet(
-            "QScrollArea { background: #1E1E2E; border: none; }"
+            "QScrollArea { background: palette(base); border: none; }"
         )
         self._scroll = scroll
 
         body = QWidget()
-        body.setStyleSheet("background: #1E1E2E;")
+        body.setStyleSheet("background: palette(base);")
         self._body = body
         body.setSizePolicy(
             QSizePolicy.Policy.Preferred,
@@ -93,12 +93,12 @@ class ContextSelectorPanel(QWidget):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #313244; margin: 4px 0;")
+        sep.setStyleSheet("color: palette(mid); margin: 4px 0;")
         self._body_layout.addWidget(sep)
 
         self._docs_lbl = QLabel("Imported Documents:")
         self._docs_lbl.setStyleSheet(
-            "color: #6C7086; font-size: 9px; background: transparent;"
+            "color: palette(placeholder-text); font-size: 9px; background: transparent;"
         )
         self._body_layout.addWidget(self._docs_lbl)
 

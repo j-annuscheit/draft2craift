@@ -10,10 +10,10 @@ import multiprocessing
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings
 
 from shell.window import MainWindow
-from shell.theme import apply_dark_theme
+from shell.theme import apply_theme
 
 
 def main():
@@ -26,7 +26,9 @@ def main():
     app.setApplicationVersion("1.0.0")
     app.setStyle("Fusion")          # consistent cross-platform look
 
-    apply_dark_theme(app)
+    settings = QSettings("draft2craift", "draft2craift")
+    theme_id = settings.value("ui/theme", "dark")
+    apply_theme(app, theme_id)
 
     window = MainWindow()
     window.show()
