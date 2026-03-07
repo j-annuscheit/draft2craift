@@ -46,6 +46,18 @@ class PreviewBlankLineTests(unittest.TestCase):
         self.__class__._app.processEvents()
         return pane, editor
 
+    def _select_preview_text(self, pane: CanvasPreviewPane, snippet: str):
+        plain = pane._view.toPlainText()
+        pos = plain.find(str(snippet or ""))
+        self.assertGreaterEqual(pos, 0, f"Snippet not found: {snippet!r}")
+        cursor = pane._view.textCursor()
+        cursor.setPosition(pos)
+        cursor.setPosition(
+            pos + len(str(snippet or "")),
+            QTextCursor.MoveMode.KeepAnchor,
+        )
+        pane._view.setTextCursor(cursor)
+
     def test_preview_commit_preserves_extra_blank_paragraphs(self):
         pane, editor = self._build_pane()
         try:
@@ -192,6 +204,412 @@ class PreviewBlankLineTests(unittest.TestCase):
             self.assertEqual(after_first_gap, initial_gap)
             self.assertEqual(after_second_gap, initial_gap)
             self.assertEqual(sentinels_after_second, sentinels_after_first)
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_toggle_block_quote_roundtrip(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText("A\n\nB")
+            pane._render()
+            self.__class__._app.processEvents()
+
+            def select_b():
+                plain = pane._view.toPlainText()
+                pos = plain.find("B")
+                self.assertGreaterEqual(pos, 0)
+                cursor = pane._view.textCursor()
+                cursor.setPosition(pos)
+                pane._view.setTextCursor(cursor)
+
+            select_b()
+            pane._toggle_block_quote()
+            self.__class__._app.processEvents()
+            self.assertEqual(editor.toPlainText(), "A\n\n> B")
+
+            select_b()
+            pane._toggle_block_quote()
+            self.__class__._app.processEvents()
+            self.assertEqual(editor.toPlainText(), "A\n\nB")
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_markdown_stylesheet_contains_blockquote_bar(self):
+        pane, editor = self._build_pane()
+        try:
+            stylesheet = pane._markdown_stylesheet()
+            self.assertIn("blockquote", stylesheet)
+            self.assertIn("border-left", stylesheet)
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_soft_line_breaks_are_preserved_after_preview_bold_toggle(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText("A\nB\nC")
+            pane._render()
+            self.__class__._app.processEvents()
+
+            plain = pane._view.toPlainText()
+            pos = plain.find("B")
+            self.assertGreaterEqual(pos, 0)
+            cursor = pane._view.textCursor()
+            cursor.setPosition(pos)
+            cursor.movePosition(
+                QTextCursor.MoveOperation.NextCharacter,
+                QTextCursor.MoveMode.KeepAnchor,
+                1,
+            )
+            pane._view.setTextCursor(cursor)
+
+            pane._toggle_bold()
+            self.__class__._app.processEvents()
+            self.assertEqual(editor.toPlainText(), "A\n**B**\nC")
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_soft_break_injection_keeps_markdown_blocks_unchanged(self):
+        source = "# T\nText\n\n- A\n- B\n\n> Q\n> W\n\n```\nx\ny\n```"
+        rendered = CanvasPreviewPane._inject_render_soft_break_tags(source)
+        self.assertIn("Text", rendered)
+        self.assertNotIn("- A\\", rendered)
+        self.assertNotIn("> Q\\", rendered)
+        self.assertNotIn("x\\", rendered)
+
+    def test_soft_break_injection_adds_markers_for_plain_lines(self):
+        source = "A\nB\nC"
+        rendered = CanvasPreviewPane._inject_render_soft_break_tags(source)
+        self.assertEqual(rendered, "A\\\nB\\\nC")
+
+    def test_restore_blank_like_runs_from_reference(self):
+        restored = CanvasPreviewPane._restore_blank_like_runs_from_reference(
+            "A\n\n**B**\n\nC",
+            "A\nB\nC",
+        )
+        self.assertEqual(restored, "A\n**B**\nC")
+
+    def test_bold_toggle_trims_selection_edge_spaces(self):
+        pane, editor = self._build_pane()
+        try:
+            for snippet in ("Sonne", "Sonne ", " Sonne "):
+                with self.subTest(selection=snippet):
+                    editor.setPlainText("Die Sonne ist blau.")
+                    pane._render()
+                    self.__class__._app.processEvents()
+
+                    self._select_preview_text(pane, snippet)
+                    pane._toggle_bold()
+                    self.__class__._app.processEvents()
+                    self.assertEqual(
+                        editor.toPlainText(),
+                        "Die **Sonne** ist blau.",
+                    )
+
+                    self._select_preview_text(pane, snippet)
+                    pane._toggle_bold()
+                    self.__class__._app.processEvents()
+                    self.assertEqual(editor.toPlainText(), "Die Sonne ist blau.")
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_bold_toggle_inside_bold_span_with_spaced_selection(self):
+        pane, editor = self._build_pane()
+        try:
+            for snippet in ("ist", " ist", " ist ", "ist "):
+                with self.subTest(selection=snippet):
+                    editor.setPlainText("Die **Sonne ist blau**.")
+                    pane._render()
+                    self.__class__._app.processEvents()
+
+                    self._select_preview_text(pane, snippet)
+                    pane._toggle_bold()
+                    self.__class__._app.processEvents()
+                    self.assertEqual(
+                        editor.toPlainText(),
+                        "Die **Sonne** ist **blau**.",
+                    )
+
+                    self._select_preview_text(pane, snippet)
+                    pane._toggle_bold()
+                    self.__class__._app.processEvents()
+                    self.assertEqual(
+                        editor.toPlainText(),
+                        "Die **Sonne ist blau**.",
+                    )
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_italic_toggle_trims_selection_edge_spaces(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText("Die Sonne ist blau.")
+            pane._render()
+            self.__class__._app.processEvents()
+
+            self._select_preview_text(pane, " Sonne ")
+            pane._toggle_italic()
+            self.__class__._app.processEvents()
+            self.assertEqual(editor.toPlainText(), "Die *Sonne* ist blau.")
+
+            self._select_preview_text(pane, " Sonne ")
+            pane._toggle_italic()
+            self.__class__._app.processEvents()
+            self.assertEqual(editor.toPlainText(), "Die Sonne ist blau.")
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_build_markdown_table_dimensions(self):
+        table = CanvasPreviewPane._build_markdown_table(3, 2)
+        self.assertEqual(
+            table,
+            "|   |   |\n| --- | --- |\n|   |   |\n|   |   |",
+        )
+
+    def test_normalize_table_row_spacing_removes_blank_lines_between_rows(self):
+        source = (
+            "| A | B |\n\n"
+            "| --- | --- |\n\n"
+            "| C | D |"
+        )
+        normalized = CanvasPreviewPane._normalize_table_row_spacing(source)
+        self.assertEqual(
+            normalized,
+            "| A | B |\n| --- | --- |\n| C | D |",
+        )
+
+    def test_normalize_pure_pipe_table_blocks_restores_separator(self):
+        source = "||||||\n||||||\n||||||\n||||||\n||||||\n||||||"
+        normalized = CanvasPreviewPane._normalize_pure_pipe_table_blocks(source)
+        self.assertEqual(
+            normalized,
+            (
+                "|   |   |   |   |   |\n"
+                "| --- | --- | --- | --- | --- |\n"
+                "|   |   |   |   |   |\n"
+                "|   |   |   |   |   |\n"
+                "|   |   |   |   |   |\n"
+                "|   |   |   |   |   |"
+            ),
+        )
+
+    def test_insert_markdown_table_via_preview_button_logic(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText("Start")
+            pane._render()
+            self.__class__._app.processEvents()
+
+            cursor = pane._view.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            pane._view.setTextCursor(cursor)
+
+            pane._insert_markdown_table(2, 3)
+            self.__class__._app.processEvents()
+            self.assertEqual(
+                editor.toPlainText(),
+                "Start\n\n|  |  |  |\n| --- | --- | --- |\n|  |  |  |",
+            )
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_inserted_blank_table_survives_rerender_cycles(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText("A\nB\n\nD\nE")
+            pane._render()
+            self.__class__._app.processEvents()
+
+            plain = pane._view.toPlainText()
+            pos_d = plain.find("D")
+            self.assertGreaterEqual(pos_d, 0)
+            cursor = pane._view.textCursor()
+            cursor.setPosition(pos_d)
+            pane._view.setTextCursor(cursor)
+
+            pane._insert_markdown_table(5, 5)
+            self.__class__._app.processEvents()
+            inserted = editor.toPlainText()
+            self.assertIn("| --- | --- | --- | --- | --- |", inserted)
+
+            for _ in range(2):
+                pane._render()
+                self.__class__._app.processEvents()
+                pane._preview_edit_active = True
+                pane._commit_preview_edit_to_markdown(force=True)
+                self.__class__._app.processEvents()
+
+            stable = editor.toPlainText()
+            self.assertIn("| --- | --- | --- | --- | --- |", stable)
+            self.assertNotIn("||||||", stable)
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_normalize_table_column_mismatch_collapses_overflow(self):
+        source = "| A | B |\n| --- | --- |\n| C |  |  | D |"
+        normalized = CanvasPreviewPane._normalize_table_column_mismatch(source)
+        self.assertEqual(
+            normalized,
+            "| A | B |\n| --- | --- |\n| C | D |",
+        )
+
+    def test_normalize_table_column_mismatch_repairs_weak_separator_row(self):
+        source = "|HELLO|||||\n|-----|||||\n|     |||||"
+        normalized = CanvasPreviewPane._normalize_table_column_mismatch(source)
+        self.assertEqual(
+            normalized,
+            (
+                "| HELLO |  |  |  |  |\n"
+                "| --- | --- | --- | --- | --- |\n"
+                "|  |  |  |  |  |"
+            ),
+        )
+
+    def test_normalize_table_column_mismatch_multiline_overflow_uses_br(self):
+        source = "| A | B |\n| --- | --- |\n| C | y | z | D |"
+        normalized = CanvasPreviewPane._normalize_table_column_mismatch(source)
+        self.assertEqual(
+            normalized,
+            "| A | B |\n| --- | --- |\n| C<br>y<br>z | D |",
+        )
+
+    def test_typing_in_empty_table_cell_stays_valid_table(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText("|   |   |\n| --- | --- |\n|   |   |")
+            pane._render()
+            self.__class__._app.processEvents()
+
+            doc = pane._view.document()
+            table_pos = None
+            for pos in range(doc.characterCount()):
+                probe = QTextCursor(doc)
+                probe.setPosition(pos)
+                if probe.currentTable() is not None:
+                    table_pos = pos
+                    break
+            self.assertIsNotNone(table_pos)
+
+            cursor = pane._view.textCursor()
+            cursor.setPosition(int(table_pos))
+            pane._view.setTextCursor(cursor)
+            cursor = pane._view.textCursor()
+            cursor.insertText("ABC")
+            pane._view.setTextCursor(cursor)
+
+            pane._preview_edit_active = True
+            pane._commit_preview_edit_to_markdown(force=True)
+            self.__class__._app.processEvents()
+
+            nonempty = [line for line in editor.toPlainText().splitlines() if line.strip()]
+            self.assertGreaterEqual(len(nonempty), 3)
+            self.assertEqual(
+                nonempty[:3],
+                ["| ABC |  |", "| --- | --- |", "|  |  |"],
+            )
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_typed_table_cell_survives_rerender_cycles(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText("A\nB\n\nD\nE")
+            pane._render()
+            self.__class__._app.processEvents()
+
+            plain = pane._view.toPlainText()
+            pos_d = plain.find("D")
+            self.assertGreaterEqual(pos_d, 0)
+            cursor = pane._view.textCursor()
+            cursor.setPosition(pos_d)
+            pane._view.setTextCursor(cursor)
+
+            pane._insert_markdown_table(5, 5)
+            self.__class__._app.processEvents()
+
+            doc = pane._view.document()
+            table_pos = None
+            for pos in range(doc.characterCount()):
+                probe = QTextCursor(doc)
+                probe.setPosition(pos)
+                if probe.currentTable() is not None:
+                    table_pos = pos
+                    break
+            self.assertIsNotNone(table_pos)
+
+            cursor = pane._view.textCursor()
+            cursor.setPosition(int(table_pos))
+            pane._view.setTextCursor(cursor)
+            cursor = pane._view.textCursor()
+            cursor.insertText("HELLO")
+            pane._view.setTextCursor(cursor)
+
+            pane._preview_edit_active = True
+            pane._commit_preview_edit_to_markdown(force=True)
+            self.__class__._app.processEvents()
+
+            for _ in range(2):
+                pane._render()
+                self.__class__._app.processEvents()
+                pane._preview_edit_active = True
+                pane._commit_preview_edit_to_markdown(force=True)
+                self.__class__._app.processEvents()
+
+            out = editor.toPlainText()
+            self.assertIn("| HELLO |", out)
+            self.assertIn("| --- | --- | --- | --- | --- |", out)
+            self.assertNotIn("|HELLO|||||", out)
+            self.assertNotIn("||||||", out)
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_multiline_in_table_cell_keeps_table_structure(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText("| A | B |\n| --- | --- |\n| C | D |")
+            pane._render()
+            self.__class__._app.processEvents()
+
+            plain = pane._view.toPlainText()
+            pos_c = plain.find("C")
+            self.assertGreaterEqual(pos_c, 0)
+            cursor = pane._view.textCursor()
+            cursor.setPosition(pos_c + 1)
+            pane._view.setTextCursor(cursor)
+            cursor = pane._view.textCursor()
+            cursor.insertBlock()
+            cursor.insertBlock()
+            pane._view.setTextCursor(cursor)
+
+            pane._preview_edit_active = True
+            pane._commit_preview_edit_to_markdown(force=True)
+            self.__class__._app.processEvents()
+
+            out = editor.toPlainText()
+            self.assertIn("| --- | --- |", out)
+            self.assertIn("| C | D |", out)
+            self.assertNotIn("| C |  |  | D |", out)
         finally:
             pane.deleteLater()
             editor.deleteLater()

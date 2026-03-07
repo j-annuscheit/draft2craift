@@ -10,7 +10,7 @@ import weakref
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QTimer, Qt, QUrl
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QTimer, Qt, QUrl, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -24,6 +24,7 @@ from PySide6.QtGui import (
     QTextCharFormat,
     QTextCursor,
     QTextDocument,
+    QTextFormat,
     QTextListFormat,
 )
 from PySide6.QtWidgets import (
@@ -37,6 +38,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QMenu,
     QPushButton,
     QStackedLayout,
     QTextBrowser,
@@ -44,6 +46,7 @@ from PySide6.QtWidgets import (
     QToolTip,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from services.highlights import HighlightMatch, get_highlight_store
@@ -232,6 +235,196 @@ class _GraphNodeItem(QGraphicsRectItem):
         return super().itemChange(change, value)
 
 
+class _PreviewTextBrowser(QTextBrowser):
+    """Preview browser with visible quote rails for Markdown blockquotes."""
+
+    _QUOTE_BAR_WIDTH_PX = 3
+    _QUOTE_BAR_GAP_PX = 10
+    _QUOTE_BAR_OFFSET_PX = 12
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        doc = self.document()
+        layout = doc.documentLayout() if doc is not None else None
+        if layout is None:
+            return
+
+        viewport = self.viewport()
+        vp_rect = viewport.rect()
+        v_scroll = int(self.verticalScrollBar().value())
+        h_scroll = int(self.horizontalScrollBar().value())
+
+        color = self.palette().color(QPalette.ColorRole.Mid)
+        if not color.isValid():
+            color = QColor("#7A7A7A")
+        color.setAlpha(210)
+
+        painter = QPainter(viewport)
+        pen = QPen(color)
+        pen.setWidth(self._QUOTE_BAR_WIDTH_PX)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+
+        block = doc.firstBlock()
+        while block.isValid():
+            block_format = block.blockFormat()
+            level = int(
+                block_format.property(QTextFormat.Property.BlockQuoteLevel) or 0
+            )
+            if level > 0:
+                rect = layout.blockBoundingRect(block)
+                top = float(rect.top()) - float(v_scroll)
+                bottom = top + float(rect.height())
+                if (
+                    bottom >= float(vp_rect.top()) - 2.0
+                    and top <= float(vp_rect.bottom()) + 2.0
+                    and (bottom - top) >= 2.0
+                ):
+                    y1 = int(round(top + 1.0))
+                    y2 = int(round(bottom - 1.0))
+                    for idx in range(level):
+                        x = (
+                            float(rect.left())
+                            - float(h_scroll)
+                            + float(self._QUOTE_BAR_OFFSET_PX)
+                            + float(idx * self._QUOTE_BAR_GAP_PX)
+                        )
+                        xi = int(round(x))
+                        painter.drawLine(xi, y1, xi, y2)
+            block = block.next()
+
+
+class _TableSizeGrid(QWidget):
+    """Interactive table-size picker grid."""
+
+    hovered_size_changed = Signal(int, int)
+    size_chosen = Signal(int, int)
+
+    def __init__(
+        self,
+        *,
+        max_rows: int = 10,
+        max_cols: int = 10,
+        cell_px: int = 18,
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self._max_rows = max(1, int(max_rows))
+        self._max_cols = max(1, int(max_cols))
+        self._cell_px = max(10, int(cell_px))
+        self._hover_rows = 0
+        self._hover_cols = 0
+        self.setMouseTracking(True)
+        self.setFixedSize(
+            int(self._max_cols * self._cell_px),
+            int(self._max_rows * self._cell_px),
+        )
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def _cell_at(self, pos: QPoint) -> tuple[int, int]:
+        x = int(pos.x())
+        y = int(pos.y())
+        if x < 0 or y < 0:
+            return 0, 0
+        col = (x // self._cell_px) + 1
+        row = (y // self._cell_px) + 1
+        if row < 1 or col < 1:
+            return 0, 0
+        if row > self._max_rows or col > self._max_cols:
+            return 0, 0
+        return int(row), int(col)
+
+    def _set_hover(self, rows: int, cols: int):
+        rows = max(0, int(rows))
+        cols = max(0, int(cols))
+        if rows == self._hover_rows and cols == self._hover_cols:
+            return
+        self._hover_rows = rows
+        self._hover_cols = cols
+        self.hovered_size_changed.emit(rows, cols)
+        self.update()
+
+    def leaveEvent(self, event):
+        self._set_hover(0, 0)
+        super().leaveEvent(event)
+
+    def mouseMoveEvent(self, event):
+        row, col = self._cell_at(event.position().toPoint())
+        self._set_hover(row, col)
+        super().mouseMoveEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            row, col = self._cell_at(event.position().toPoint())
+            if row > 0 and col > 0:
+                self.size_chosen.emit(row, col)
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        base = self.palette().color(QPalette.ColorRole.Base)
+        border = self.palette().color(QPalette.ColorRole.Mid)
+        active = self.palette().color(QPalette.ColorRole.Highlight)
+        active_bg = QColor(active)
+        active_bg.setAlpha(125)
+        painter.fillRect(self.rect(), base)
+        for row in range(self._max_rows):
+            for col in range(self._max_cols):
+                x = int(col * self._cell_px)
+                y = int(row * self._cell_px)
+                rect = QRect(
+                    x,
+                    y,
+                    int(self._cell_px - 1),
+                    int(self._cell_px - 1),
+                )
+                if (row + 1) <= self._hover_rows and (col + 1) <= self._hover_cols:
+                    painter.fillRect(rect, active_bg)
+                painter.setPen(border)
+                painter.drawRect(rect)
+
+
+class _TableInsertPicker(QWidget):
+    """Word-like table picker with hover size preview."""
+
+    size_chosen = Signal(int, int)
+
+    def __init__(
+        self,
+        *,
+        max_rows: int = 10,
+        max_cols: int = 10,
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(6)
+
+        self._label = QLabel("Tabelle einfügen: 0 x 0")
+        self._label.setStyleSheet("font-size: 11px; color: palette(text);")
+        layout.addWidget(self._label)
+
+        self._grid = _TableSizeGrid(
+            max_rows=max_rows,
+            max_cols=max_cols,
+            parent=self,
+        )
+        self._grid.hovered_size_changed.connect(self._on_hovered_size_changed)
+        self._grid.size_chosen.connect(self.size_chosen.emit)
+        layout.addWidget(self._grid)
+
+    def _on_hovered_size_changed(self, rows: int, cols: int):
+        if rows <= 0 or cols <= 0:
+            self._label.setText("Tabelle einfügen: 0 x 0")
+            return
+        self._label.setText(f"Tabelle einfügen: {rows} x {cols}")
+
+
 class CanvasPreviewPane(QWidget):
     """Encapsulates preview editing/rendering, zooming, and cursor sync."""
 
@@ -312,6 +505,8 @@ class CanvasPreviewPane(QWidget):
         self._restoring_view_scroll = False
         self._pending_wheel_scroll_delta_px = 0
         self._render_cycle_id = 0
+        self._table_insert_btn: QPushButton | None = None
+        self._table_insert_menu: QMenu | None = None
         self._INSTANCES.add(self)
         self._setup_ui()
         self._setup_timers()
@@ -345,7 +540,7 @@ class CanvasPreviewPane(QWidget):
             layout.addWidget(self._title)
         layout.addWidget(self._build_format_bar())
 
-        self._view = QTextBrowser()
+        self._view = _PreviewTextBrowser()
         self._view.setOpenLinks(False)
         self._view.setReadOnly(not self._allow_editing)
         self._view.setMouseTracking(True)
@@ -390,8 +585,10 @@ class CanvasPreviewPane(QWidget):
             ("Absatz", "Absatz (entfernt Überschrift)", self._clear_heading),
             ("B", "Fett", self._toggle_bold),
             ("I", "Kursiv", self._toggle_italic),
+            ('"', "Zitat", self._toggle_block_quote),
             ("•", "Aufzählung", self._toggle_bullet_list),
             ("1.", "Nummerierte Liste", self._toggle_numbered_list),
+            ("Tab", "Tabelle einfügen", self._show_table_insert_menu),
             ("HR", "Waagerechter Strich", self._insert_horizontal_rule),
             ("→", "Einrücken (Tab)", self._indent_list_item),
             ("←", "Ausrücken (Shift+Tab)", self._outdent_list_item),
@@ -421,6 +618,8 @@ class CanvasPreviewPane(QWidget):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(button_style)
             btn.clicked.connect(slot)
+            if label == "Tab":
+                self._table_insert_btn = btn
             row.addWidget(btn)
         row.addStretch()
 
@@ -1595,6 +1794,11 @@ class CanvasPreviewPane(QWidget):
         )
         link_color = self._palette_hex(QPalette.ColorRole.Highlight, "#89B4FA")
         table_border = self._palette_hex(QPalette.ColorRole.Mid, "#D0D0D0")
+        quote_border = self._palette_hex(QPalette.ColorRole.Mid, "#7A7A7A")
+        quote_color = self._palette_hex(
+            QPalette.ColorRole.PlaceholderText,
+            "#BAC2DE",
+        )
         body_rule = (
             "body { "
             "font-family: 'Segoe UI', sans-serif; "
@@ -1621,6 +1825,14 @@ class CanvasPreviewPane(QWidget):
                 f"ul, ol {{ margin: 0.35em 0 {paragraph_gap_em:.2f}em 1.35em; }} ",
                 "li { margin: 0.20em 0; } ",
                 f"a {{ color: {link_color}; }} ",
+                (
+                    "blockquote { "
+                    f"margin: 0.30em 0 {paragraph_gap_em:.2f}em 0; "
+                    "padding: 0.10em 0 0.10em 0.80em; "
+                    f"border-left: 4px solid {quote_border}; "
+                    f"color: {quote_color}; "
+                    "}"
+                ),
                 code_rule,
                 "table { border-collapse: collapse; } ",
                 f"th, td {{ border: 1px solid {table_border}; padding: 4px 8px; }}",
@@ -1716,7 +1928,12 @@ class CanvasPreviewPane(QWidget):
         normalized = CanvasPreviewPane._normalize_inline_code_backslashes(
             normalized
         )
-        return CanvasPreviewPane._normalize_ordered_sublist_indent(normalized)
+        normalized = CanvasPreviewPane._normalize_ordered_sublist_indent(
+            normalized
+        )
+        normalized = CanvasPreviewPane._normalize_table_row_spacing(normalized)
+        normalized = CanvasPreviewPane._normalize_pure_pipe_table_blocks(normalized)
+        return CanvasPreviewPane._normalize_table_column_mismatch(normalized)
 
     @classmethod
     def _markdown_for_render(cls, text: str) -> str:
@@ -1728,12 +1945,100 @@ class CanvasPreviewPane(QWidget):
         """
         normalized = str(text or "").replace("\r\n", "\n")
         normalized = cls._replace_hr_markers(normalized)
+        normalized = cls._inject_render_soft_break_tags(normalized)
         return cls._inject_render_spacers_for_extra_blank_lines(normalized)
 
     @classmethod
     def _replace_hr_markers(cls, text: str) -> str:
         pattern = rf"(?m)^[ \t]*{re.escape(cls._HR_MARKER)}[ \t]*$"
         return re.sub(pattern, "- - -", text)
+
+    @classmethod
+    def _inject_render_soft_break_tags(cls, text: str) -> str:
+        """
+        Preserve user-authored single line breaks in plain paragraphs.
+
+        Qt's Markdown parser collapses single newlines inside a paragraph to
+        spaces on roundtrip (`setMarkdown()` -> `toMarkdown()`). For preview
+        editing we render such breaks as markdown hard-break markers (`\\`),
+        so formatting actions do not unexpectedly join source lines.
+        """
+        lines = str(text or "").split("\n")
+        if len(lines) < 2:
+            return str(text or "")
+
+        in_fence = False
+        fence_char = ""
+        fence_len = 0
+
+        def is_plain_paragraph_line(line: str, *, in_code_fence: bool) -> bool:
+            if in_code_fence:
+                return False
+            raw = str(line or "")
+            stripped = raw.strip()
+            if not stripped:
+                return False
+            if cls._line_is_blank_like(raw):
+                return False
+            if re.match(r"^([`~]{3,})", stripped):
+                return False
+            if re.match(r"^#{1,6}\s+", stripped):
+                return False
+            if raw.startswith("    ") or raw.startswith("\t"):
+                return False
+            if re.match(r"^\s*>", raw):
+                return False
+            if cls._BULLET_ITEM_RE.match(raw) is not None:
+                return False
+            if cls._ORDERED_ITEM_RE.match(raw) is not None:
+                return False
+            if re.match(r"^\s*[-*_]{3,}\s*$", raw):
+                return False
+            if re.match(r"^\s*\|", raw):
+                return False
+            if re.match(r"^\s*<[^>]+>\s*$", raw):
+                return False
+            return True
+
+        def has_hard_break_marker(line: str) -> bool:
+            stripped_right = str(line or "").rstrip()
+            if stripped_right.endswith("\\"):
+                return True
+            return bool(re.search(r"<br\s*/?>\s*$", stripped_right, flags=re.I))
+
+        out: list[str] = []
+        total = len(lines)
+        for idx, line in enumerate(lines):
+            raw = str(line or "")
+            stripped = raw.lstrip()
+            fence_match = re.match(r"^([`~]{3,})", stripped)
+            if fence_match is not None:
+                marker = fence_match.group(1)
+                marker_char = marker[0]
+                marker_len = len(marker)
+                if not in_fence:
+                    in_fence = True
+                    fence_char = marker_char
+                    fence_len = marker_len
+                elif marker_char == fence_char and marker_len >= fence_len:
+                    in_fence = False
+                    fence_char = ""
+                    fence_len = 0
+                out.append(raw)
+                continue
+
+            append_line = raw
+            if idx < (total - 1):
+                next_raw = str(lines[idx + 1] or "")
+                if (
+                    is_plain_paragraph_line(raw, in_code_fence=in_fence)
+                    and is_plain_paragraph_line(next_raw, in_code_fence=in_fence)
+                    and not has_hard_break_marker(raw)
+                ):
+                    append_line = f"{raw}\\"
+            out.append(append_line)
+
+        return "\n".join(out)
 
     @classmethod
     def _inject_render_spacers_for_extra_blank_lines(cls, text: str) -> str:
@@ -1909,6 +2214,338 @@ class CanvasPreviewPane(QWidget):
 
         return "\n".join(out)
 
+    @staticmethod
+    def _is_markdown_table_row(line: str) -> bool:
+        stripped = str(line or "").strip()
+        if len(stripped) < 3:
+            return False
+        if not stripped.startswith("|"):
+            return False
+        return "|" in stripped[1:]
+
+    @classmethod
+    def _normalize_table_row_spacing(cls, text: str) -> str:
+        """
+        Collapse blank lines between markdown table rows.
+
+        QTextDocument.toMarkdown() can emit empty lines between `|...|` rows
+        after rich-text edits. This breaks markdown table parsing. We remove
+        only blank separators where both neighboring non-blank lines are table
+        rows, and skip fenced code blocks.
+        """
+        lines = str(text or "").split("\n")
+        if len(lines) < 3:
+            return str(text or "")
+
+        out: list[str] = []
+        in_fence = False
+        fence_char = ""
+        fence_len = 0
+        count = len(lines)
+        for idx, line in enumerate(lines):
+            raw = str(line or "")
+            stripped = raw.lstrip()
+            fence_match = re.match(r"^([`~]{3,})", stripped)
+            if fence_match is not None:
+                marker = fence_match.group(1)
+                marker_char = marker[0]
+                marker_len = len(marker)
+                if not in_fence:
+                    in_fence = True
+                    fence_char = marker_char
+                    fence_len = marker_len
+                elif marker_char == fence_char and marker_len >= fence_len:
+                    in_fence = False
+                    fence_char = ""
+                    fence_len = 0
+                out.append(raw)
+                continue
+
+            if in_fence:
+                out.append(raw)
+                continue
+
+            if raw.strip():
+                out.append(raw)
+                continue
+
+            prev_nonblank = ""
+            for prev in reversed(out):
+                if str(prev or "").strip():
+                    prev_nonblank = str(prev or "")
+                    break
+            next_nonblank = ""
+            j = idx + 1
+            while j < count:
+                candidate = str(lines[j] or "")
+                if candidate.strip():
+                    next_nonblank = candidate
+                    break
+                j += 1
+            if (
+                cls._is_markdown_table_row(prev_nonblank)
+                and cls._is_markdown_table_row(next_nonblank)
+            ):
+                continue
+            out.append(raw)
+
+        return "\n".join(out)
+
+    @staticmethod
+    def _pure_pipe_row_column_count(line: str) -> int:
+        stripped = str(line or "").strip()
+        if not stripped:
+            return 0
+        if re.fullmatch(r"\|+", stripped) is None:
+            return 0
+        cols = len(stripped) - 1
+        if cols <= 0:
+            return 0
+        return int(cols)
+
+    @classmethod
+    def _normalize_pure_pipe_table_blocks(cls, text: str) -> str:
+        """
+        Convert Qt's blank-table markdown (`||||`) to valid table syntax.
+
+        After rich-text edits, QTextDocument can export empty table rows as
+        pure pipe lines and drop the separator row. Such blocks no longer parse
+        as markdown tables in the next render pass. We rebuild them into:
+          header row + separator row + remaining body rows.
+        """
+        lines = str(text or "").split("\n")
+        if len(lines) < 2:
+            return str(text or "")
+
+        out: list[str] = []
+        in_fence = False
+        fence_char = ""
+        fence_len = 0
+        count = len(lines)
+        idx = 0
+        while idx < count:
+            raw = str(lines[idx] or "")
+            stripped = raw.lstrip()
+            fence_match = re.match(r"^([`~]{3,})", stripped)
+            if fence_match is not None:
+                marker = fence_match.group(1)
+                marker_char = marker[0]
+                marker_len = len(marker)
+                if not in_fence:
+                    in_fence = True
+                    fence_char = marker_char
+                    fence_len = marker_len
+                elif marker_char == fence_char and marker_len >= fence_len:
+                    in_fence = False
+                    fence_char = ""
+                    fence_len = 0
+                out.append(raw)
+                idx += 1
+                continue
+
+            if in_fence:
+                out.append(raw)
+                idx += 1
+                continue
+
+            cols = cls._pure_pipe_row_column_count(raw)
+            if cols <= 0:
+                out.append(raw)
+                idx += 1
+                continue
+
+            j = idx
+            while (
+                j < count
+                and cls._pure_pipe_row_column_count(lines[j]) == cols
+            ):
+                j += 1
+            block_rows = j - idx
+            if block_rows >= 2:
+                header = "| " + " | ".join([" "] * cols) + " |"
+                separator = "| " + " | ".join(["---"] * cols) + " |"
+                out.append(header)
+                out.append(separator)
+                body_count = max(0, block_rows - 2)
+                if body_count > 0:
+                    body_row = "| " + " | ".join([" "] * cols) + " |"
+                    for _ in range(body_count):
+                        out.append(body_row)
+            else:
+                out.append(raw)
+            idx = j
+
+        return "\n".join(out)
+
+    @staticmethod
+    def _split_markdown_table_cells(line: str) -> list[str]:
+        stripped = str(line or "").strip()
+        if stripped.startswith("|"):
+            stripped = stripped[1:]
+        if stripped.endswith("|"):
+            stripped = stripped[:-1]
+        return [part.strip() for part in stripped.split("|")]
+
+    @staticmethod
+    def _format_markdown_table_row(cells: list[str]) -> str:
+        safe = [str(cell or "").strip() for cell in list(cells or [])]
+        return "| " + " | ".join(safe) + " |"
+
+    @classmethod
+    def _is_markdown_table_separator_row(cls, line: str) -> bool:
+        cells = cls._table_separator_cells(line)
+        if not cells:
+            return False
+        return all(str(cell or "").strip() for cell in cells)
+
+    @classmethod
+    def _table_separator_cells(cls, line: str) -> list[str] | None:
+        if not cls._is_markdown_table_row(line):
+            return None
+        cells = cls._split_markdown_table_cells(line)
+        if not cells:
+            return None
+        parsed: list[str] = []
+        has_rule = False
+        for cell in cells:
+            token = str(cell or "").strip()
+            if not token:
+                parsed.append("")
+                continue
+            if re.fullmatch(r":?-{1,}:?", token) is None:
+                return None
+            has_rule = True
+            parsed.append(token)
+        if not has_rule:
+            return None
+        return parsed
+
+    @classmethod
+    def _normalize_table_column_mismatch(cls, text: str) -> str:
+        """
+        Normalize markdown table rows to a stable column count and spacing.
+
+        Enter/newline edits inside a table cell can produce rows with more
+        pipe-separated cells than the table header (e.g. `|C| | |D|`). That
+        breaks stable roundtrips in Qt. We fold overflow cells into the first
+        column text (as `<br>` joins), repair weak separator rows emitted by
+        Qt (e.g. `|-----|||||`), and reformat rows to stable markdown syntax.
+        """
+        lines = str(text or "").split("\n")
+        if len(lines) < 3:
+            return str(text or "")
+
+        out: list[str] = []
+        in_fence = False
+        fence_char = ""
+        fence_len = 0
+        count = len(lines)
+        idx = 0
+        while idx < count:
+            raw = str(lines[idx] or "")
+            stripped = raw.lstrip()
+            fence_match = re.match(r"^([`~]{3,})", stripped)
+            if fence_match is not None:
+                marker = fence_match.group(1)
+                marker_char = marker[0]
+                marker_len = len(marker)
+                if not in_fence:
+                    in_fence = True
+                    fence_char = marker_char
+                    fence_len = marker_len
+                elif marker_char == fence_char and marker_len >= fence_len:
+                    in_fence = False
+                    fence_char = ""
+                    fence_len = 0
+                out.append(raw)
+                idx += 1
+                continue
+
+            if in_fence:
+                out.append(raw)
+                idx += 1
+                continue
+
+            if idx + 1 < count and cls._is_markdown_table_row(raw):
+                sep_cells = cls._table_separator_cells(lines[idx + 1])
+                if sep_cells is None:
+                    out.append(raw)
+                    idx += 1
+                    continue
+
+                header_raw_cells = cls._split_markdown_table_cells(raw)
+                cols = max(1, len(header_raw_cells), len(sep_cells))
+                row_start = idx + 2
+                row_end = row_start
+                while row_end < count and cls._is_markdown_table_row(lines[row_end]):
+                    row_end += 1
+
+                def normalize_cells(raw_cells: list[str]) -> list[str]:
+                    cells = [str(cell or "").strip() for cell in raw_cells]
+                    if len(cells) < cols:
+                        cells.extend([""] * (cols - len(cells)))
+                        return cells
+                    if len(cells) == cols:
+                        return cells
+                    if cols == 1:
+                        merged = "<br>".join(
+                            part for part in cells if str(part or "").strip()
+                        ).strip()
+                        return [merged]
+                    head_len = len(cells) - (cols - 1)
+                    first_parts = cells[:head_len]
+                    tail = cells[-(cols - 1):]
+                    first = "<br>".join(
+                        part for part in first_parts if str(part or "").strip()
+                    ).strip()
+                    return [first, *tail]
+
+                def normalize_separator(raw_cells: list[str]) -> list[str]:
+                    cells = [str(cell or "").strip() for cell in raw_cells]
+                    if len(cells) < cols:
+                        cells.extend([""] * (cols - len(cells)))
+                    elif len(cells) > cols:
+                        cells = cells[:cols]
+                    normalized_sep: list[str] = []
+                    for token in cells:
+                        current = str(token or "").strip()
+                        if not current:
+                            normalized_sep.append("---")
+                            continue
+                        if re.fullmatch(r":?-{1,}:?", current) is None:
+                            normalized_sep.append("---")
+                            continue
+                        left_colon = current.startswith(":")
+                        right_colon = current.endswith(":")
+                        if left_colon and right_colon:
+                            normalized_sep.append(":---:")
+                            continue
+                        if left_colon:
+                            normalized_sep.append(":---")
+                            continue
+                        if right_colon:
+                            normalized_sep.append("---:")
+                            continue
+                        normalized_sep.append("---")
+                    return normalized_sep
+
+                header_cells = normalize_cells(header_raw_cells)
+                out.append(cls._format_markdown_table_row(header_cells))
+                out.append(cls._format_markdown_table_row(normalize_separator(sep_cells)))
+                idx = row_start
+                while idx < row_end:
+                    row_cells = normalize_cells(
+                        cls._split_markdown_table_cells(lines[idx])
+                    )
+                    out.append(cls._format_markdown_table_row(row_cells))
+                    idx += 1
+                continue
+
+            out.append(raw)
+            idx += 1
+
+        return "\n".join(out)
+
     @classmethod
     def _line_is_blank_like(cls, line: str) -> bool:
         # Preserve visually empty spacer paragraphs as blank-like.
@@ -1993,6 +2630,61 @@ class CanvasPreviewPane(QWidget):
             return md
         return "\n".join(lines)
 
+    @classmethod
+    def _restore_blank_like_runs_from_reference(
+        cls,
+        markdown_text: str,
+        reference_markdown: str,
+    ) -> str:
+        """
+        Restore blank-like separator runs from a markdown reference text.
+
+        Used for preview toolbar formatting actions: Qt may rewrite soft line
+        breaks into blank-line-separated blocks during toMarkdown() export.
+        When token order is unchanged, we transplant only the inter-row blank
+        runs from the reference so original line wrapping is preserved.
+        """
+        md = str(markdown_text or "").replace("\r\n", "\n")
+        ref = str(reference_markdown or "").replace("\r\n", "\n")
+        if not md or not ref:
+            return md
+
+        md_rows = cls._nonempty_normalized_rows(md)
+        ref_rows = cls._nonempty_normalized_rows(ref)
+        if len(md_rows) < 2 or len(md_rows) != len(ref_rows):
+            return md
+        if any(md_rows[idx][0] != ref_rows[idx][0] for idx in range(len(md_rows))):
+            return md
+
+        md_lines = md.split("\n")
+        ref_lines = ref.split("\n")
+        offset = 0
+        changed = False
+        for idx in range(len(md_rows) - 1):
+            md_start = int(md_rows[idx][1]) + offset
+            md_end = int(md_rows[idx + 1][1]) + offset
+            ref_start = int(ref_rows[idx][1])
+            ref_end = int(ref_rows[idx + 1][1])
+            if md_end <= md_start:
+                continue
+
+            md_region = md_lines[md_start + 1:md_end]
+            ref_region = ref_lines[ref_start + 1:ref_end]
+            if not all(cls._line_is_blank_like(line) for line in md_region):
+                continue
+            if not all(cls._line_is_blank_like(line) for line in ref_region):
+                continue
+            if md_region == ref_region:
+                continue
+
+            md_lines[md_start + 1:md_end] = ref_region
+            offset += len(ref_region) - len(md_region)
+            changed = True
+
+        if not changed:
+            return md
+        return "\n".join(md_lines)
+
     def _on_preview_text_changed(self):
         if (
             not self._allow_editing
@@ -2006,7 +2698,12 @@ class CanvasPreviewPane(QWidget):
             self._PREVIEW_TO_MARKDOWN_DELAY_MS
         )
 
-    def _commit_preview_edit_to_markdown(self, *, force: bool = False):
+    def _commit_preview_edit_to_markdown(
+        self,
+        *,
+        force: bool = False,
+        preserve_reference_linebreaks: bool = False,
+    ):
         if (
             self._editor is None
             or (not self._allow_editing)
@@ -2016,12 +2713,21 @@ class CanvasPreviewPane(QWidget):
             return
         if (not force) and self._focus_is_inside_preview():
             return
+        current_markdown = self._editor.get_full_text().replace(
+            "\r\n",
+            "\n",
+        ).rstrip()
         plain_text = (self._view.toPlainText() or "").replace("\r\n", "\n")
         new_markdown = self._canonical_markdown(self._view.toMarkdown())
         new_markdown = self._restore_extra_blank_lines_from_plaintext(
             new_markdown,
             plain_text,
         )
+        if preserve_reference_linebreaks:
+            new_markdown = self._restore_blank_like_runs_from_reference(
+                new_markdown,
+                current_markdown,
+            )
         if (
             self._view_has_terminal_hr()
             and not self._markdown_has_terminal_hr(new_markdown)
@@ -2030,10 +2736,6 @@ class CanvasPreviewPane(QWidget):
                 new_markdown = f"{new_markdown}\n\n- - -"
             else:
                 new_markdown = "- - -"
-        current_markdown = self._editor.get_full_text().replace(
-            "\r\n",
-            "\n",
-        ).rstrip()
         if new_markdown == current_markdown:
             return
         editor = self._editor
@@ -2109,7 +2811,10 @@ class CanvasPreviewPane(QWidget):
         self._preview_edit_active = True
         self._preview_to_markdown_timer.stop()
         action()
-        self._commit_preview_edit_to_markdown(force=True)
+        self._commit_preview_edit_to_markdown(
+            force=True,
+            preserve_reference_linebreaks=True,
+        )
         self._refresh_preview_from_markdown_preserve_cursor()
         self._view.setFocus(Qt.FocusReason.OtherFocusReason)
 
@@ -2171,22 +2876,197 @@ class CanvasPreviewPane(QWidget):
 
         self._apply_preview_format_change(apply)
 
+    def _trimmed_selection_bounds(self) -> tuple[int, int] | None:
+        cursor = self._view.textCursor()
+        if not cursor.hasSelection():
+            return None
+        start = int(cursor.selectionStart())
+        end = int(cursor.selectionEnd())
+        if end <= start:
+            return None
+        doc = self._view.document()
+        while start < end:
+            ch = str(doc.characterAt(start) or "")
+            if ch and (not ch.isspace()):
+                break
+            start += 1
+        while end > start:
+            ch = str(doc.characterAt(end - 1) or "")
+            if ch and (not ch.isspace()):
+                break
+            end -= 1
+        if end <= start:
+            return None
+        return start, end
+
+    def _selection_all_nonspace_chars_match(
+        self,
+        start: int,
+        end: int,
+        matcher: Callable[[QTextCharFormat], bool],
+    ) -> tuple[bool, bool]:
+        doc = self._view.document()
+        probe = QTextCursor(doc)
+        all_match = True
+        has_nonspace = False
+        for pos in range(int(start), int(end)):
+            ch = str(doc.characterAt(pos) or "")
+            if (not ch) or ch.isspace():
+                continue
+            has_nonspace = True
+            probe.setPosition(min(pos + 1, doc.characterCount() - 1))
+            if not matcher(probe.charFormat()):
+                all_match = False
+                break
+        return all_match, has_nonspace
+
+    def _expand_selection_to_formatted_adjacent_whitespace(
+        self,
+        start: int,
+        end: int,
+        matcher: Callable[[QTextCharFormat], bool],
+    ) -> tuple[int, int]:
+        doc = self._view.document()
+        probe = QTextCursor(doc)
+        left = int(start)
+        right = int(end)
+        while left > 0:
+            ch = str(doc.characterAt(left - 1) or "")
+            if (not ch) or (not ch.isspace()):
+                break
+            probe.setPosition(min(left, doc.characterCount() - 1))
+            if not matcher(probe.charFormat()):
+                break
+            left -= 1
+        max_index = max(0, doc.characterCount() - 1)
+        while right < max_index:
+            ch = str(doc.characterAt(right) or "")
+            if (not ch) or (not ch.isspace()):
+                break
+            probe.setPosition(min(right + 1, max_index))
+            if not matcher(probe.charFormat()):
+                break
+            right += 1
+        return left, right
+
+    def _expand_selection_to_bridge_formatted_neighbors(
+        self,
+        start: int,
+        end: int,
+        matcher: Callable[[QTextCharFormat], bool],
+    ) -> tuple[int, int]:
+        doc = self._view.document()
+        probe = QTextCursor(doc)
+        left = int(start)
+        right = int(end)
+        max_index = max(0, doc.characterCount() - 1)
+
+        left_ws_start = left
+        while left_ws_start > 0:
+            ch = str(doc.characterAt(left_ws_start - 1) or "")
+            if (not ch) or (not ch.isspace()):
+                break
+            left_ws_start -= 1
+        if left_ws_start < left and left_ws_start > 0:
+            probe.setPosition(min(left_ws_start, max_index))
+            if matcher(probe.charFormat()):
+                left = left_ws_start
+
+        right_ws_end = right
+        while right_ws_end < max_index:
+            ch = str(doc.characterAt(right_ws_end) or "")
+            if (not ch) or (not ch.isspace()):
+                break
+            right_ws_end += 1
+        if right_ws_end > right and right_ws_end < max_index:
+            probe.setPosition(min(right_ws_end + 1, max_index))
+            if matcher(probe.charFormat()):
+                right = right_ws_end
+
+        return left, right
+
+    def _toggle_inline_char_format(
+        self,
+        *,
+        matcher: Callable[[QTextCharFormat], bool],
+        apply_state: Callable[[QTextCharFormat, bool], None],
+    ):
+        cursor = self._view.textCursor()
+        if not cursor.hasSelection():
+            fmt = self._view.currentCharFormat()
+            apply_state(fmt, not matcher(fmt))
+            self._view.mergeCurrentCharFormat(fmt)
+            return
+
+        bounds = self._trimmed_selection_bounds()
+        if bounds is None:
+            return
+        start, end = bounds
+        all_match, has_nonspace = self._selection_all_nonspace_chars_match(
+            start,
+            end,
+            matcher,
+        )
+        if not has_nonspace:
+            return
+        target_enabled = not all_match
+        if target_enabled:
+            start, end = self._expand_selection_to_bridge_formatted_neighbors(
+                start,
+                end,
+                matcher,
+            )
+        else:
+            start, end = self._expand_selection_to_formatted_adjacent_whitespace(
+                start,
+                end,
+                matcher,
+            )
+
+        selection = QTextCursor(self._view.document())
+        selection.setPosition(int(start))
+        selection.setPosition(int(end), QTextCursor.MoveMode.KeepAnchor)
+        self._view.setTextCursor(selection)
+        fmt = QTextCharFormat()
+        apply_state(fmt, target_enabled)
+        selection.mergeCharFormat(fmt)
+        self._view.setTextCursor(selection)
+
     def _toggle_bold(self):
         def apply():
-            fmt = self._view.currentCharFormat()
-            is_bold = fmt.fontWeight() >= int(QFont.Weight.Bold)
-            fmt.setFontWeight(
-                int(QFont.Weight.Normal) if is_bold else int(QFont.Weight.Bold)
+            self._toggle_inline_char_format(
+                matcher=lambda fmt: fmt.fontWeight() >= int(QFont.Weight.Bold),
+                apply_state=lambda fmt, enabled: fmt.setFontWeight(
+                    int(QFont.Weight.Bold)
+                    if enabled
+                    else int(QFont.Weight.Normal)
+                ),
             )
-            self._view.mergeCurrentCharFormat(fmt)
 
         self._apply_preview_format_change(apply)
 
     def _toggle_italic(self):
         def apply():
-            fmt = self._view.currentCharFormat()
-            fmt.setFontItalic(not fmt.fontItalic())
-            self._view.mergeCurrentCharFormat(fmt)
+            self._toggle_inline_char_format(
+                matcher=lambda fmt: bool(fmt.fontItalic()),
+                apply_state=lambda fmt, enabled: fmt.setFontItalic(bool(enabled)),
+            )
+
+        self._apply_preview_format_change(apply)
+
+    def _toggle_block_quote(self):
+        def apply():
+            cursor = self._view.textCursor()
+            block_format = cursor.blockFormat()
+            current_level = int(
+                block_format.property(QTextFormat.Property.BlockQuoteLevel) or 0
+            )
+            block_format.setProperty(
+                QTextFormat.Property.BlockQuoteLevel,
+                0 if current_level > 0 else 1,
+            )
+            cursor.setBlockFormat(block_format)
+            self._view.setTextCursor(cursor)
 
         self._apply_preview_format_change(apply)
 
@@ -2195,6 +3075,70 @@ class CanvasPreviewPane(QWidget):
 
     def _toggle_numbered_list(self):
         self._toggle_list_style(QTextListFormat.Style.ListDecimal)
+
+    @staticmethod
+    def _build_markdown_table(rows: int, cols: int) -> str:
+        r = max(1, int(rows))
+        c = max(1, int(cols))
+        header = "| " + " | ".join([" "] * c) + " |"
+        separator = "| " + " | ".join(["---"] * c) + " |"
+        body_row = "| " + " | ".join([" "] * c) + " |"
+        body = [body_row for _ in range(max(0, r - 1))]
+        lines = [header, separator, *body]
+        return "\n".join(lines)
+
+    def _insert_markdown_table(self, rows: int, cols: int):
+        def apply():
+            cursor = self._view.textCursor()
+            cursor.beginEditBlock()
+            if cursor.hasSelection():
+                cursor.removeSelectedText()
+
+            table_markdown = self._build_markdown_table(rows, cols)
+            if cursor.positionInBlock() != 0:
+                cursor.insertBlock()
+            cursor.insertText(table_markdown)
+            cursor.insertBlock()
+            cursor.endEditBlock()
+            self._view.setTextCursor(cursor)
+
+        self._apply_preview_format_change(apply)
+
+    def _show_table_insert_menu(self):
+        if not self._allow_editing or self._structured_view_active:
+            return
+        button = self._table_insert_btn
+        if button is None:
+            return
+        if self._table_insert_menu is not None:
+            try:
+                self._table_insert_menu.close()
+            except Exception:
+                pass
+
+        menu = QMenu(self)
+        menu.setToolTipsVisible(False)
+        picker = _TableInsertPicker(max_rows=12, max_cols=12, parent=menu)
+
+        def _insert_selected(rows: int, cols: int):
+            try:
+                menu.close()
+            except Exception:
+                pass
+            self._insert_markdown_table(rows, cols)
+
+        picker.size_chosen.connect(_insert_selected)
+        action = QWidgetAction(menu)
+        action.setDefaultWidget(picker)
+        menu.addAction(action)
+
+        def _clear_menu_ref():
+            self._table_insert_menu = None
+
+        menu.aboutToHide.connect(_clear_menu_ref)
+        self._table_insert_menu = menu
+        pos = button.mapToGlobal(QPoint(0, button.height()))
+        menu.popup(pos)
 
     def _insert_horizontal_rule(self):
         def apply():
@@ -2368,6 +3312,7 @@ class CanvasPreviewPane(QWidget):
         if not text:
             return ""
         text = re.sub(r"^#{1,6}\s*", "", text)
+        text = re.sub(r"^\s{0,3}(?:>\s?)+", "", text)
         text = re.sub(r"^\s{0,3}(?:[-*+]|\d+[.)])\s+", "", text)
         text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
         text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
