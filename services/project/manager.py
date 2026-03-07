@@ -260,6 +260,11 @@ class ProjectManager:
                         if hasattr(mw, "get_preview_page_margin_settings")
                         else {}
                     ),
+                    "preview_theme": (
+                        mw.get_preview_theme_id()
+                        if hasattr(mw, "get_preview_theme_id")
+                        else "classic"
+                    ),
                     "theme": (
                         mw.get_theme_id()
                         if hasattr(mw, "get_theme_id")
@@ -536,6 +541,9 @@ class ProjectManager:
                 preview_page_margin = settings.get("preview_page_margin", {})
                 if hasattr(mw, "apply_preview_page_margin_settings"):
                     mw.apply_preview_page_margin_settings(preview_page_margin)
+                preview_theme = settings.get("preview_theme", "classic")
+                if hasattr(mw, "apply_preview_theme_id"):
+                    mw.apply_preview_theme_id(preview_theme, persist=True)
                 theme = settings.get("theme", "dark")
                 if hasattr(mw, "apply_theme_id"):
                     mw.apply_theme_id(theme, persist=True)

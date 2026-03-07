@@ -148,6 +148,7 @@ class MainWindow(QMainWindow):
     _THEME_SETTING_KEY = "ui/theme"
     _PREVIEW_MARGIN_ENABLED_KEY = "preview/page_margin_enabled"
     _PREVIEW_MARGIN_EM_KEY = "preview/page_margin_em"
+    _PREVIEW_THEME_KEY = "preview/markdown_theme"
 
     def __init__(self):
         super().__init__()
@@ -170,6 +171,7 @@ class MainWindow(QMainWindow):
         self._app_settings = QSettings("draft2craift", "draft2craift")
         self._theme_id = self._load_theme_id()
         self._theme_actions: dict[str, QAction] = {}
+        self._preview_theme_actions: dict[str, QAction] = {}
         self._model_status_success: bool | None = None
         self.apply_theme_id(self._theme_id, persist=False)
         preview_margin_enabled, preview_margin_em = (
@@ -178,6 +180,9 @@ class MainWindow(QMainWindow):
         CanvasPreviewPane.apply_global_page_margin_settings(
             enabled=preview_margin_enabled,
             em=preview_margin_em,
+        )
+        CanvasPreviewPane.apply_global_preview_theme(
+            self._load_preview_theme_id()
         )
         self._feedback_settings = self._load_feedback_settings()
         self._feedback_service = FeedbackService(self._feedback_settings)
@@ -488,6 +493,19 @@ class MainWindow(QMainWindow):
             page_margin_menu.addAction(action)
             self._page_margin_actions.append((float(em_value), action))
         self._sync_preview_page_margin_actions()
+        preview_theme_menu = view_menu.addMenu("HTML-Stil")
+        self._preview_theme_group = QActionGroup(self)
+        self._preview_theme_group.setExclusive(True)
+        for theme_id, label in CanvasPreviewPane.preview_theme_options():
+            action = QAction(str(label), self)
+            action.setCheckable(True)
+            action.triggered.connect(
+                lambda _checked=False, t=theme_id: self.apply_preview_theme_id(t)
+            )
+            self._preview_theme_group.addAction(action)
+            preview_theme_menu.addAction(action)
+            self._preview_theme_actions[str(theme_id)] = action
+        self._sync_preview_theme_actions()
         view_menu.addSeparator()
         self._action_glossary_overlay = QAction("Glossar-Overlay anzeigen", self)
         self._action_glossary_overlay.setCheckable(True)
@@ -721,6 +739,18 @@ class MainWindow(QMainWindow):
         self._app_settings.setValue(self._AUTOSAVE_SETTING_KEY, bool(enabled))
         self._app_settings.sync()
 
+    def _load_preview_theme_id(self) -> str:
+        value = self._app_settings.value(
+            self._PREVIEW_THEME_KEY,
+            CanvasPreviewPane._PREVIEW_THEME_DEFAULT,
+        )
+        return CanvasPreviewPane._normalize_preview_theme_id(value)
+
+    def _persist_preview_theme_id(self, theme_id: object):
+        normalized = CanvasPreviewPane._normalize_preview_theme_id(theme_id)
+        self._app_settings.setValue(self._PREVIEW_THEME_KEY, normalized)
+        self._app_settings.sync()
+
     def _load_preview_page_margin_settings(self) -> tuple[bool, float]:
         enabled_raw = self._app_settings.value(
             self._PREVIEW_MARGIN_ENABLED_KEY,
@@ -755,6 +785,20 @@ class MainWindow(QMainWindow):
             "enabled": bool(enabled),
             "em": float(em),
         }
+
+    def get_preview_theme_id(self) -> str:
+        return CanvasPreviewPane.global_preview_theme_id()
+
+    def _sync_preview_theme_actions(self):
+        current = CanvasPreviewPane.global_preview_theme_id()
+        for theme_id, action in list(
+            getattr(self, "_preview_theme_actions", {}).items()
+        ):
+            if not isinstance(action, QAction):
+                continue
+            old = action.blockSignals(True)
+            action.setChecked(str(theme_id) == str(current))
+            action.blockSignals(old)
 
     def _sync_preview_page_margin_actions(self):
         enabled, em = CanvasPreviewPane.global_page_margin_settings()
@@ -806,6 +850,14 @@ class MainWindow(QMainWindow):
         )
         self._persist_preview_page_margin_settings()
         self._sync_preview_page_margin_actions()
+
+    def apply_preview_theme_id(self, theme_id: object, *, persist: bool = True):
+        CanvasPreviewPane.apply_global_preview_theme(theme_id)
+        self._sync_preview_theme_actions()
+        if persist:
+            self._persist_preview_theme_id(theme_id)
+            if getattr(self, "_autosave_runtime_connected", False):
+                self._autosave_schedule_full(delay_ms=220)
 
     @staticmethod
     def _resolve_autosave_dir() -> Path:
@@ -1071,6 +1123,7 @@ class MainWindow(QMainWindow):
             "theme": self.get_theme_id(),
             "chat_tts_mode": self.chat_dock.chat_tts_mode(),
             "preview_page_margin": self.get_preview_page_margin_settings(),
+            "preview_theme": self.get_preview_theme_id(),
         }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 

@@ -615,6 +615,102 @@ class PreviewBlankLineTests(unittest.TestCase):
             editor.deleteLater()
             self.__class__._app.processEvents()
 
+    def test_accent_preview_theme_adds_visual_color_overlays(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText("# Titel\n\nDas ist **fett** und *kursiv*.")
+            pane._render()
+            self.__class__._app.processEvents()
+
+            pane.set_preview_theme_id("accent")
+            self.__class__._app.processEvents()
+            selections = pane._view.extraSelections()
+            self.assertGreater(len(selections), 0)
+            colors_by_text: dict[str, str] = {}
+            for sel in selections:
+                fg = sel.format.foreground().color()
+                if not fg.isValid():
+                    continue
+                token = sel.cursor.selectedText().replace("\u2029", "\n").strip()
+                if token in {"Titel", "fett"}:
+                    colors_by_text[token] = fg.name()
+            self.assertIn("Titel", colors_by_text)
+            self.assertIn("fett", colors_by_text)
+            self.assertNotEqual(colors_by_text["Titel"], colors_by_text["fett"])
+
+            pane.set_preview_theme_id("classic")
+            pane._render()
+            self.__class__._app.processEvents()
+            self.assertEqual(len(pane._view.extraSelections()), 0)
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_vivid_preview_theme_has_strong_color_contrast(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText("# Titel\n\nDas ist **fett** und *kursiv*.")
+            pane._render()
+            self.__class__._app.processEvents()
+
+            pane.set_preview_theme_id("vivid")
+            self.__class__._app.processEvents()
+            selections = pane._view.extraSelections()
+            self.assertGreater(len(selections), 0)
+            colors_by_text: dict[str, str] = {}
+            for sel in selections:
+                fg = sel.format.foreground().color()
+                if not fg.isValid():
+                    continue
+                token = sel.cursor.selectedText().replace("\u2029", "\n").strip()
+                if token in {"Titel", "fett", "kursiv"}:
+                    colors_by_text[token] = fg.name()
+            self.assertIn("Titel", colors_by_text)
+            self.assertIn("fett", colors_by_text)
+            self.assertIn("kursiv", colors_by_text)
+            unique = {colors_by_text["Titel"], colors_by_text["fett"], colors_by_text["kursiv"]}
+            self.assertGreaterEqual(len(unique), 3)
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_heading_levels_have_distinct_accent_colors(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText(
+                "# Überschrift 1\n\n## Überschrift 2\n\n### Überschrift 3"
+            )
+            pane._render()
+            self.__class__._app.processEvents()
+
+            pane.set_preview_theme_id("accent")
+            self.__class__._app.processEvents()
+            selections = pane._view.extraSelections()
+            self.assertGreater(len(selections), 0)
+            colors_by_text: dict[str, str] = {}
+            for sel in selections:
+                fg = sel.format.foreground().color()
+                if not fg.isValid():
+                    continue
+                token = sel.cursor.selectedText().replace("\u2029", "\n").strip()
+                if token in {"Überschrift 1", "Überschrift 2", "Überschrift 3"}:
+                    colors_by_text[token] = fg.name()
+            self.assertIn("Überschrift 1", colors_by_text)
+            self.assertIn("Überschrift 2", colors_by_text)
+            self.assertIn("Überschrift 3", colors_by_text)
+            unique = {
+                colors_by_text["Überschrift 1"],
+                colors_by_text["Überschrift 2"],
+                colors_by_text["Überschrift 3"],
+            }
+            self.assertGreaterEqual(len(unique), 3)
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
 
 if __name__ == "__main__":
     unittest.main()

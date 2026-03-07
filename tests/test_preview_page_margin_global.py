@@ -22,6 +22,22 @@ class PreviewPageMarginGlobalTests(unittest.TestCase):
                 em=previous_em,
             )
 
+    def test_apply_global_preview_theme_updates_global_default(self):
+        previous = CanvasPreviewPane.global_preview_theme_id()
+        try:
+            CanvasPreviewPane.apply_global_preview_theme("vivid")
+            self.assertEqual(CanvasPreviewPane.global_preview_theme_id(), "vivid")
+            CanvasPreviewPane.apply_global_preview_theme("unknown-theme")
+            self.assertEqual(CanvasPreviewPane.global_preview_theme_id(), "classic")
+        finally:
+            CanvasPreviewPane.apply_global_preview_theme(previous)
+
+    def test_preview_theme_options_expose_accent_theme(self):
+        options = dict(CanvasPreviewPane.preview_theme_options())
+        self.assertIn("classic", options)
+        self.assertIn("accent", options)
+        self.assertIn("vivid", options)
+
 
 if __name__ == "__main__":
     unittest.main()
