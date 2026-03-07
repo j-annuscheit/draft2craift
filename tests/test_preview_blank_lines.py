@@ -5,6 +5,7 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QApplication
 
 from features.canvas.preview import CanvasPreviewPane
@@ -133,6 +134,64 @@ class PreviewBlankLineTests(unittest.TestCase):
             self.__class__._app.processEvents()
             pane._commit_preview_edit_to_markdown(force=True)
             self.assertEqual(editor.toPlainText(), "Alpha X")
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_render_spacer_injection_is_idempotent_for_existing_sentinels(self):
+        source = f"A\n\n{CanvasPreviewPane._BLANK_LINE_SENTINEL}\n\nB"
+        injected = CanvasPreviewPane._inject_render_spacers_for_extra_blank_lines(
+            source
+        )
+        self.assertEqual(injected, source)
+
+    def test_repeated_preview_format_toggle_keeps_blank_gaps_stable(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText("A\n\n\nB\n\n\nC")
+            pane._render()
+            self.__class__._app.processEvents()
+
+            initial_gap = self._gap_between_first_two_nonempty_lines(
+                pane._view.toPlainText()
+            )
+            self.assertEqual(initial_gap, 1)
+
+            def select_b():
+                plain = pane._view.toPlainText()
+                pos = plain.find("B")
+                self.assertGreaterEqual(pos, 0)
+                cursor = pane._view.textCursor()
+                cursor.setPosition(pos)
+                cursor.movePosition(
+                    QTextCursor.MoveOperation.NextCharacter,
+                    QTextCursor.MoveMode.KeepAnchor,
+                    1,
+                )
+                pane._view.setTextCursor(cursor)
+
+            select_b()
+            pane._toggle_bold()
+            self.__class__._app.processEvents()
+
+            after_first_gap = self._gap_between_first_two_nonempty_lines(
+                pane._view.toPlainText()
+            )
+            sentinels_after_first = editor.toPlainText().count("\u200B")
+
+            select_b()
+            pane._toggle_bold()
+            self.__class__._app.processEvents()
+
+            after_second_gap = self._gap_between_first_two_nonempty_lines(
+                pane._view.toPlainText()
+            )
+            sentinels_after_second = editor.toPlainText().count("\u200B")
+
+            self.assertEqual(after_first_gap, initial_gap)
+            self.assertEqual(after_second_gap, initial_gap)
+            self.assertEqual(sentinels_after_second, sentinels_after_first)
         finally:
             pane.deleteLater()
             editor.deleteLater()

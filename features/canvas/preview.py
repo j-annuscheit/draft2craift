@@ -1739,20 +1739,29 @@ class CanvasPreviewPane(QWidget):
     def _inject_render_spacers_for_extra_blank_lines(cls, text: str) -> str:
         lines = str(text or "").split("\n")
         out: list[str] = []
-        blank_run = 0
+        blank_run: list[str] = []
         in_fence = False
         fence_char = ""
         fence_len = 0
 
         def flush_blank_run():
             nonlocal blank_run
-            if blank_run <= 0:
+            if not blank_run:
                 return
-            out.append("")
-            for _ in range(max(0, blank_run - 1)):
-                out.append(cls._BLANK_LINE_SENTINEL)
+            has_existing_spacer = any(
+                cls._BLANK_LINE_SENTINEL in str(line or "")
+                for line in blank_run
+            )
+            if has_existing_spacer:
+                # Stored preview spacers must be render-idempotent; otherwise
+                # format actions in HTML view multiply blank gaps each cycle.
+                out.extend(blank_run)
+            else:
                 out.append("")
-            blank_run = 0
+                for _ in range(max(0, len(blank_run) - 1)):
+                    out.append(cls._BLANK_LINE_SENTINEL)
+                    out.append("")
+            blank_run = []
 
         for line in lines:
             stripped = str(line or "").lstrip()
@@ -1779,7 +1788,7 @@ class CanvasPreviewPane(QWidget):
                 continue
 
             if cls._line_is_blank_like(line):
-                blank_run += 1
+                blank_run.append(line)
                 continue
 
             flush_blank_run()
