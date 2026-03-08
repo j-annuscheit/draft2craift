@@ -342,6 +342,7 @@ class TabbedEditorWidget(QWidget):
         editable_tab_titles: bool = False,
         compact_inactive_tabs: bool = False,
         active_title_max_chars: int = 10,
+        stored_title_max_chars: int = 0,
         strip_file_extensions: bool = False,
         inactive_tab_label: str = "•",
         panel_factory: Callable[[bool], QWidget] | None = None,
@@ -352,6 +353,7 @@ class TabbedEditorWidget(QWidget):
         self.editable_tab_titles = bool(editable_tab_titles)
         self.compact_inactive_tabs = bool(compact_inactive_tabs)
         self.active_title_max_chars = max(1, int(active_title_max_chars))
+        self.stored_title_max_chars = max(0, int(stored_title_max_chars))
         self.strip_file_extensions = bool(strip_file_extensions)
         self.inactive_tab_label = str(inactive_tab_label or "•")
         self._panel_factory = panel_factory
@@ -493,6 +495,12 @@ class TabbedEditorWidget(QWidget):
         text = (title or "").strip()
         if self.strip_file_extensions and text:
             text = os.path.splitext(text)[0]
+        max_chars = self.stored_title_max_chars
+        if max_chars > 0 and len(text) > max_chars:
+            if max_chars <= 3:
+                text = "." * max_chars
+            else:
+                text = text[: max_chars - 3] + "..."
         return text or self.tab_title_prefix
 
     def _set_full_tab_title(self, index: int, title: str):
