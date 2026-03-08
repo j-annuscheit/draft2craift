@@ -9,6 +9,9 @@ class _LLMStub:
     def is_model_loaded(self) -> bool:
         return True
 
+    def is_nli_model_loaded(self) -> bool:
+        return True
+
 
 class _HistoryStub:
     def __init__(self):

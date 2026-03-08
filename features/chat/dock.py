@@ -91,6 +91,9 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         self._pending_fact_facts: list[str] = []
         self._pending_fact_results: list[dict[str, str]] = []
         self._pending_fact_index = 0
+        self._factcheck_async_running = False
+        self._chunk_claim_cache = self._empty_chunk_claim_cache()
+        self._chunk_claim_precompute_running = False
         self._llm_generating = False
         self._aux_generating = False
         self._model_panel_last_size = 160
@@ -162,6 +165,12 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
     def get_context_selection(self) -> tuple[bool, bool, list[tuple[str, str]]]:
         """Return ``(use_canvas, use_rag, [(name, content), ...])``."""
         return self.context_panel.get_selection()
+
+    def export_chunk_claim_cache(self) -> dict[str, object]:
+        return super().export_chunk_claim_cache()
+
+    def import_chunk_claim_cache(self, payload: object):
+        super().import_chunk_claim_cache(payload)
 
     def update_context_bar(self, parts: list[str]):
         """Update the context indicator bar with part labels."""
@@ -428,9 +437,19 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         self.fact_btn.setStyleSheet(BTN_NEUTRAL)
         self.fact_btn.setToolTip(
             "Prüft den markierten Text (oder den aktuellen Draft-Text) "
-            "gegen ausgewählte Dokumente/RAG-Quellen."
+            "gegen ausgewählte Dokumente/RAG-Quellen.\n"
+            "Beim Start wählst du per Checkliste eine oder mehrere Methoden.\n"
+            "Hinweis: LLM (Chunk-weise) ist sehr langsam."
         )
         self.fact_btn.clicked.connect(self._send_fact_check)
+
+        self.claim_precompute_btn = QPushButton("Claims vorkalk.")
+        self.claim_precompute_btn.setStyleSheet(BTN_NEUTRAL)
+        self.claim_precompute_btn.setToolTip(
+            "Extrahiert atomare Claims pro ausgewähltem Quell-Chunk und speichert sie im Cache.\n"
+            "Kann unabhängig vom Faktencheck laufen und wird für weitere Features wiederverwendet."
+        )
+        self.claim_precompute_btn.clicked.connect(self._send_claim_precompute)
 
         self.glossary_btn = QPushButton("Glossar")
         self.glossary_btn.setStyleSheet(BTN_NEUTRAL)
@@ -439,10 +458,10 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         )
         self.glossary_btn.clicked.connect(self._send_glossary_generation)
 
-        self.mindmap_btn = QPushButton("MindMap/Graph")
+        self.mindmap_btn = QPushButton("MindMap/Graph/Chunk")
         self.mindmap_btn.setStyleSheet(BTN_NEUTRAL)
         self.mindmap_btn.setToolTip(
-            "Erstellt MindMap/Graph nur aus den aktuell ausgewählten Kontextquellen.\n"
+            "Erstellt MindMap/Graph/Chunk-MindMap nur aus den aktuell ausgewählten Kontextquellen.\n"
             "Modus wird nach Klick im Popup gewählt."
         )
         self.mindmap_btn.clicked.connect(self._send_mindmap_generation)
@@ -504,6 +523,7 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         task_row.setContentsMargins(0, 0, 0, 0)
         task_row.setSpacing(4)
         task_row.addWidget(self.fact_btn)
+        task_row.addWidget(self.claim_precompute_btn)
         task_row.addWidget(self.glossary_btn)
         task_row.addWidget(self.mindmap_btn)
         task_row.addStretch()
@@ -514,7 +534,11 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         self.model_panel.load_requested.connect(
             lambda path, params: self.llm.load_model(path, **params)
         )
+        self.model_panel.nli_load_requested.connect(
+            lambda model_id, params: self.llm.load_nli_model(model_id, **params)
+        )
         self.llm.model_loaded.connect(self.model_panel.on_model_loaded)
+        self.llm.nli_model_loaded.connect(self.model_panel.on_nli_model_loaded)
         self.llm.token_received.connect(self._on_token)
         self.llm.generation_complete.connect(self._on_complete)
         self.llm.error_occurred.connect(self._on_error)
@@ -840,7 +864,7 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
             return
         self.history.add_message("system", f"⚠ Glossar fehlgeschlagen: {info}")
 
-    def _send_mindmap_generation(self):
+    def _send_claim_precompute(self):
         if not self.llm.is_model_loaded():
             self.history.add_message(
                 "system",
@@ -853,10 +877,54 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
                 "⚠ Eine Hintergrundaufgabe läuft bereits. Bitte kurz warten.",
             )
             return
+        if bool(getattr(self, "_pending_fact_check", False)):
+            self.history.add_message(
+                "system",
+                "⚠ Faktencheck läuft bereits. Bitte zuerst abschließen.",
+            )
+            return
+        if bool(getattr(self, "_pending_chunk_claim_precompute", False)):
+            self.history.add_message(
+                "system",
+                "⚠ Chunk-Claim-Vorkalkulation läuft bereits.",
+            )
+            return
         if self.llm.worker.isRunning():
             self.history.add_message(
                 "system",
                 "⚠ Modell ist beschäftigt. Bitte nach aktueller Generation erneut versuchen.",
+            )
+            return
+
+        ctx = self._collect_shared_context()
+        if not bool(ctx.get("grounding_has_sources", False)):
+            self.history.add_message(
+                "system",
+                "⚠ Keine Quellen ausgewählt. Bitte Dokumente und/oder RAG-Kontext aktivieren.",
+            )
+            return
+        sources = self._build_source_contexts_from_context(ctx)
+        if not sources:
+            self.history.add_message(
+                "system",
+                "⚠ Keine verwertbaren Quelltexte für die Claim-Vorkalkulation gefunden.",
+            )
+            return
+
+        ok, info = self._start_chunk_claim_precompute(sources)
+        if ok:
+            if "Cache vollständig" in str(info):
+                self.history.add_message("system", f"ℹ {info}")
+            else:
+                self.history.add_message("system", f"⏳ {info}")
+            return
+        self.history.add_message("system", f"⚠ Claim-Vorkalkulation fehlgeschlagen: {info}")
+
+    def _send_mindmap_generation(self):
+        if self._aux_generating:
+            self.history.add_message(
+                "system",
+                "⚠ Eine Hintergrundaufgabe läuft bereits. Bitte kurz warten.",
             )
             return
         if self._mindmap_request_handler is None:
@@ -876,20 +944,38 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
 
         mode_choice, accepted = QInputDialog.getItem(
             self,
-            "MindMap/Graph aus Kontext",
+            "MindMap/Graph/Chunk-MindMap aus Kontext",
             "Ausgabeformat:",
-            ["MindMap", "Graph"],
+            ["Chunk-MindMap", "MindMap", "Graph"],
             0,
             False,
         )
         if not accepted:
             return
-        mode = (
-            "graph"
-            if str(mode_choice or "").strip().casefold() == "graph"
-            else "mindmap"
-        )
-        mode_label = "Graph" if mode == "graph" else "MindMap"
+        mode_choice_clean = str(mode_choice or "").strip().casefold()
+        if mode_choice_clean == "graph":
+            mode = "graph"
+            mode_label = "Graph"
+        elif "chunk" in mode_choice_clean:
+            mode = "chunkmap"
+            mode_label = "Chunk-MindMap"
+        else:
+            mode = "mindmap"
+            mode_label = "MindMap"
+
+        if mode != "chunkmap" and not self.llm.is_model_loaded():
+            self.history.add_message(
+                "system",
+                "⚠ No model loaded. Load a GGUF model first.",
+            )
+            return
+        if mode != "chunkmap" and self.llm.worker.isRunning():
+            self.history.add_message(
+                "system",
+                "⚠ Modell ist beschäftigt. Bitte nach aktueller Generation erneut versuchen.",
+            )
+            return
+
         query = self.input_box.toPlainText().strip()
         if query:
             self.history.add_message(
@@ -1033,7 +1119,7 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         self._reset_pending_canvas_rewrite()
 
     def _on_token(self, token: str):
-        if self._pending_fact_check:
+        if self._pending_fact_check or bool(getattr(self, "_pending_chunk_claim_precompute", False)):
             return
         self.history.append_token(token)
 
@@ -1045,6 +1131,9 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
             self._handle_fact_pipeline_complete(response)
             if not self._pending_fact_check:
                 self.history.activate_feedback("fact_check")
+            return
+        if bool(getattr(self, "_pending_chunk_claim_precompute", False)):
+            self._handle_chunk_claim_precompute_complete(response)
             return
         self._last_assistant_msg = str(response or "").strip()
         if contains_structured_graph(self._last_assistant_msg):
@@ -1249,6 +1338,7 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
     def _on_error(self, msg: str):
         self._reset_pending_canvas_rewrite()
         self._reset_fact_pipeline_state()
+        self._reset_chunk_claim_precompute_state()
         if self._history_stream_open:
             self.history.finish_streaming()
             self._history_stream_open = False
@@ -1260,11 +1350,14 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
 
     def _apply_busy_state(self):
         llm_active = bool(self._llm_generating)
-        busy_any = bool(self._llm_generating or self._aux_generating)
+        fact_async = bool(getattr(self, "_factcheck_async_running", False))
+        claim_precompute = bool(getattr(self, "_chunk_claim_precompute_running", False))
+        busy_any = bool(self._llm_generating or self._aux_generating or fact_async or claim_precompute)
         self.send_btn.setVisible(not llm_active)
         self.stop_btn.setVisible(llm_active)
         self.send_btn.setEnabled(not busy_any)
         self.fact_btn.setEnabled(not busy_any)
+        self.claim_precompute_btn.setEnabled(not busy_any)
         self.glossary_btn.setEnabled(not busy_any)
         self.mindmap_btn.setEnabled(not busy_any)
         self.input_box.setReadOnly(busy_any)

@@ -194,6 +194,19 @@ class ProjectManager:
             with open(base / "chat" / "history.json", "w", encoding="utf-8") as fh:
                 json.dump(history, fh, ensure_ascii=False, indent=2)
 
+            # ── Chunk-Claim cache (persistent preprocessing) ───────────────
+            claim_cache: dict[str, object] = {}
+            exporter = getattr(getattr(mw, "chat_dock", None), "export_chunk_claim_cache", None)
+            if callable(exporter):
+                try:
+                    exported = exporter()
+                    if isinstance(exported, dict):
+                        claim_cache = exported
+                except Exception:
+                    claim_cache = {}
+            with open(base / "chat" / "chunk_claim_cache.json", "w", encoding="utf-8") as fh:
+                json.dump(claim_cache, fh, ensure_ascii=False, indent=2)
+
             # ── Log entries ───────────────────────────────────────────────────
             log_entries = [
                 {"ts": ts, "level": level, "category": cat, "message": msg}
@@ -231,6 +244,7 @@ class ProjectManager:
             model_panel = mw.chat_dock.model_panel
             llm_data = {
                 "model_path":   model_panel.model_path.text(),
+                "nli_model_id": model_panel.nli_model_id.text(),
                 "ctx_size":     model_panel.ctx_spin.value(),
                 "gpu_layers":   model_panel.gpu_spin.value(),
                 "threads":      model_panel.threads_spin.value(),
@@ -490,6 +504,22 @@ class ProjectManager:
                 except Exception:
                     pass
 
+            # 6b. Chunk-Claim cache ─────────────────────────────────────────
+            claim_cache_path = base / "chat" / "chunk_claim_cache.json"
+            importer = getattr(getattr(mw, "chat_dock", None), "import_chunk_claim_cache", None)
+            if callable(importer):
+                claim_cache_payload: object = {}
+                if claim_cache_path.exists():
+                    try:
+                        with open(claim_cache_path, "r", encoding="utf-8") as fh:
+                            claim_cache_payload = json.load(fh)
+                    except Exception:
+                        claim_cache_payload = {}
+                try:
+                    importer(claim_cache_payload)
+                except Exception:
+                    pass
+
             # 7. Log entries ───────────────────────────────────────────────────
             log_path = base / "logs" / "entries.json"
             if log_path.exists():
@@ -553,6 +583,11 @@ class ProjectManager:
             model_panel = mw.chat_dock.model_panel
             if "model_path" in llm_data:
                 model_panel.model_path.setText(llm_data["model_path"])
+            if "nli_model_id" in llm_data:
+                model_panel.nli_model_id.setText(llm_data["nli_model_id"])
+            elif "nli_model_path" in llm_data:
+                # Backward compatibility with older projects (GGUF-era field name).
+                model_panel.nli_model_id.setText(llm_data["nli_model_path"])
             if "ctx_size" in llm_data:
                 model_panel.ctx_spin.setValue(llm_data["ctx_size"])
             if "gpu_layers" in llm_data:

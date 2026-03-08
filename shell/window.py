@@ -109,11 +109,20 @@ class _LLMSideTaskWorker(QObject):
                 query = str(self._payload.get("query", "") or "")
                 mode = str(self._payload.get("mode", "mindmap") or "mindmap")
                 max_nodes = int(self._payload.get("max_nodes", 32) or 32)
+                chunking_strategy = str(
+                    self._payload.get("chunking_strategy", "sliding_window")
+                    or "sliding_window"
+                )
+                chunk_size = int(self._payload.get("chunk_size", 900) or 900)
+                chunk_overlap = int(self._payload.get("chunk_overlap", 160) or 160)
                 markdown, meta = self._llm_manager.generate_mindmap_sync(
                     context_text=context_text,
                     query=query,
                     mode=mode,
                     max_nodes=max_nodes,
+                    chunking_strategy=chunking_strategy,
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
                 )
                 self.finished.emit(
                     {
@@ -1993,7 +2002,9 @@ class MainWindow(QMainWindow):
         else:
             title = "Faktencheck"
         try:
-            self.canvas.tabs.add_tab(title=title, content=content, read_only=False)
+            # Keep Faktencheck output stable in HTML preview:
+            # preview->markdown roundtrips can rewrite long markdown tables.
+            self.canvas.tabs.add_tab(title=title, content=content, read_only=True)
             self.statusBar().showMessage("Faktencheck im Draft-Workspace geöffnet.", 4000)
             return True, title
         except Exception as exc:
@@ -2272,12 +2283,14 @@ class MainWindow(QMainWindow):
         query = str(query_raw or "").strip()
         forced_mode = str(mode_hint or "").strip().casefold()
         mode = "mindmap"
-        if forced_mode in {"mindmap", "graph"}:
-            mode = forced_mode
+        if forced_mode in {"mindmap", "graph", "chunkmap", "chunk"}:
+            mode = "chunkmap" if forced_mode in {"chunkmap", "chunk"} else forced_mode
             low = query.casefold()
             if low.startswith("graph:") or low.startswith("wissensgraph:"):
                 query = query.split(":", 1)[1].strip()
             elif low.startswith("mindmap:") or low.startswith("map:"):
+                query = query.split(":", 1)[1].strip()
+            elif low.startswith("chunkmap:") or low.startswith("chunk:"):
                 query = query.split(":", 1)[1].strip()
         else:
             low = query.casefold()
@@ -2290,12 +2303,19 @@ class MainWindow(QMainWindow):
             elif low.startswith("mindmap:") or low.startswith("map:"):
                 mode = "mindmap"
                 query = query.split(":", 1)[1].strip()
+            elif low.startswith("chunkmap:") or low.startswith("chunk:"):
+                mode = "chunkmap"
+                query = query.split(":", 1)[1].strip()
             elif "wissensgraph" in low:
                 mode = "graph"
         if not query:
             if mode == "graph":
                 query = (
                     "Welche zentralen Entitäten und Beziehungen sind im Kontext belegt?"
+                )
+            elif mode == "chunkmap":
+                query = (
+                    "Wie ist der Kontext nach Überschriften und Chunks strukturiert?"
                 )
             else:
                 query = (
@@ -2487,7 +2507,14 @@ class MainWindow(QMainWindow):
                 f"Grund: {reason or 'unbekannt'}",
             )
 
-        label = "Graph" if str(meta.get("kind", mode)) == "graph" else "MindMap"
+        kind = str(meta.get("kind", mode) or mode).strip().casefold()
+        variant = str(meta.get("variant", mode) or mode).strip().casefold()
+        if variant == "chunkmap" or mode.strip().casefold() == "chunkmap":
+            label = "Chunk-MindMap"
+        elif kind == "graph":
+            label = "Graph"
+        else:
+            label = "MindMap"
         title = f"{label} {datetime.now().strftime('%H:%M')}"
         self.canvas.tabs.add_tab(title=title, content=markdown, read_only=False)
         self._status_feedback_payload = {
@@ -2577,9 +2604,18 @@ class MainWindow(QMainWindow):
         mode_hint: str = "auto",
         done_cb=None,
     ) -> tuple[bool, str]:
-        if not self.llm_manager.is_model_loaded():
+        mode, query = self._resolve_mindmap_mode_and_query(
+            query_raw,
+            mode_hint=mode_hint,
+        )
+
+        if mode != "chunkmap" and not self.llm_manager.is_model_loaded():
             return False, "Kein Modell geladen. Bitte zuerst ein GGUF-Modell laden."
-        if self.llm_manager.worker.isRunning() or self._llm_side_task_active():
+        if self._llm_side_task_active():
+            return (
+                False, "Es läuft bereits eine Hintergrundaufgabe."
+            )
+        if mode != "chunkmap" and self.llm_manager.worker.isRunning():
             return (
                 False,
                 "Das Modell ist gerade beschäftigt. Bitte erneut versuchen, "
@@ -2619,10 +2655,7 @@ class MainWindow(QMainWindow):
                 f"selected_docs={selected_doc_names[:6]}; file_lens={file_lens})",
             )
 
-        mode, query = self._resolve_mindmap_mode_and_query(
-            query_raw,
-            mode_hint=mode_hint,
-        )
+        rag_cfg = self.rag_system.config
 
         return self._start_llm_side_task(
             task="mindmap",
@@ -2631,8 +2664,14 @@ class MainWindow(QMainWindow):
                 "query": query,
                 "mode": mode,
                 "max_nodes": 32,
+                "chunking_strategy": str(
+                    getattr(rag_cfg, "chunking_strategy", "sliding_window")
+                    or "sliding_window"
+                ),
+                "chunk_size": int(getattr(rag_cfg, "chunk_size", 900) or 900),
+                "chunk_overlap": int(getattr(rag_cfg, "chunk_overlap", 160) or 160),
             },
-            status_message="Generiere MindMap/Graph aus Kontext…",
+            status_message="Generiere MindMap/Graph/Chunk-MindMap aus Kontext…",
             done_cb=done_cb,
         )
 
@@ -2653,18 +2692,28 @@ class MainWindow(QMainWindow):
     def _generate_mindmap_from_context(self):
         mode_label, ok = QInputDialog.getItem(
             self,
-            "MindMap/Graph generieren",
+            "MindMap/Graph/Chunk-MindMap generieren",
             "Ausgabeformat:",
-            ["MindMap", "Graph"],
+            ["Chunk-MindMap", "MindMap", "Graph"],
             0,
             False,
         )
         if not ok:
             return
-        mode_hint = "graph" if str(mode_label or "").strip().casefold() == "graph" else "mindmap"
+        normalized_mode_label = str(mode_label or "").strip().casefold()
+        if normalized_mode_label == "graph":
+            mode_hint = "graph"
+        elif "chunk" in normalized_mode_label:
+            mode_hint = "chunkmap"
+        else:
+            mode_hint = "mindmap"
         if mode_hint == "graph":
             default_prompt = (
                 "Welche zentralen Entitäten und Beziehungen sind im Kontext belegt?"
+            )
+        elif mode_hint == "chunkmap":
+            default_prompt = (
+                "Wie ist der Kontext nach Überschriften und Chunks strukturiert?"
             )
         else:
             default_prompt = (
@@ -2672,7 +2721,7 @@ class MainWindow(QMainWindow):
             )
         query_raw, ok = QInputDialog.getMultiLineText(
             self,
-            "MindMap/Graph generieren",
+            "MindMap/Graph/Chunk-MindMap generieren",
             "Fragestellung (optional):",
             default_prompt,
         )
@@ -3262,18 +3311,18 @@ class MainWindow(QMainWindow):
                 "kind": "Baustein",
                 "desc": "Wird in Rewrite-Regeln eingeblendet, wenn Quellenpflicht aktiv ist.",
             },
-            "fact_extract_system": {
+            "claim_extract_system": {
                 "group": "Faktencheck",
-                "title": "Extract: System",
+                "title": "Claim Extract: System",
                 "kind": "System",
-                "desc": "Rolle für die Fakt-Extraktion aus Zieltext.",
+                "desc": "Rolle für atomare Claim-Extraktion aus EINEM Eingabetext.",
             },
-            "fact_extract_user": {
+            "claim_extract_user": {
                 "group": "Faktencheck",
-                "title": "Extract: User",
+                "title": "Claim Extract: User",
                 "kind": "User",
-                "desc": "Konkreter Auftrag für Fakt-Extraktion.",
-                "placeholders": "{fact_limit}",
+                "desc": "Konkreter Auftrag für atomare Claim-Extraktion.",
+                "placeholders": "{input_label}, {fact_limit}",
             },
             "fact_verify_system": {
                 "group": "Faktencheck",
@@ -3287,6 +3336,19 @@ class MainWindow(QMainWindow):
                 "kind": "User",
                 "desc": "Konkreter Auftrag für eine einzelne Faktprüfung.",
                 "placeholders": "{allowed_sources}, {fact}",
+            },
+            "nli_verify_system": {
+                "group": "Faktencheck",
+                "title": "NLI Verify: System",
+                "kind": "System",
+                "desc": "Workflow-Beschreibung für Transformers-NLI (Claim-vs-Chunk).",
+            },
+            "nli_verify_user": {
+                "group": "Faktencheck",
+                "title": "NLI Verify: User",
+                "kind": "User",
+                "desc": "Input-Template je Chunk/Fakt-Paar (premise/hypothesis).",
+                "placeholders": "{premise}, {hypothesis}",
             },
             "hyde_tfidf_system": {
                 "group": "RAG",
@@ -3502,13 +3564,13 @@ class MainWindow(QMainWindow):
                     "<|assistant|>",
                 ])
 
-            if key.startswith("fact_extract_"):
+            if key.startswith("claim_extract_"):
                 return "\n".join([
-                    "Beispiel-Flow (Faktencheck: Extraktion):",
+                    "Beispiel-Flow (Faktencheck: Claim-Extraktion):",
                     "<|system|>",
-                    "{fact_extract_system}",
+                    "{claim_extract_system}",
                     "<|user|>",
-                    "{fact_extract_user}   # z. B. mit {fact_limit}",
+                    "{claim_extract_user}   # mit {input_label}, {fact_limit}",
                     "<|assistant|>",
                 ])
             if key.startswith("fact_verify_"):
@@ -3520,13 +3582,24 @@ class MainWindow(QMainWindow):
                     "{fact_verify_user}    # mit {allowed_sources}, {fact}",
                     "<|assistant|>",
                 ])
+            if key.startswith("nli_verify_"):
+                return "\n".join([
+                    "Beispiel-Flow (Faktencheck: NLI via Transformers):",
+                    "Wird pro Fakt über alle Quell-Chunks iteriert.",
+                    "[backend=transformers-cross-encoder]",
+                    "<|workflow|>",
+                    "{nli_verify_system}",
+                    "<|input|>",
+                    "{nli_verify_user}     # mit {premise}, {hypothesis}",
+                ])
             if key == "fact_check_system":
                 return "\n".join([
                     "Legacy-Hinweis:",
                     "Dieser Prompt ist aktuell nicht im aktiven Ablauf verdrahtet.",
                     "Aktiv genutzt werden stattdessen:",
-                    "- fact_extract_system + fact_extract_user",
+                    "- claim_extract_system + claim_extract_user",
                     "- fact_verify_system + fact_verify_user",
+                    "- nli_verify_system + nli_verify_user (wenn NLI aktiv)",
                 ])
 
             if key.startswith("hyde_tfidf_"):

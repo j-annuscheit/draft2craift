@@ -296,6 +296,43 @@ class PreviewBlankLineTests(unittest.TestCase):
         )
         self.assertEqual(restored, "A\n**B**\nC")
 
+    def test_restore_soft_wrapped_plain_lines_from_reference(self):
+        wrapped = "Alpha\nBeta\nGamma"
+        reference = "Alpha Beta Gamma"
+        restored = CanvasPreviewPane._restore_soft_wrapped_plain_lines_from_reference(
+            wrapped,
+            reference,
+        )
+        self.assertEqual(restored, reference)
+
+    def test_restore_soft_wrapped_plain_lines_keeps_structured_blocks(self):
+        wrapped = "- Alpha\n- Beta\n- Gamma"
+        reference = "- Alpha\n- Beta\n- Gamma"
+        restored = CanvasPreviewPane._restore_soft_wrapped_plain_lines_from_reference(
+            wrapped,
+            reference,
+        )
+        self.assertEqual(restored, wrapped)
+
+    def test_preview_commit_does_not_split_single_long_plain_line(self):
+        pane, editor = self._build_pane()
+        try:
+            original = ("Diesisteinelangezeileohneumbruecheundmitvielenworten " * 12).strip()
+            editor.setPlainText(original)
+            pane._render()
+            self.__class__._app.processEvents()
+
+            pane._preview_edit_active = True
+            pane._commit_preview_edit_to_markdown(force=True)
+            self.__class__._app.processEvents()
+
+            self.assertEqual(editor.toPlainText(), original)
+            self.assertEqual(editor.toPlainText().count("\n"), 0)
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
     def test_bold_toggle_trims_selection_edge_spaces(self):
         pane, editor = self._build_pane()
         try:

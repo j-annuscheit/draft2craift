@@ -40,6 +40,7 @@ class ModelLoadPanel(QWidget):
     """Panel for loading GGUF model and editing generation parameters."""
 
     load_requested = Signal(str, dict)
+    nli_load_requested = Signal(str, dict)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -115,6 +116,32 @@ class ModelLoadPanel(QWidget):
         self.status_lbl = QLabel("No model loaded")
         self.status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status_lbl)
+
+        nli_lbl = QLabel("NLI Model (Fact-Check)")
+        nli_lbl.setStyleSheet(
+            "color: palette(highlight); font-size: 10px; font-weight: bold;"
+        )
+        layout.addWidget(nli_lbl)
+        nli_hint = QLabel(
+            "Optional: separates Transformers-NLI-Modell fuer "
+            "Claim-vs-Chunk-Faktencheck."
+        )
+        nli_hint.setStyleSheet("color: palette(placeholder-text); font-size: 9px;")
+        layout.addWidget(nli_hint)
+
+        self.nli_model_id = QLineEdit()
+        self.nli_model_id.setPlaceholderText("HuggingFace model id (e.g. cross-encoder/nli-deberta-v3-xsmall)")
+        self.nli_model_id.setText("cross-encoder/nli-deberta-v3-xsmall")
+        layout.addWidget(self.nli_model_id)
+
+        self.nli_load_btn = QPushButton("Load NLI")
+        self.nli_load_btn.setStyleSheet(BTN_NEUTRAL)
+        self.nli_load_btn.clicked.connect(self._request_nli_load)
+        layout.addWidget(self.nli_load_btn)
+
+        self.nli_status_lbl = QLabel("No NLI model loaded")
+        self.nli_status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.nli_status_lbl)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
@@ -202,6 +229,21 @@ class ModelLoadPanel(QWidget):
         )
         self.load_requested.emit(path, params)
 
+    def _request_nli_load(self):
+        model_id = self.nli_model_id.text().strip()
+        if not model_id:
+            return
+        params = {
+            "n_threads": self.threads_spin.value(),
+        }
+        self.nli_load_btn.setEnabled(False)
+        self.nli_status_lbl.setText("⏳ Loading NLI…")
+        color = QColor(self.palette().color(QPalette.ColorRole.Highlight))
+        self.nli_status_lbl.setStyleSheet(
+            f"color: {color.name(QColor.NameFormat.HexRgb)}; font-size: 10px;"
+        )
+        self.nli_load_requested.emit(model_id, params)
+
     def on_model_loaded(self, success: bool, message: str):
         self.load_btn.setEnabled(True)
         self.status_lbl.setText(message)
@@ -212,6 +254,19 @@ class ModelLoadPanel(QWidget):
         )
         color = QColor(self.palette().color(role))
         self.status_lbl.setStyleSheet(
+            f"color: {color.name(QColor.NameFormat.HexRgb)}; font-size: 10px;"
+        )
+
+    def on_nli_model_loaded(self, success: bool, message: str):
+        self.nli_load_btn.setEnabled(True)
+        self.nli_status_lbl.setText(message)
+        role = (
+            QPalette.ColorRole.Link
+            if success
+            else QPalette.ColorRole.BrightText
+        )
+        color = QColor(self.palette().color(role))
+        self.nli_status_lbl.setStyleSheet(
             f"color: {color.name(QColor.NameFormat.HexRgb)}; font-size: 10px;"
         )
 

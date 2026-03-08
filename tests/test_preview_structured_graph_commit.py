@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import unittest
 
@@ -16,6 +17,28 @@ _GRAPH_MARKDOWN = """```mindmap
 Root
   Child
 ```"""
+_LONG_CHUNK_QUOTE = "ChunkStart " + ("x" * 180) + " ChunkEndMarker"
+_GRAPH_MARKDOWN_LONG_QUOTE = "```mindmap\n" + json.dumps(
+    {
+        "type": "mindmap",
+        "title": "Long Quote",
+        "nodes": [
+            {
+                "id": "root",
+                "label": "Root",
+                "children": [
+                    {
+                        "id": "chunk_1",
+                        "label": "Chunk 01",
+                        "quote": _LONG_CHUNK_QUOTE,
+                    }
+                ],
+            }
+        ],
+    },
+    ensure_ascii=False,
+    indent=2,
+) + "\n```"
 
 
 class PreviewStructuredGraphCommitTests(unittest.TestCase):
@@ -67,6 +90,22 @@ class PreviewStructuredGraphCommitTests(unittest.TestCase):
             self.assertTrue(pane._structured_view_active)
             self.assertFalse(pane._preview_to_markdown_timer.isActive())
             self.assertFalse(pane._preview_edit_active)
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_graph_node_tooltip_keeps_full_quote_text(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText(_GRAPH_MARKDOWN_LONG_QUOTE)
+            pane._render()
+            self.assertTrue(pane._structured_view_active)
+            scene = pane._graph_scene
+            self.assertIsNotNone(scene)
+            assert scene is not None
+            tips = [item.toolTip() for item in scene.items() if item.toolTip()]
+            self.assertTrue(any("ChunkEndMarker" in tip for tip in tips))
         finally:
             pane.deleteLater()
             editor.deleteLater()

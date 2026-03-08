@@ -1,13 +1,16 @@
 """Fact-check parsing, normalization, and validation helpers."""
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
 
 
 def normalize_match_text(text: str) -> str:
-    value = (text or "").casefold()
+    value = html.unescape(str(text or ""))
+    value = re.sub(r"(?is)<\s*/?\s*br\s*/?\s*>", " ", value)
+    value = value.casefold()
     value = value.replace("\u00ad", "")
     value = re.sub(r"\s+", " ", value).strip()
     return value
@@ -21,7 +24,10 @@ def normalize_match_text_plain(text: str) -> str:
 
 
 def clean_factcheck_cell(text: str) -> str:
-    value = (text or "").strip()
+    value = html.unescape(str(text or ""))
+    value = re.sub(r"(?is)<\s*/?\s*br\s*/?\s*>", " ", value)
+    value = re.sub(r"(?is)<[^>]+>", " ", value)
+    value = value.strip()
     value = re.sub(r"^`+|`+$", "", value)
     value = value.strip(" \"'„“‚‘’”«»")
     value = re.sub(r"\s+", " ", value).strip()
@@ -46,11 +52,36 @@ def token_overlap(a: str, b: str) -> float:
     return len(left & right) / max(1, min(len(left), len(right)))
 
 
+def evidence_in_source_texts(
+    evidence: str,
+    source_texts: list[str],
+) -> tuple[bool, float]:
+    snippet = clean_factcheck_cell(evidence)
+    if not snippet or not source_texts:
+        return False, 0.0
+
+    best_score = 0.0
+    for src in source_texts:
+        source_text = str(src or "")
+        if not source_text:
+            continue
+        if contains_text(source_text, snippet):
+            return True, 1.0
+        score = token_overlap(source_text, snippet)
+        if score > best_score:
+            best_score = score
+
+    fuzzy_threshold = 0.62 if len(snippet) >= 80 else 0.70
+    return best_score >= fuzzy_threshold, best_score
+
+
 def split_sentences_for_facts(text: str) -> list[str]:
     if not text:
         return []
 
-    lines = (text or "").replace("\r", "\n").splitlines()
+    prepared = html.unescape(str(text or ""))
+    prepared = re.sub(r"(?is)<\s*/?\s*br\s*/?\s*>", "\n", prepared)
+    lines = prepared.replace("\r", "\n").splitlines()
     blocks: list[str] = []
     current: list[str] = []
 
@@ -85,6 +116,40 @@ def split_sentences_for_facts(text: str) -> list[str]:
             sentence = part.strip(" \t-")
             if sentence:
                 out.append(sentence)
+    return out
+
+
+def _line_facts_for_target_text(text: str) -> list[str]:
+    """Build robust, order-preserving line-based fact candidates."""
+    out: list[str] = []
+    if not text:
+        return out
+
+    prepared = html.unescape(str(text or ""))
+    prepared = re.sub(r"(?is)<\s*/?\s*br\s*/?\s*>", "\n", prepared)
+    for raw_line in prepared.replace("\r", "\n").splitlines():
+        line = re.sub(r"\s+", " ", raw_line).strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            continue
+
+        # Ignore markdown table rows entirely to avoid layout artifacts as "facts".
+        if line.startswith("|") and line.endswith("|"):
+            continue
+
+        is_bullet = bool(re.match(r"^(?:[-*•]+|\d+[\.\)])\s+\S", line))
+        line = re.sub(r"^(?:[-*•]+|\d+[\.\)])\s*", "", line).strip()
+        if not line:
+            continue
+
+        if len(line) < 2:
+            continue
+        if not is_bullet and not re.search(r"[.!?…]\s*$", line):
+            # Normal line fallback only if it already looks like a complete sentence.
+            continue
+        out.append(line)
+
     return out
 
 
@@ -186,80 +251,142 @@ def heuristic_fact_candidates_from_text(text: str) -> list[str]:
     return out
 
 
-def parse_fact_candidates(response: str, target_text: str) -> list[str]:
-    out: list[str] = []
-    raw = (response or "").strip()
-    max_facts = suggest_fact_limit(target_text)
+def _extract_json_payload(raw: str) -> object | None:
+    text = html.unescape(str(raw or "")).strip()
+    if not text:
+        return None
 
-    parsed: object = None
+    # Prefer fenced JSON block if present.
+    fenced = re.search(r"```(?:json)?\s*([\s\S]*?)```", text, flags=re.IGNORECASE)
+    candidate = fenced.group(1).strip() if fenced else text
+
     try:
-        parsed = json.loads(raw)
+        return json.loads(candidate)
     except Exception:
-        match = re.search(r"\[[\s\S]*\]", raw)
-        if match:
-            try:
-                parsed = json.loads(match.group(0))
-            except Exception:
-                parsed = None
+        pass
 
-    candidates: list[tuple[str, str]] = []
-    if isinstance(parsed, list):
-        for item in parsed:
+    # Try to recover the first JSON array/object from mixed text.
+    for pattern in (r"\[[\s\S]*\]", r"\{[\s\S]*\}"):
+        match = re.search(pattern, candidate)
+        if not match:
+            continue
+        chunk = match.group(0)
+        try:
+            return json.loads(chunk)
+        except Exception:
+            continue
+    return None
+
+
+def _collect_llm_fact_strings(data: object) -> list[str]:
+    out: list[str] = []
+    if isinstance(data, list):
+        for item in data:
             if isinstance(item, str):
-                candidates.append(("llm", item))
+                out.append(item)
             elif isinstance(item, dict):
-                for key in ("fact", "claim", "text"):
+                for key in ("fact", "claim", "text", "sentence"):
                     value = item.get(key)
                     if isinstance(value, str) and value.strip():
-                        candidates.append(("llm", value))
+                        out.append(value)
                         break
-    elif isinstance(parsed, dict):
-        for key in ("facts", "claims", "items", "data"):
-            value = parsed.get(key)
-            if not isinstance(value, list):
-                continue
-            for item in value:
-                if isinstance(item, str):
-                    candidates.append(("llm", item))
-                elif isinstance(item, dict):
-                    for inner_key in ("fact", "claim", "text"):
-                        inner_val = item.get(inner_key)
-                        if isinstance(inner_val, str) and inner_val.strip():
-                            candidates.append(("llm", inner_val))
-                            break
-            if candidates:
-                break
+        return out
 
-    if not candidates:
-        for line in raw.splitlines():
-            stripped = line.strip()
-            if not stripped:
-                continue
-            stripped = re.sub(r"^\s*(?:[-*•]+|\d+[\.\)])\s*", "", stripped)
-            if stripped:
-                candidates.append(("llm_fallback", stripped))
+    if isinstance(data, dict):
+        for key in ("facts", "claims", "items", "data", "sentences"):
+            value = data.get(key)
+            if isinstance(value, list):
+                out.extend(_collect_llm_fact_strings(value))
+                if out:
+                    return out
+    return out
 
-    ordered_candidates: list[tuple[str, str]] = [
-        ("heuristic", candidate)
-        for candidate in heuristic_fact_candidates_from_text(target_text)
-    ] + candidates
 
+def _looks_like_fact_fragment(text: str) -> bool:
+    value = clean_factcheck_cell(text)
+    if not value:
+        return True
+    low = value.casefold()
+    if re.fullmatch(r"[-–—_=~*#.`:;/\\|+\s]+", value):
+        return True
+    if re.fullmatch(r"(?:col|column)\s*\d+", low):
+        return True
+    if re.fullmatch(r"item\s*\d+", low):
+        return True
+    if low in {"beispiele:", "example:", "happy writing.", "view.", "context."}:
+        return True
+
+    alpha_words = re.findall(r"[^\W\d_]{2,}", value, flags=re.UNICODE)
+    if len(alpha_words) <= 1 and len(value) <= 24:
+        return True
+    if len(value) < 10 and len(alpha_words) < 2:
+        return True
+    if value.endswith(":"):
+        return True
+    return False
+
+
+def _normalize_fact_list(candidates: list[str]) -> list[str]:
+    out: list[str] = []
     seen: set[str] = set()
-    for _origin, candidate in ordered_candidates:
+    for candidate in candidates:
         clean = clean_factcheck_cell(candidate)
-        if len(clean) < 6:
+        if _looks_like_fact_fragment(clean):
             continue
         key = normalize_match_text_plain(clean)
-        if len(key) < 5 or key in seen:
-            continue
-        if not is_fact_from_target_text(clean, target_text):
+        if len(key) < 4 or key in seen:
             continue
         seen.add(key)
+        out.append(clean)
+    return out
+
+
+def parse_fact_candidates(response: str, target_text: str) -> list[str]:
+    parsed = _extract_json_payload(response)
+    llm_candidates = _normalize_fact_list(_collect_llm_fact_strings(parsed))
+    if llm_candidates:
+        return llm_candidates
+
+    sentence_facts = [
+        clean_factcheck_cell(sentence)
+        for sentence in split_sentences_for_facts(target_text)
+        if len(clean_factcheck_cell(sentence)) >= 2
+    ]
+    line_facts = [
+        clean_factcheck_cell(line)
+        for line in _line_facts_for_target_text(target_text)
+        if len(clean_factcheck_cell(line)) >= 2
+    ]
+
+    # Fakt = Satz. Satz-Splitting ist primär.
+    # Line-Fallback ergänzt nur zusätzliche bullet-/vollständige Zeilen,
+    # die im Satz-Splitting nicht bereits enthalten sind.
+    if sentence_facts:
+        merged = list(sentence_facts)
+        for candidate in line_facts:
+            is_duplicate = False
+            for existing in merged:
+                if contains_text(existing, candidate) or contains_text(candidate, existing):
+                    is_duplicate = True
+                    break
+            if not is_duplicate:
+                merged.append(candidate)
+        return _normalize_fact_list(merged)
+    if line_facts:
+        return _normalize_fact_list(line_facts)
+
+    # Fallback für sehr unstrukturierte Texte.
+    out: list[str] = []
+    max_facts = suggest_fact_limit(target_text)
+    for candidate in heuristic_fact_candidates_from_text(target_text):
+        clean = clean_factcheck_cell(candidate)
+        if len(clean) < 2:
+            continue
         out.append(clean)
         if len(out) >= max_facts:
             break
 
-    return out
+    return _normalize_fact_list(out)
 
 
 def norm_source_name(name: str) -> str:
@@ -279,6 +406,153 @@ def source_text_for_label(label: str, sources: list[tuple[str, str]]) -> str:
         if got == want or got in want or want in got:
             return str(text or "")
     return ""
+
+
+def _fact_token_set(text: str) -> set[str]:
+    return {
+        tok
+        for tok in normalize_match_text_plain(text).split()
+        if len(tok) >= 4
+    }
+
+
+def chunk_source_text(
+    text: str,
+    *,
+    chunk_size: int = 900,
+    chunk_overlap: int = 160,
+) -> list[str]:
+    src = str(text or "").replace("\r\n", "\n").strip()
+    if not src:
+        return []
+
+    blocks = [b.strip() for b in re.split(r"\n{2,}", src) if b.strip()]
+    if not blocks:
+        blocks = [src]
+
+    chunks: list[str] = []
+    i = 0
+    while i < len(blocks):
+        window: list[str] = []
+        total = 0
+        j = i
+        while j < len(blocks):
+            block = blocks[j]
+            block_len = len(block)
+            if window and total + block_len + 2 > chunk_size:
+                break
+            if block_len > chunk_size and not window:
+                start = 0
+                while start < block_len:
+                    end = min(block_len, start + chunk_size)
+                    piece = block[start:end].strip()
+                    if piece:
+                        chunks.append(piece)
+                    if end >= block_len:
+                        break
+                    start = max(start + 1, end - max(0, chunk_overlap))
+                j += 1
+                total = 0
+                window = []
+                break
+            window.append(block)
+            total += block_len + 2
+            j += 1
+
+        if window:
+            chunks.append("\n\n".join(window))
+            if chunk_overlap > 0 and len(window) > 1:
+                overlap_chars = 0
+                keep = 0
+                for block in reversed(window):
+                    overlap_chars += len(block) + 2
+                    keep += 1
+                    if overlap_chars >= chunk_overlap:
+                        break
+                i += max(1, len(window) - keep)
+            else:
+                i = j
+        elif j <= i:
+            i += 1
+        else:
+            i = j
+
+    return chunks
+
+
+def build_source_chunks(
+    sources: list[tuple[str, str]],
+    *,
+    chunk_size: int = 900,
+    chunk_overlap: int = 160,
+) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for name, text in sources:
+        clean_name = str(name or "").strip() or "Quelle"
+        for chunk in chunk_source_text(
+            str(text or ""),
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+        ):
+            clean_chunk = str(chunk or "").strip()
+            if clean_chunk:
+                out.append((clean_name, clean_chunk))
+    return out
+
+
+def select_evidence_snippet(fact: str, chunk: str, *, max_chars: int = 220) -> str:
+    text = str(chunk or "").strip()
+    if not text:
+        return ""
+    if len(text) <= max_chars:
+        return text
+
+    fact_tokens = _fact_token_set(fact)
+    best = ""
+    best_score = 0.0
+    candidates = [
+        part.strip()
+        for part in re.split(r"(?<=[.!?])\s+|\n+", text)
+        if part.strip()
+    ]
+    for cand in candidates:
+        cand_tokens = _fact_token_set(cand)
+        if not cand_tokens or not fact_tokens:
+            continue
+        score = len(cand_tokens & fact_tokens) / max(1, len(fact_tokens))
+        if score > best_score:
+            best = cand
+            best_score = score
+
+    if best and best_score >= 0.20:
+        snippet = best
+    else:
+        low_text = text.casefold()
+        pos = -1
+        for tok in sorted(fact_tokens, key=len, reverse=True):
+            pos = low_text.find(tok)
+            if pos >= 0:
+                break
+        if pos < 0:
+            snippet = text[:max_chars]
+        else:
+            half = max_chars // 2
+            start = max(0, pos - half)
+            end = min(len(text), pos + half)
+            if start == 0:
+                end = min(len(text), max_chars)
+            if end >= len(text):
+                start = max(0, len(text) - max_chars)
+            snippet = text[start:end]
+            if start > 0:
+                snippet = "…" + snippet
+            if end < len(text):
+                snippet = snippet + "…"
+
+    snippet = re.sub(r"\s+", " ", snippet).strip()
+    if len(snippet) > max_chars:
+        snippet = snippet[:max_chars].rstrip() + " …"
+    return snippet or ""
 
 
 def parse_single_fact_verification(
@@ -303,12 +577,20 @@ def parse_single_fact_verification(
             except Exception:
                 data = {}
 
-    cls_raw = str(data.get("status", "") or "").strip().casefold()
-    if cls_raw in {"belegt", "sinnvoll", "ja", "yes", "supported"}:
+    cls_raw = clean_factcheck_cell(
+        str(
+            data.get("status", "")
+            or data.get("decision", "")
+            or data.get("label", "")
+            or data.get("class", "")
+            or ""
+        )
+    ).casefold()
+    if cls_raw in {"belegt", "sinnvoll", "ja", "yes", "supported", "entailment"}:
         status = "belegt"
     elif cls_raw in {"teilweise", "partially", "partial"}:
         status = "teilweise"
-    elif cls_raw in {"widerspruch", "contradiction", "conflict"}:
+    elif cls_raw in {"widerspruch", "contradiction", "conflict", "refuted"}:
         status = "widerspruch"
     else:
         status = "nicht_belegt"
@@ -321,7 +603,7 @@ def parse_single_fact_verification(
         normalized_to_check = ""
     checked_fact = normalized_to_check or fact
 
-    source_raw = data.get("source", "")
+    source_raw = data.get("source", data.get("source_name", ""))
     source_labels: list[str] = []
     if isinstance(source_raw, str):
         source_labels = [item.strip() for item in re.split(r"[;,]", source_raw) if item.strip()]
@@ -344,22 +626,46 @@ def parse_single_fact_verification(
         text = source_text_for_label(label, sources)
         if text:
             matched_labels.append(label)
-    if not matched_labels and sources:
-        matched_labels = [sources[0][0]]
-
-    evidence = clean_factcheck_cell(str(data.get("evidence", "") or ""))
+    evidence_full = clean_factcheck_cell(
+        str(
+            data.get("evidence", "")
+            or data.get("quote", "")
+            or data.get("excerpt", "")
+            or ""
+        )
+    )
+    evidence = evidence_full
     reason = clean_factcheck_cell(str(data.get("reason", "") or ""))
-    if len(evidence) > 260:
-        evidence = evidence[:260].rstrip() + " …"
+    if evidence_full and not matched_labels:
+        inferred = [
+            name
+            for name, text in sources
+            if contains_text(text, evidence_full)
+        ]
+        if inferred:
+            matched_labels = [inferred[0]]
+    if len(evidence_full) > 260:
+        evidence = evidence_full[:260].rstrip() + " …"
 
     source_texts = [source_text_for_label(label, sources) for label in matched_labels]
     source_texts = [text for text in source_texts if text]
-    support = token_overlap(checked_fact, evidence) if (checked_fact and evidence) else 0.0
+    support = (
+        token_overlap(checked_fact, evidence_full)
+        if (checked_fact and evidence_full)
+        else 0.0
+    )
 
-    if evidence and not any(contains_text(src, evidence) for src in source_texts):
+    evidence_found, evidence_source_score = evidence_in_source_texts(
+        evidence_full,
+        source_texts,
+    )
+    if evidence_full and not evidence_found:
         status = "nicht_belegt"
-        reason = (reason + "; " if reason else "") + "Evidenz nicht direkt in Quelle gefunden"
-    elif evidence and source_texts:
+        reason = (
+            (reason + "; " if reason else "")
+            + f"Evidenz nicht direkt in Quelle gefunden (match={evidence_source_score:.2f})"
+        )
+    elif evidence_full and source_texts:
         if support < 0.16:
             status = "nicht_belegt"
             reason = (reason + "; " if reason else "") + "Evidenz passt inhaltlich nicht zum Fakt"
@@ -367,15 +673,15 @@ def parse_single_fact_verification(
             status = "teilweise"
             reason = (reason + "; " if reason else "") + "Evidenz deckt den Fakt nur teilweise"
 
-    if not evidence:
+    if not evidence_full:
         status = "nicht_belegt" if status == "belegt" else status
-        evidence = "—"
+        evidence = ""
 
     return {
         "id": f"C{fact_index + 1}",
         "status": status,
         "fact": checked_fact,
-        "sources": ", ".join(dict.fromkeys(matched_labels)) if matched_labels else "—",
+        "sources": ", ".join(dict.fromkeys(matched_labels)) if matched_labels else "",
         "evidence": evidence,
         "reason": reason,
     }
@@ -393,13 +699,27 @@ def fact_status_icon(status: str) -> str:
 
 
 def md_escape_cell(text: str) -> str:
-    value = str(text or "")
-    value = value.replace("|", "\\|")
-    value = value.replace("\n", " ")
+    # Keep table cells as plain text to avoid markdown constructs
+    # (fences, emphasis, links) from breaking table rendering.
+    value = clean_factcheck_cell(str(text or ""))
+    # Never keep literal table separators inside a cell.
+    value = value.replace("|", " / ")
+    value = html.escape(value, quote=False)
+    value = value.replace("`", "&#96;")
+    value = value.replace("*", "&#42;")
+    value = value.replace("[", "&#91;")
+    value = value.replace("]", "&#93;")
+    value = re.sub(r"\s+", " ", value)
     return value.strip()
 
 
-def compose_fact_check_markdown(rows: list[dict[str, str]], target_label: str) -> str:
+def compose_fact_check_markdown(
+    rows: list[dict[str, str]],
+    target_label: str,
+    *,
+    evidence_header: str = "Evidenz",
+    reason_header: str = "",
+) -> str:
     if not rows:
         return "## Faktencheck\n\n*Keine überprüfbaren Fakten gefunden.*"
 
@@ -414,11 +734,25 @@ def compose_fact_check_markdown(rows: list[dict[str, str]], target_label: str) -
         if status in counts:
             counts[status] += 1
 
+    reason_header_clean = md_escape_cell(reason_header) if reason_header else ""
+    has_reason_column = bool(reason_header_clean)
+    if has_reason_column:
+        header_row = (
+            f"| ID | Fakt | {md_escape_cell(evidence_header) or 'Evidenz'} | "
+            f"Quelle | {reason_header_clean} | Status |"
+        )
+        sep_row = "|---|---|---|---|---|---|"
+    else:
+        header_row = (
+            f"| ID | Fakt | {md_escape_cell(evidence_header) or 'Evidenz'} | Quelle | Status |"
+        )
+        sep_row = "|---|---|---|---|---|"
+
     lines: list[str] = [
         f"## Faktencheck ({target_label or 'Zieltext'})",
         "",
-        "| ID | Fakt | Evidenz | Quelle | Status |",
-        "|---|---|---|---|---|",
+        header_row,
+        sep_row,
     ]
 
     for row in rows:
@@ -426,12 +760,30 @@ def compose_fact_check_markdown(rows: list[dict[str, str]], target_label: str) -
         icon = fact_status_icon(status)
         row_id = md_escape_cell(row.get("id", ""))
         fact = md_escape_cell(row.get("fact", ""))
-        evidence = md_escape_cell(row.get("evidence", "—"))
-        sources = md_escape_cell(row.get("sources", "—"))
-        status_cell = md_escape_cell(status)
-        lines.append(
-            f"| {row_id} | {fact} | {evidence} | {sources} | {icon} {status_cell} |"
-        )
+        evidence = md_escape_cell(row.get("evidence", ""))
+        sources = md_escape_cell(row.get("sources", ""))
+        reason = md_escape_cell(row.get("reason", ""))
+        status_text = status
+        confidence_raw = row.get("confidence", "")
+        confidence_text = ""
+        if confidence_raw not in ("", None):
+            try:
+                conf = float(confidence_raw)
+                conf = max(0.0, min(1.0, conf))
+                confidence_text = f" ({conf:.2f})"
+            except Exception:
+                conf_txt = str(confidence_raw).strip()
+                if conf_txt:
+                    confidence_text = f" ({conf_txt})"
+        status_cell = md_escape_cell(status_text + confidence_text)
+        if has_reason_column:
+            lines.append(
+                f"| {row_id} | {fact} | {evidence} | {sources} | {reason} | {icon} {status_cell} |"
+            )
+        else:
+            lines.append(
+                f"| {row_id} | {fact} | {evidence} | {sources} | {icon} {status_cell} |"
+            )
 
     lines.extend(
         [

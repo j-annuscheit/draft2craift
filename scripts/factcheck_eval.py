@@ -811,14 +811,17 @@ def _evaluate_case(
     if case.mode in {"all", "extract", "full"}:
         fact_limit = suggest_fact_limit(target_text)
         req_extract = llm.render_prompt_template(
-            "fact_extract_user",
-            {"fact_limit": str(fact_limit)},
+            "claim_extract_user",
+            {
+                "input_label": "Zieltext",
+                "fact_limit": str(fact_limit),
+            },
         ).strip()
         prompt_extract = _build_prompt_for_call(
             llm,
             user_message=req_extract,
             file_contents=[("Zieltext", target_text)],
-            system_prompt_key="fact_extract_system",
+            system_prompt_key="claim_extract_system",
             grounding_required=False,
             grounding_has_sources=True,
         )

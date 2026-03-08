@@ -2940,6 +2940,115 @@ class CanvasPreviewPane(QWidget):
             return md
         return "\n".join(md_lines)
 
+    @classmethod
+    def _is_plain_paragraph_line_for_wrap_restore(cls, line: str) -> bool:
+        raw = str(line or "")
+        stripped = raw.strip()
+        if not stripped:
+            return False
+        if cls._line_is_blank_like(raw):
+            return False
+        if re.match(r"^([`~]{3,})", stripped):
+            return False
+        if re.match(r"^#{1,6}\s+", stripped):
+            return False
+        if raw.startswith("    ") or raw.startswith("\t"):
+            return False
+        if re.match(r"^\s*>", raw):
+            return False
+        if cls._BULLET_ITEM_RE.match(raw) is not None:
+            return False
+        if cls._ORDERED_ITEM_RE.match(raw) is not None:
+            return False
+        if re.match(r"^\s*[-*_]{3,}\s*$", raw):
+            return False
+        if re.match(r"^\s*\|", raw):
+            return False
+        if re.match(r"^\s*<[^>]+>\s*$", raw):
+            return False
+        return True
+
+    @classmethod
+    def _restore_soft_wrapped_plain_lines_from_reference(
+        cls,
+        markdown_text: str,
+        reference_markdown: str,
+    ) -> str:
+        """
+        Undo Qt soft-wrap artifacts for plain paragraphs.
+
+        QTextDocument.toMarkdown() may rewrite a single long paragraph line
+        into multiple hard line breaks. If a non-blank block is plain text in
+        both versions and collapses to the same content, restore the original
+        block line layout from the markdown reference.
+        """
+        md = str(markdown_text or "").replace("\r\n", "\n")
+        ref = str(reference_markdown or "").replace("\r\n", "\n")
+        if not md or not ref:
+            return md
+
+        md_lines = md.split("\n")
+        ref_lines = ref.split("\n")
+
+        def nonblank_blocks(lines: list[str]) -> list[tuple[int, int]]:
+            blocks: list[tuple[int, int]] = []
+            idx = 0
+            count = len(lines)
+            while idx < count:
+                while idx < count and cls._line_is_blank_like(lines[idx]):
+                    idx += 1
+                if idx >= count:
+                    break
+                start = idx
+                while idx < count and not cls._line_is_blank_like(lines[idx]):
+                    idx += 1
+                blocks.append((start, idx))
+            return blocks
+
+        md_blocks = nonblank_blocks(md_lines)
+        ref_blocks = nonblank_blocks(ref_lines)
+        if not md_blocks or len(md_blocks) != len(ref_blocks):
+            return md
+
+        def collapse_block(lines: list[str]) -> str:
+            return re.sub(r"\s+", " ", " ".join(lines)).strip()
+
+        changed = False
+        offset = 0
+        for block_index, (md_start_raw, md_end_raw) in enumerate(md_blocks):
+            ref_start, ref_end = ref_blocks[block_index]
+            md_start = md_start_raw + offset
+            md_end = md_end_raw + offset
+            if md_end <= md_start or ref_end <= ref_start:
+                continue
+
+            md_block = md_lines[md_start:md_end]
+            ref_block = ref_lines[ref_start:ref_end]
+            if len(md_block) <= 1 or len(ref_block) != 1:
+                continue
+            if not all(
+                cls._is_plain_paragraph_line_for_wrap_restore(line)
+                for line in md_block
+            ):
+                continue
+            if not all(
+                cls._is_plain_paragraph_line_for_wrap_restore(line)
+                for line in ref_block
+            ):
+                continue
+            if collapse_block(md_block).casefold() != collapse_block(ref_block).casefold():
+                continue
+            if md_block == ref_block:
+                continue
+
+            md_lines[md_start:md_end] = ref_block
+            offset += len(ref_block) - len(md_block)
+            changed = True
+
+        if not changed:
+            return md
+        return "\n".join(md_lines)
+
     def _on_preview_text_changed(self):
         if (
             not self._allow_editing
@@ -2977,6 +3086,10 @@ class CanvasPreviewPane(QWidget):
         new_markdown = self._restore_extra_blank_lines_from_plaintext(
             new_markdown,
             plain_text,
+        )
+        new_markdown = self._restore_soft_wrapped_plain_lines_from_reference(
+            new_markdown,
+            current_markdown,
         )
         if preserve_reference_linebreaks:
             new_markdown = self._restore_blank_like_runs_from_reference(
@@ -4621,18 +4734,17 @@ class CanvasPreviewPane(QWidget):
             is_focus = node_id == focus
 
             label = str(node.label or node.node_id)
-            quote = ""
-            if node.quote:
-                quote = str(node.quote).strip()
-            if quote and len(quote) > 96:
-                quote = quote[:93] + "..."
+            raw_quote = str(node.quote or "").strip()
+            quote_preview = raw_quote
+            if quote_preview and len(quote_preview) > 96:
+                quote_preview = quote_preview[:93] + "..."
             display_label = label if len(label) <= 36 else (label[:33] + "...")
             if node_id in expandable_nodes:
                 marker = "[+]" if node_id in self._graph_collapsed_ids else "[-]"
                 display_label = f"{marker} {display_label}"
             lines = [display_label]
-            if quote and is_leaf:
-                lines.append(f"\"{quote}\"")
+            if quote_preview and is_leaf:
+                lines.append(f"\"{quote_preview}\"")
             elif node.description:
                 desc = str(node.description).strip()
                 if len(desc) > 72:
@@ -4678,8 +4790,8 @@ class CanvasPreviewPane(QWidget):
             tip_parts = [label]
             if node.description:
                 tip_parts.append(str(node.description))
-            if quote:
-                tip_parts.append(f"Zitat: \"{quote}\"")
+            if raw_quote:
+                tip_parts.append(f"Zitat: \"{raw_quote}\"")
             if node.href:
                 tip_parts.append(f"Link: {node.href}")
             tip_parts.append("Klick: Fokus | Doppelklick: auf/zu oder Link")
@@ -4690,8 +4802,8 @@ class CanvasPreviewPane(QWidget):
             node_items[node_id] = node_item
 
             plain_rows.append(label)
-            if quote:
-                plain_rows.append(quote)
+            if raw_quote:
+                plain_rows.append(raw_quote)
 
         for source_id, target_id, label in edges:
             source_item = node_items.get(source_id)

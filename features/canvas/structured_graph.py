@@ -25,7 +25,8 @@ _EDGE_TEXT_RE = re.compile(
     r"^\s*(?P<src>[^-:>]+?)\s*[-=]+>\s*(?P<dst>[^:]+?)(?::\s*(?P<label>.+))?$"
 )
 _MAX_LABEL_CHARS = 180
-_MAX_DESC_CHARS = 480
+# Keep enough room for full chunk leaf tooltips in chunk-based mindmaps.
+_MAX_DESC_CHARS = 6000
 _MAX_LINK_CHARS = 512
 _MAX_NODES = 700
 _MAX_EDGES = 1400
