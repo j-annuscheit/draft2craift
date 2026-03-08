@@ -53,6 +53,7 @@ from core.user_modes import (
 )
 from features.canvas.widget import CanvasTabWidget
 from features.canvas.preview import CanvasPreviewPane
+from features.canvas.file_actions import CanvasFileActions
 from features.feedback import (
     FeedbackFreeformDialog,
     FeedbackSettingsDialog,
@@ -407,7 +408,7 @@ class MainWindow(QMainWindow):
         self._add_action(file_menu, "New Draft Tab", "Ctrl+N", lambda: self.canvas.tabs.add_tab())
         self._add_action(file_menu, "Open File…",     "Ctrl+O", self.canvas.open_file)
         self._add_action(file_menu, "Save",           "Ctrl+S", self.canvas.save_current)
-        self._add_action(file_menu, "Export…", "", self.canvas.export_document)
+        self._add_action(file_menu, "Export Current Canvas…", "", self._export_active_canvas_document)
         file_menu.addSeparator()
         self._add_action(file_menu, "Save Project…", "Ctrl+Shift+S", self._save_project)
         self._add_action(file_menu, "Load Project…", "Ctrl+Shift+O", self._load_project)
@@ -1202,9 +1203,24 @@ class MainWindow(QMainWindow):
     def _autosave_flush_full(self):
         if (not self._autosave_enabled) or self._autosave_suspended:
             return
+        rag_worker = getattr(getattr(self, "knowledge_dock", None), "rag_worker", None)
+        is_rag_busy = bool(
+            rag_worker is not None
+            and callable(getattr(rag_worker, "isRunning", None))
+            and rag_worker.isRunning()
+        )
+        if is_rag_busy:
+            # Avoid heavy project serialisation while RAG indexing/searching
+            # is running in the worker thread.
+            self._autosave_full_timer.start(900)
+            return
         self._autosave_prepare_workspace()
         self._autosave_flush_pending_preview_edits()
-        ok = self._project_manager.save_project(self, str(self._autosave_dir))
+        ok = self._project_manager.save_project(
+            self,
+            str(self._autosave_dir),
+            include_st_embeddings=False,
+        )
         if not ok:
             return
         self._autosave_rewire_editors()
@@ -1425,8 +1441,104 @@ class MainWindow(QMainWindow):
                 return self.knowledge_dock.doc_viewer.tabs.current_panel()
             if current is self.knowledge_dock.rag_tab:
                 return self.knowledge_dock.rag_panel.tabs.current_panel()
+        if self._widget_belongs_to(focus, self.chat_dock):
+            return self.chat_dock.history.current_panel()
 
         return self.canvas.tabs.current_panel()
+
+    def _resolve_panel_tab_title(self, panel: QWidget | None) -> str:
+        if panel is None:
+            return ""
+        node = panel
+        while node is not None:
+            host = node.parentWidget()
+            if isinstance(host, QTabWidget):
+                idx = host.indexOf(node)
+                if idx < 0:
+                    for probe in range(host.count()):
+                        page = host.widget(probe)
+                        if page is not None and self._widget_belongs_to(panel, page):
+                            idx = probe
+                            break
+                if idx >= 0:
+                    try:
+                        bar = host.tabBar()
+                        data = bar.tabData(idx)
+                    except Exception:
+                        data = None
+                    if isinstance(data, str) and data.strip():
+                        return data.strip()
+                    label = str(host.tabText(idx) or "").strip()
+                    if label.startswith("🔒 "):
+                        label = label[2:].strip()
+                    return label
+            node = host
+        return ""
+
+    def _resolve_active_export_target(self) -> dict[str, object]:
+        focus = QApplication.focusWidget()
+        panel: QWidget | None = None
+        tabs = None
+        scope = "draft"
+
+        if self._widget_belongs_to(focus, self.knowledge_dock):
+            current = self.knowledge_dock.tab_widget.currentWidget()
+            if current is self.knowledge_dock.doc_viewer:
+                panel = self.knowledge_dock.doc_viewer.tabs.current_panel()
+                tabs = self.knowledge_dock.doc_viewer.tabs
+                scope = "viewer"
+            elif current is self.knowledge_dock.rag_tab:
+                panel = self.knowledge_dock.rag_panel.tabs.current_panel()
+                tabs = self.knowledge_dock.rag_panel.tabs
+                scope = "rag"
+
+        elif self._widget_belongs_to(focus, self.chat_dock):
+            panel = self.chat_dock.history.current_panel()
+            tabs = None
+            scope = "chat"
+
+        if panel is None:
+            panel = self.canvas.tabs.current_panel()
+            tabs = self.canvas.tabs
+            scope = "draft"
+
+        tab_name = self._resolve_panel_tab_title(panel)
+        if not tab_name:
+            if scope == "chat":
+                tab_name = self.chat_dock.history.current_tab_title()
+            elif tabs is not None:
+                try:
+                    idx = int(tabs.tab_widget.currentIndex())
+                    if idx >= 0:
+                        tab_name = str(tabs.get_tab_full_title(idx) or "").strip()
+                except Exception:
+                    tab_name = ""
+
+        return {
+            "panel": panel,
+            "tabs": tabs,
+            "scope": scope,
+            "tab_name": tab_name,
+        }
+
+    def _export_active_canvas_document(self):
+        target = self._resolve_active_export_target()
+        panel = target.get("panel")
+        if panel is None:
+            self.statusBar().showMessage("Kein exportierbares Canvas aktiv.", 2800)
+            return
+        tabs = target.get("tabs")
+        scope = str(target.get("scope", "draft") or "draft")
+        tab_name = str(target.get("tab_name", "") or "")
+
+        base_tabs = tabs if tabs is not None else self.canvas.tabs
+        exporter = CanvasFileActions(parent=self, tabs=base_tabs)
+        exporter.export_specific_panel(
+            panel,
+            default_format="pdf",
+            panel_scope=scope,
+            tab_name=tab_name,
+        )
 
     def _is_valid_find_target(self, target: dict | None) -> bool:
         if not isinstance(target, dict):
@@ -2828,9 +2940,12 @@ class MainWindow(QMainWindow):
 
         self._update_loaded_menu()
 
+        # Register all imported documents in one batch so RAG reindex gets
+        # triggered once (debounced async) instead of once per file.
+        if newly_added:
+            self.knowledge_dock.add_imported_files(newly_added)
+
         for display_name, markdown in newly_added:
-            # Register in Files panel (triggers RAG reindex automatically)
-            self.knowledge_dock.add_imported_file(display_name, markdown)
             # Open in Document Viewer
             self.knowledge_dock.open_content(display_name, markdown, doc_key=display_name)
             # Register in Chat context selector

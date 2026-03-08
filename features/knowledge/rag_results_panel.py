@@ -75,6 +75,7 @@ class RAGResultsPanel(QWidget):
             editable_tab_titles=True,
             compact_inactive_tabs=True,
             active_title_max_chars=10,
+            export_scope="rag",
             panel_factory=lambda ro: MarkdownSplitPanel(
                 read_only=ro,
                 show_toolbar=True,

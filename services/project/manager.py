@@ -46,7 +46,13 @@ class ProjectManager:
 
     # ── Save ──────────────────────────────────────────────────────────────────
 
-    def save_project(self, mw: Any, folder: str) -> bool:
+    def save_project(
+        self,
+        mw: Any,
+        folder: str,
+        *,
+        include_st_embeddings: bool = True,
+    ) -> bool:
         """
         Write all application state into *folder*.
 
@@ -172,13 +178,37 @@ class ProjectManager:
                 pickle.dump(rag_state, fh, protocol=pickle.HIGHEST_PROTOCOL)
 
             # ── ST embeddings (optional, torch) ───────────────────────────────
-            if rag_state["has_st_embeddings"]:
+            # Skip in lightweight autosave mode. For full saves, snapshot the
+            # map first to avoid serialising a structure that is concurrently
+            # updated by the background RAG worker.
+            if include_st_embeddings and rag_state["has_st_embeddings"]:
                 try:
                     import torch  # type: ignore
-                    torch.save(
-                        mw.rag_system._st_embeddings,
-                        str(base / "rag" / "embeddings.pt"),
-                    )
+                    with mw.rag_system._lock:
+                        raw_embeddings = dict(
+                            getattr(mw.rag_system, "_st_embeddings", {}) or {}
+                        )
+                    snapshot: dict[str, Any] = {}
+                    for key, value in raw_embeddings.items():
+                        item = value
+                        if hasattr(item, "detach"):
+                            try:
+                                item = item.detach()
+                            except Exception:
+                                pass
+                        if hasattr(item, "cpu"):
+                            try:
+                                item = item.cpu()
+                            except Exception:
+                                pass
+                        if hasattr(item, "clone"):
+                            try:
+                                item = item.clone()
+                            except Exception:
+                                pass
+                        snapshot[str(key)] = item
+                    if snapshot:
+                        torch.save(snapshot, str(base / "rag" / "embeddings.pt"))
                 except Exception:
                     pass  # embeddings are optional
 

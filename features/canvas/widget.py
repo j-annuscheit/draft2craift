@@ -40,6 +40,7 @@ class CanvasTabWidget(QWidget):
             tab_title_prefix="Draft",
             editable_tab_titles=True,
             stored_title_max_chars=10,
+            export_scope="draft",
             panel_factory=lambda ro: MarkdownSplitPanel(
                 read_only=ro,
                 show_toolbar=True,

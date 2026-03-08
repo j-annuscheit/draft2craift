@@ -70,8 +70,8 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         # ── Italic  *text* / _text_  (not ** or __)
         self._rules.append((
             QRegularExpression(
-                r"(?<!\*)\*(?!\*|\s)[^*\n]+?(?<!\s)\*(?!\*)"
-                r"|(?<!_)_(?!_|\s)[^_\n]+?(?<!\s)_(?!_)"
+                r"(?<!\\)(?<!\*)\*(?!\*|\s)[^*\n]+?(?<!\s)(?<!\\)\*(?!\*)"
+                r"|(?<!\\)(?<!_)_(?!_|\s)[^_\n]+?(?<!\s)(?<!\\)_(?!_)"
             ),
             self._fmt("#CE9178", italic=True),
         ))

@@ -26,6 +26,7 @@ class DocumentViewerPanel(QWidget):
             compact_inactive_tabs=True,
             active_title_max_chars=10,
             strip_file_extensions=True,
+            export_scope="viewer",
             panel_factory=lambda ro: MarkdownSplitPanel(
                 read_only=ro,
                 show_toolbar=True,

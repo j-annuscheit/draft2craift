@@ -6,6 +6,7 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtGui import QTextCursor
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from features.canvas.preview import CanvasPreviewPane
@@ -81,6 +82,7 @@ class PreviewBlankLineTests(unittest.TestCase):
             )
 
             pane._preview_edit_active = True
+            pane._preview_user_edit_dirty = True
             pane._commit_preview_edit_to_markdown(force=True)
 
             stored = editor.toPlainText()
@@ -131,12 +133,11 @@ class PreviewBlankLineTests(unittest.TestCase):
             cursor = pane._view.textCursor()
             cursor.movePosition(cursor.MoveOperation.End)
             pane._view.setTextCursor(cursor)
-            cursor = pane._view.textCursor()
-            cursor.insertText(" X")
-            pane._view.setTextCursor(cursor)
+            QTest.keyClicks(pane._view, " X")
+            self.__class__._app.processEvents()
 
             before_cursor = pane._view.textCursor().position()
-            pane._preview_edit_active = True
+            self.assertTrue(pane._preview_edit_active)
             pane._commit_preview_edit_to_markdown()
 
             self.assertEqual(editor.toPlainText(), "Alpha")
@@ -145,6 +146,103 @@ class PreviewBlankLineTests(unittest.TestCase):
             pane._view.clearFocus()
             self.__class__._app.processEvents()
             pane._commit_preview_edit_to_markdown(force=True)
+            self.assertEqual(editor.toPlainText(), "Alpha X")
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_programmatic_rerender_does_not_arm_preview_commit(self):
+        pane, editor = self._build_pane()
+        try:
+            source = (
+                "Dies ist eine lange Fliesstext-Zeile ohne manuelle Umbrueche "
+                "und sie darf durch reines Anzeigen in der Vorschau nie "
+                "zurueck in mehrere harte Zeilen umgewandelt werden."
+            )
+            editor.setPlainText(source)
+            pane._render()
+            self.__class__._app.processEvents()
+
+            pane._view.setFocus()
+            self.__class__._app.processEvents()
+            pane.invalidate_render_cache()
+            pane._render()
+            self.__class__._app.processEvents()
+
+            self.assertFalse(pane._preview_edit_active)
+            self.assertFalse(pane._preview_user_edit_dirty)
+
+            pane._view.clearFocus()
+            self.__class__._app.processEvents()
+            pane._finish_preview_edit_session()
+            self.assertEqual(editor.toPlainText(), source)
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_preview_commit_unwraps_long_flow_text_soft_wraps(self):
+        pane, editor = self._build_pane()
+        try:
+            source = (
+                "Im Rahmen dieser Arbeit konnte, mithilfe der durchgefuehrten "
+                "Studie, aufgezeigt werden, dass frei verfuegbare KI-basierte "
+                "Textgeneratoren derzeit keine qualitativ hochwertigen Berichte "
+                "generieren koennen. Die durchgefuehrte Studie bestand aus einer "
+                "Online-Befragung und einem Experiment. Als Grundlage des "
+                "Experiments wurde ein Basistext zum Thema Die Folgen der "
+                "Corona-Pandemie fuer die Kunst- und Kulturbranche verfasst."
+            )
+            editor.setPlainText("")
+            pane._render()
+            self.__class__._app.processEvents()
+
+            pane._view.setFocus()
+            self.__class__._app.processEvents()
+            cursor = pane._view.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            pane._view.setTextCursor(cursor)
+            cursor = pane._view.textCursor()
+            cursor.insertText(source)
+            pane._view.setTextCursor(cursor)
+            self.__class__._app.processEvents()
+
+            pane._preview_edit_active = True
+            pane._preview_user_edit_dirty = True
+            pane._commit_preview_edit_to_markdown(force=True)
+            self.__class__._app.processEvents()
+
+            out = editor.toPlainText()
+            self.assertEqual(out, source)
+            self.assertEqual(len(out.splitlines()), 1)
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_typing_in_preview_marks_dirty_and_commits(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText("Alpha")
+            pane._render()
+            self.__class__._app.processEvents()
+
+            pane._view.setFocus()
+            self.__class__._app.processEvents()
+            cursor = pane._view.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            pane._view.setTextCursor(cursor)
+            QTest.keyClicks(pane._view, " X")
+            self.__class__._app.processEvents()
+
+            self.assertTrue(pane._preview_edit_active)
+            self.assertTrue(pane._preview_user_edit_dirty)
+
+            pane._view.clearFocus()
+            self.__class__._app.processEvents()
+            pane._finish_preview_edit_session()
+            self.__class__._app.processEvents()
             self.assertEqual(editor.toPlainText(), "Alpha X")
         finally:
             pane.deleteLater()
@@ -323,6 +421,7 @@ class PreviewBlankLineTests(unittest.TestCase):
             self.__class__._app.processEvents()
 
             pane._preview_edit_active = True
+            pane._preview_user_edit_dirty = True
             pane._commit_preview_edit_to_markdown(force=True)
             self.__class__._app.processEvents()
 
@@ -488,6 +587,7 @@ class PreviewBlankLineTests(unittest.TestCase):
                 pane._render()
                 self.__class__._app.processEvents()
                 pane._preview_edit_active = True
+                pane._preview_user_edit_dirty = True
                 pane._commit_preview_edit_to_markdown(force=True)
                 self.__class__._app.processEvents()
 
@@ -552,6 +652,7 @@ class PreviewBlankLineTests(unittest.TestCase):
             pane._view.setTextCursor(cursor)
 
             pane._preview_edit_active = True
+            pane._preview_user_edit_dirty = True
             pane._commit_preview_edit_to_markdown(force=True)
             self.__class__._app.processEvents()
 
@@ -601,6 +702,7 @@ class PreviewBlankLineTests(unittest.TestCase):
             pane._view.setTextCursor(cursor)
 
             pane._preview_edit_active = True
+            pane._preview_user_edit_dirty = True
             pane._commit_preview_edit_to_markdown(force=True)
             self.__class__._app.processEvents()
 
@@ -608,6 +710,7 @@ class PreviewBlankLineTests(unittest.TestCase):
                 pane._render()
                 self.__class__._app.processEvents()
                 pane._preview_edit_active = True
+                pane._preview_user_edit_dirty = True
                 pane._commit_preview_edit_to_markdown(force=True)
                 self.__class__._app.processEvents()
 
@@ -640,6 +743,7 @@ class PreviewBlankLineTests(unittest.TestCase):
             pane._view.setTextCursor(cursor)
 
             pane._preview_edit_active = True
+            pane._preview_user_edit_dirty = True
             pane._commit_preview_edit_to_markdown(force=True)
             self.__class__._app.processEvents()
 

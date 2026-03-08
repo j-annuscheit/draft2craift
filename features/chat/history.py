@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from features.feedback.bar import FeedbackBar
+from features.canvas.file_actions import CanvasFileActions
 from widgets.markdown.split_view import MarkdownSplitPanel
 
 
@@ -194,6 +195,21 @@ class ChatHistoryWidget(QWidget):
             return []
         return list(session.history)
 
+    def current_panel(self) -> MarkdownSplitPanel | None:
+        session = self._active_session()
+        if session is None:
+            return None
+        return session.display
+
+    def current_tab_title(self) -> str:
+        tabs = self._tabs
+        if tabs is None:
+            return ""
+        idx = int(tabs.currentIndex())
+        if idx < 0:
+            return ""
+        return str(tabs.tabText(idx) or "").strip()
+
     def export_sessions(self) -> dict:
         """Return all chat tabs including titles/history for persistence."""
         tabs = self._tabs
@@ -355,6 +371,8 @@ class ChatHistoryWidget(QWidget):
         panel = session.display
 
         menu = QMenu(self)
+        export_action = menu.addAction("Exportieren…")
+        menu.addSeparator()
         preview_action = menu.addAction("Zeige HTML-View")
         preview_action.setCheckable(True)
         md_action = menu.addAction("Zeige Markdown")
@@ -369,6 +387,16 @@ class ChatHistoryWidget(QWidget):
 
         picked = menu.exec(bar.mapToGlobal(pos))
         if picked is None:
+            return
+        if picked is export_action:
+            tab_name = str(tabs.tabText(index) or "").strip()
+            exporter = CanvasFileActions(parent=self, tabs=self)
+            exporter.export_specific_panel(
+                panel,
+                default_format="pdf",
+                panel_scope="chat",
+                tab_name=tab_name,
+            )
             return
         if picked is preview_action:
             panel.set_view_mode("preview")

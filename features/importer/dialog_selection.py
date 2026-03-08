@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFileDialog, QListWidgetItem
+from PySide6.QtWidgets import QFileDialog, QInputDialog, QLineEdit, QListWidgetItem
 
 from .entry import (
     ImportEntry,
@@ -18,6 +18,69 @@ from .ui_constants import _ICON, _STATUS_PENDING
 class FileImportSelectionMixin:
     """File list and selection handling."""
 
+    def _unique_entry_name(self, desired: str, current_path: str) -> str:
+        target = str(desired or "").strip()
+        if not target:
+            return ""
+        existing = {
+            str(entry.name or "").strip()
+            for path, entry in self._entries.items()
+            if str(path or "") != str(current_path or "")
+        }
+        if target not in existing:
+            return target
+        stem, dot, ext = target.rpartition(".")
+        root = stem if dot else target
+        suffix = f".{ext}" if dot else ""
+        idx = 1
+        while True:
+            candidate = f"{root} ({idx}){suffix}"
+            if candidate not in existing:
+                return candidate
+            idx += 1
+
+    def _rename_list_item(self, item: QListWidgetItem):
+        if item is None:
+            return
+        path = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
+        if not path:
+            return
+        entry = self._entries.get(path)
+        if entry is None:
+            return
+
+        current_name = str(entry.name or "").strip() or os.path.basename(path)
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Datei umbenennen",
+            "Neuer Name:",
+            QLineEdit.EchoMode.Normal,
+            current_name,
+        )
+        if not ok:
+            return
+
+        cleaned = str(new_name or "").strip()
+        if not cleaned or cleaned == current_name:
+            return
+
+        final_name = self._unique_entry_name(cleaned, path)
+        if not final_name:
+            return
+
+        entry.name = final_name
+
+        update_item = getattr(self, "_update_list_item", None)
+        if callable(update_item):
+            update_item(path, entry.status)
+        else:
+            item.setText(f"{_ICON.get(entry.status, _ICON[_STATUS_PENDING])}  {entry.name}")
+
+        if path == self._current_path and (not str(entry.markdown or "").strip()):
+            self._preview.set_markdown_text(
+                preview_placeholder_text(entry.name, entry.is_pdf())
+            )
+
     def _add_files(self):
         paths, _ = QFileDialog.getOpenFileNames(self, "Add Files", "", _SUPPORTED_FILTER)
         for path in paths:
@@ -29,6 +92,9 @@ class FileImportSelectionMixin:
             item.setData(Qt.ItemDataRole.UserRole, path)
             self._list.addItem(item)
         self._btn_import.setEnabled(bool(self._entries))
+        refresh = getattr(self, "_refresh_llm_fix_button", None)
+        if callable(refresh):
+            refresh()
 
     def _remove_selected(self):
         item = self._list.currentItem()
@@ -43,6 +109,9 @@ class FileImportSelectionMixin:
             self._pdf_viewer.clear()
         self._btn_import.setEnabled(bool(self._entries))
         self._btn_open.setEnabled(self._has_converted())
+        refresh = getattr(self, "_refresh_llm_fix_button", None)
+        if callable(refresh):
+            refresh()
 
     def _on_item_selected(self, current: QListWidgetItem, previous: QListWidgetItem):
         if previous is not None and self._current_path:
@@ -53,6 +122,12 @@ class FileImportSelectionMixin:
             self._pdf_viewer.clear()
             self._pdf_panel.set_enabled_for_pdf(False)
             self._current_path = None
+            sync_status = getattr(self, "_sync_llm_fix_status_for_current_path", None)
+            if callable(sync_status):
+                sync_status()
+            refresh = getattr(self, "_refresh_llm_fix_button", None)
+            if callable(refresh):
+                refresh()
             return
 
         path = current.data(Qt.ItemDataRole.UserRole)
@@ -77,6 +152,12 @@ class FileImportSelectionMixin:
             self._preview.set_markdown_text(
                 preview_placeholder_text(entry.name, is_pdf)
             )
+        refresh = getattr(self, "_refresh_llm_fix_button", None)
+        if callable(refresh):
+            refresh()
+        sync_status = getattr(self, "_sync_llm_fix_status_for_current_path", None)
+        if callable(sync_status):
+            sync_status()
 
     def _save_panel_settings(self, path: str):
         entry = self._entries.get(path)

@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QTabWidget,
     QVBoxLayout,
@@ -45,6 +46,8 @@ class FileImportDialogUIMixin:
         self._btn_toggle_settings = QPushButton("◀ Settings")
         self._btn_toggle_settings.setToolTip("Show / hide PDF settings panel")
         self._btn_toggle_settings.clicked.connect(self._toggle_settings)
+        if not bool(getattr(self, "_settings_visible", True)):
+            self._btn_toggle_settings.setText("▶ Settings")
         toolbar.addWidget(self._btn_toggle_settings)
 
         toolbar.addStretch()
@@ -64,6 +67,7 @@ class FileImportDialogUIMixin:
         left_layout.addWidget(lbl_files)
         self._list = QListWidget()
         self._list.currentItemChanged.connect(self._on_item_selected)
+        self._list.itemDoubleClicked.connect(self._rename_list_item)
         left_layout.addWidget(self._list)
         self._splitter.addWidget(left)
 
@@ -101,9 +105,26 @@ class FileImportDialogUIMixin:
         md_layout.setContentsMargins(0, 4, 0, 0)
         md_layout.setSpacing(4)
         hdr_row = QHBoxLayout()
+        self._btn_llm_fix = QPushButton("Fix by LLM")
+        self._btn_llm_fix.setToolTip(
+            "Korrigiert Markdown-Struktur blockweise per LLM "
+            "(Ueberschriften, Tabellen, Zeilenumbrueche, OCR-Formatfehler). "
+            "Inhalte sollen unveraendert bleiben."
+        )
+        self._btn_llm_fix.clicked.connect(self._run_llm_fix_current_markdown)
+        hdr_row.addWidget(self._btn_llm_fix)
         hdr_row.addStretch()
         self._preview_status = QLabel("")
         self._preview_status.setStyleSheet("color: #F9E2AF; font-size: 10px;")
+        self._preview_status.setWordWrap(False)
+        self._preview_status.setMaximumWidth(220)
+        self._preview_status.setSizePolicy(
+            QSizePolicy.Policy.Maximum,
+            QSizePolicy.Policy.Fixed,
+        )
+        self._preview_status.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         self._preview_status.setVisible(False)
         hdr_row.addWidget(self._preview_status)
         md_layout.addLayout(hdr_row)
@@ -129,7 +150,10 @@ class FileImportDialogUIMixin:
         )
 
         self._splitter.addWidget(self._tabs)
-        self._splitter.setSizes([220, 320, 560])
+        if bool(getattr(self, "_settings_visible", True)):
+            self._splitter.setSizes([220, 320, 560])
+        else:
+            self._splitter.setSizes([220, 0, 880])
         root.addWidget(self._splitter, stretch=1)
 
         self._feedback_bar = FeedbackBar()
@@ -158,6 +182,9 @@ class FileImportDialogUIMixin:
         btn_row.addWidget(self._btn_import)
         btn_row.addWidget(self._btn_open)
         root.addLayout(btn_row)
+        refresh = getattr(self, "_refresh_llm_fix_button", None)
+        if callable(refresh):
+            refresh()
 
     def set_user_mode(self, mode: str):
         self._user_mode = normalize_user_mode(mode)
@@ -182,8 +209,16 @@ class FileImportDialogUIMixin:
 
     def _open_in_viewer(self):
         results = converted_results(self._entries)
-        if results:
-            self.files_imported.emit(results)
+        if not results:
+            return
+        parent = self.parent()
+        direct_handler = getattr(parent, "_on_files_imported", None)
+        # Prefer direct in-process handoff for large payloads (markdown blobs)
+        # to avoid heavy Qt signal marshalling of giant Python lists.
+        if callable(direct_handler):
+            direct_handler(results)
+            return
+        self.files_imported.emit(results)
 
     def _open_tab_context_menu(self, pos):
         bar = self._tabs.tabBar()

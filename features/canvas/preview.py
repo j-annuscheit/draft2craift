@@ -433,6 +433,7 @@ class CanvasPreviewPane(QWidget):
     _ORDERED_ITEM_RE = re.compile(r"^(\s*)\d+[.)]\s+")
     _BULLET_ITEM_RE = re.compile(r"^(\s*)[-+*]\s+")
     _TOKEN_RE = re.compile(r"\w+(?:[+./-]\w+)*", flags=re.UNICODE)
+    _INTERNAL_WORD_STAR_RE = re.compile(r"(?<=[^\W\d_])\*(?=[^\W\d_])", flags=re.UNICODE)
     _ZOOM_MIN = 60
     _ZOOM_MAX = 260
     _ZOOM_STEP = 10
@@ -491,6 +492,9 @@ class CanvasPreviewPane(QWidget):
         self._title: QLabel | None = None
         self._preview_edit_active = False
         self._suppress_preview_change = False
+        self._suppress_preview_change_async = 0
+        self._preview_user_edit_dirty = False
+        self._preview_user_edit_intent = False
         self._highlight_scope = "generic"
         self._tab_name_getter: Callable[[], str] | None = None
         self._tab_switcher: Callable[[str], bool] | None = None
@@ -818,6 +822,8 @@ class CanvasPreviewPane(QWidget):
         self._editor = editor
         self._last_rendered_markdown = None
         self._preview_edit_active = False
+        self._preview_user_edit_dirty = False
+        self._preview_user_edit_intent = False
         self._preview_to_markdown_timer.stop()
 
         if editor is not None:
@@ -847,6 +853,8 @@ class CanvasPreviewPane(QWidget):
         if not enabled:
             self._preview_to_markdown_timer.stop()
             self._preview_edit_active = False
+            self._preview_user_edit_dirty = False
+            self._preview_user_edit_intent = False
         if enabled:
             self.schedule_update()
             self.schedule_cursor_sync()
@@ -865,6 +873,8 @@ class CanvasPreviewPane(QWidget):
         if not allow:
             self._preview_to_markdown_timer.stop()
             self._preview_edit_active = False
+            self._preview_user_edit_dirty = False
+            self._preview_user_edit_intent = False
         self._allow_editing = allow
         self._sync_preview_interaction_mode()
 
@@ -948,6 +958,21 @@ class CanvasPreviewPane(QWidget):
             if self._copy_selection_to_clipboard():
                 event.accept()
                 return True
+        if (
+            self._allow_editing
+            and not self._structured_view_active
+            and is_preview_target
+            and event.type() == QEvent.Type.KeyPress
+            and self._is_preview_content_edit_keypress(event)
+        ):
+            self._preview_user_edit_intent = True
+        if (
+            self._allow_editing
+            and not self._structured_view_active
+            and is_preview_target
+            and event.type() in (QEvent.Type.InputMethod, QEvent.Type.Drop)
+        ):
+            self._preview_user_edit_intent = True
         if is_preview_target and event.type() == QEvent.Type.Wheel:
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 delta = event.angleDelta().y()
@@ -2204,6 +2229,14 @@ class CanvasPreviewPane(QWidget):
         return cls._inject_render_spacers_for_extra_blank_lines(normalized)
 
     @classmethod
+    def _escape_internal_word_asterisks(cls, text: str) -> str:
+        """
+        Escape star-in-word forms (e.g. Kuenstler*innen) to avoid accidental
+        emphasis parsing while preserving visible '*' in markdown/preview.
+        """
+        return cls._INTERNAL_WORD_STAR_RE.sub(r"\\*", str(text or ""))
+
+    @classmethod
     def _replace_hr_markers(cls, text: str) -> str:
         pattern = rf"(?m)^[ \t]*{re.escape(cls._HR_MARKER)}[ \t]*$"
         return re.sub(pattern, "- - -", text)
@@ -3049,14 +3082,78 @@ class CanvasPreviewPane(QWidget):
             return md
         return "\n".join(md_lines)
 
+    @staticmethod
+    def _line_has_explicit_hard_break_marker(line: str) -> bool:
+        stripped_right = str(line or "").rstrip()
+        if stripped_right.endswith("\\"):
+            return True
+        if re.search(r"<br\s*/?>\s*$", stripped_right, flags=re.IGNORECASE):
+            return True
+        # Markdown hard break via two trailing spaces.
+        return bool(re.search(r"[ ]{2,}$", str(line or "")))
+
+    @classmethod
+    def _unwrap_soft_wrapped_plain_paragraphs(cls, markdown_text: str) -> str:
+        """
+        Collapse Qt-introduced soft-wrap line breaks in plain paragraphs.
+
+        QTextDocument.toMarkdown() may hard-wrap long paragraph lines at a
+        visual width. Those breaks are not semantic paragraph boundaries and
+        should not be persisted back into source markdown.
+        """
+        md = str(markdown_text or "").replace("\r\n", "\n")
+        if not md:
+            return md
+        lines = md.split("\n")
+        out: list[str] = []
+        idx = 0
+        total = len(lines)
+        while idx < total:
+            line = lines[idx]
+            if cls._line_is_blank_like(line):
+                out.append(line)
+                idx += 1
+                continue
+
+            start = idx
+            while idx < total and not cls._line_is_blank_like(lines[idx]):
+                idx += 1
+            block = lines[start:idx]
+            if len(block) <= 1:
+                out.extend(block)
+                continue
+            if not all(
+                cls._is_plain_paragraph_line_for_wrap_restore(part)
+                for part in block
+            ):
+                out.extend(block)
+                continue
+            if any(
+                cls._line_has_explicit_hard_break_marker(part)
+                for part in block[:-1]
+            ):
+                out.extend(block)
+                continue
+
+            merged = re.sub(r"\s+", " ", " ".join(part.strip() for part in block)).strip()
+            out.append(merged)
+        return "\n".join(out)
+
     def _on_preview_text_changed(self):
         if (
             not self._allow_editing
             or self._structured_view_active
             or self._suppress_preview_change
+            or self._suppress_preview_change_async > 0
             or self._editor is None
         ):
             return
+        if not self._focus_is_inside_preview():
+            return
+        if not self._preview_user_edit_intent:
+            return
+        self._preview_user_edit_intent = False
+        self._preview_user_edit_dirty = True
         self._preview_edit_active = True
         self._preview_to_markdown_timer.start(
             self._PREVIEW_TO_MARKDOWN_DELAY_MS
@@ -3074,8 +3171,14 @@ class CanvasPreviewPane(QWidget):
             or self._structured_view_active
         ):
             self._preview_edit_active = False
+            self._preview_user_edit_dirty = False
+            self._preview_user_edit_intent = False
             return
         if (not force) and self._focus_is_inside_preview():
+            return
+        if not self._preview_user_edit_dirty and not preserve_reference_linebreaks:
+            self._preview_edit_active = False
+            self._preview_user_edit_intent = False
             return
         current_markdown = self._editor.get_full_text().replace(
             "\r\n",
@@ -3083,6 +3186,8 @@ class CanvasPreviewPane(QWidget):
         ).rstrip()
         plain_text = (self._view.toPlainText() or "").replace("\r\n", "\n")
         new_markdown = self._canonical_markdown(self._view.toMarkdown())
+        new_markdown = self._escape_internal_word_asterisks(new_markdown)
+        new_markdown = self._unwrap_soft_wrapped_plain_paragraphs(new_markdown)
         new_markdown = self._restore_extra_blank_lines_from_plaintext(
             new_markdown,
             plain_text,
@@ -3105,6 +3210,9 @@ class CanvasPreviewPane(QWidget):
             else:
                 new_markdown = "- - -"
         if new_markdown == current_markdown:
+            self._preview_edit_active = False
+            self._preview_user_edit_dirty = False
+            self._preview_user_edit_intent = False
             return
         editor = self._editor
         old_cursor_pos = int(editor.textCursor().position())
@@ -3118,6 +3226,9 @@ class CanvasPreviewPane(QWidget):
         cursor.setPosition(min(old_cursor_pos, len(new_markdown)))
         editor.setTextCursor(cursor)
         editor.verticalScrollBar().setValue(old_scroll)
+        self._preview_edit_active = False
+        self._preview_user_edit_dirty = False
+        self._preview_user_edit_intent = False
 
     def _view_has_terminal_hr(self) -> bool:
         html = self._view.toHtml()
@@ -3177,6 +3288,8 @@ class CanvasPreviewPane(QWidget):
         if not self._allow_editing or self._structured_view_active:
             return
         self._preview_edit_active = True
+        self._preview_user_edit_dirty = True
+        self._preview_user_edit_intent = False
         self._preview_to_markdown_timer.stop()
         action()
         self._commit_preview_edit_to_markdown(
@@ -3195,6 +3308,7 @@ class CanvasPreviewPane(QWidget):
 
         self._apply_view_document_style()
         md = self._markdown_for_render(self._editor.get_full_text())
+        self._arm_async_preview_change_suppress()
         self._suppress_preview_change = True
         try:
             if md.strip():
@@ -3588,6 +3702,7 @@ class CanvasPreviewPane(QWidget):
             self._view.setUpdatesEnabled(False)
 
         try:
+            self._arm_async_preview_change_suppress()
             self._suppress_preview_change = True
             did_replace_document = False
             try:
@@ -3758,6 +3873,8 @@ class CanvasPreviewPane(QWidget):
         # preview->markdown sync would write stale QTextBrowser content back.
         self._preview_to_markdown_timer.stop()
         self._preview_edit_active = False
+        self._preview_user_edit_dirty = False
+        self._preview_user_edit_intent = False
 
         signature = graph_spec_signature(spec)
         if signature != self._structured_graph_signature:
@@ -3790,6 +3907,7 @@ class CanvasPreviewPane(QWidget):
         self._sync_preview_interaction_mode()
 
     def _set_markdown_or_graph_content(self, markdown_text: str):
+        self._arm_async_preview_change_suppress()
         spec = extract_graph_spec(markdown_text)
         if spec is None:
             self._set_structured_graph_state(None)
@@ -3798,6 +3916,46 @@ class CanvasPreviewPane(QWidget):
 
         self._set_structured_graph_state(spec)
         self._render_structured_graph_scene(spec)
+
+    def _arm_async_preview_change_suppress(self):
+        """Suppress delayed textChanged signals from programmatic preview updates."""
+        self._suppress_preview_change_async += 1
+
+        def release():
+            self._suppress_preview_change_async = max(
+                0,
+                int(self._suppress_preview_change_async) - 1,
+            )
+
+        QTimer.singleShot(0, release)
+
+    @staticmethod
+    def _is_preview_content_edit_keypress(event) -> bool:
+        if event is None:
+            return False
+        if event.matches(QKeySequence.StandardKey.Paste):
+            return True
+        if event.matches(QKeySequence.StandardKey.Cut):
+            return True
+        if event.matches(QKeySequence.StandardKey.Undo):
+            return True
+        if event.matches(QKeySequence.StandardKey.Redo):
+            return True
+        key = int(event.key())
+        if key in (
+            int(Qt.Key.Key_Backspace),
+            int(Qt.Key.Key_Delete),
+            int(Qt.Key.Key_Return),
+            int(Qt.Key.Key_Enter),
+        ):
+            return True
+        if event.modifiers() & (
+            Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.AltModifier
+            | Qt.KeyboardModifier.MetaModifier
+        ):
+            return False
+        return bool(str(event.text() or ""))
 
     def _expand_all_graph_nodes(self):
         spec = self._structured_graph_spec

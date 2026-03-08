@@ -937,6 +937,153 @@ class LLMManager(QObject):
         if error:
             self._log.error("LLM", f"[{call_name}] ERROR: {error}")
 
+    @staticmethod
+    def _extract_tagged_payload(raw_text: str, tag: str) -> str:
+        raw = str(raw_text or "")
+        if not raw.strip():
+            return ""
+        tag_name = str(tag or "").strip()
+        if not tag_name:
+            return raw.strip()
+        m = re.search(
+            rf"<{re.escape(tag_name)}>\s*([\s\S]*?)\s*</{re.escape(tag_name)}>",
+            raw,
+            flags=re.IGNORECASE,
+        )
+        if m:
+            return str(m.group(1) or "").strip()
+        return raw.strip()
+
+    def fix_markdown_chunk_sync(
+        self,
+        markdown_chunk: str,
+    ) -> tuple[str, dict[str, Any]]:
+        """
+        Repair Markdown formatting for one chunk while preserving content meaning.
+
+        The call is synchronous and should only be used when the streaming worker
+        is idle.
+        """
+        source = str(markdown_chunk or "")
+        if not source.strip():
+            return source, {
+                "applied": False,
+                "reason": "empty_input",
+            }
+        if not self.is_model_loaded():
+            return source, {
+                "applied": False,
+                "reason": "model_not_loaded",
+            }
+        if self.worker.isRunning():
+            return source, {
+                "applied": False,
+                "reason": "model_busy",
+            }
+
+        model = self.worker._model
+        if model is None:
+            return source, {
+                "applied": False,
+                "reason": "model_missing",
+            }
+
+        system_prompt = (
+            "Du bist ein strenger Markdown-Repair-Assistent.\n"
+            "Du darfst NUR Markdown-Strukturfehler korrigieren.\n"
+            "Erlaubt: Ueberschriftensyntax, Tabellen-Trennzeilen, Listenmarker, "
+            "Codeblock-Zaeune, kaputte Zeilenumbrueche durch OCR "
+            "(Worttrennung am Zeilenende, gesplittete Absatze).\n"
+            "Fuehre Korrekturen IMMER direkt im Text aus, niemals als Markierung.\n"
+            "Verboten sind insbesondere Korrektur-Annotationen wie *Teilwort*, "
+            "_Teilwort_, [sic], Kommentare oder Erklaerungen.\n"
+            "Wenn ein Wort fehlerhaft getrennt ist, gib das korrekte Wort direkt aus "
+            "(z.B. 'In nerhalb' -> 'Innerhalb').\n"
+            "Ueberschriften muessen immer auf einer eigenen Zeile stehen.\n"
+            "Nie eine Ueberschrift an den vorherigen oder naechsten Absatz haengen.\n"
+            "Wenn eine fett markierte, nummerierte Kapitelzeile vorliegt "
+            "(z.B. '**5.2.4 Titel** ...'), bevorzuge eine echte "
+            "Markdown-Ueberschrift statt Fettdruck.\n"
+            "Setze den Absatztext danach in die naechste Zeile.\n"
+            "Bewertungsskalen oder Legenden (z.B. '**0 P.** **1 P.** **2 P.**' "
+            "oder Prozentlisten) sind KEINE Ueberschriften.\n"
+            "Erzeuge neue Markdown-Ueberschriften nur bei klaren Kapitelzeilen "
+            "wie '5.2.4 Titel' oder '3 Ergebnisse'.\n"
+            "Bei Binnenstern-Schreibungen in Woertern (z.B. Kuenstler*innen) "
+            "muss der Stern in Markdown escaped werden (Kuenstler\\*innen).\n"
+            "Verboten: inhaltliche Umschreibungen, neue Fakten, Loeschung relevanter "
+            "Aussagen, Umstellung von Satzinhalten, Stilverbesserungen.\n"
+            "Zahlen, Namen, Zeitangaben, Reihenfolge und Aussagegehalt muessen "
+            "erhalten bleiben.\n"
+            "Wenn unsicher: Original unveraendert lassen."
+        )
+        user_prompt = (
+            "Repariere den folgenden Markdown-Block.\n"
+            "Gib NUR den korrigierten Markdown-Block zurueck, eingeschlossen in:\n"
+            "<fixed_md>\n"
+            "...markdown...\n"
+            "</fixed_md>\n"
+            "Kein weiterer Text.\n\n"
+            "<markdown_input>\n"
+            f"{source}\n"
+            "</markdown_input>"
+        )
+        prompt = (
+            "<|system|>\n"
+            f"{system_prompt}\n"
+            "<|user|>\n"
+            f"{user_prompt}\n"
+            "<|assistant|>\n"
+        )
+
+        source_tokens = max(1, self._count_tokens(source))
+        max_out_tokens = max(280, min(2200, int(source_tokens * 2.1)))
+        window_err = self._check_prompt_window(prompt, max_out_tokens)
+        if window_err:
+            if self._log:
+                self._log.error("LLM", f"Import markdown-fix context too large: {window_err}")
+            self._log_llm_io("Import-Markdown-Fix", prompt, error=window_err)
+            return source, {
+                "applied": False,
+                "reason": "context_too_large",
+                "error": window_err,
+            }
+
+        try:
+            result = model(
+                prompt,
+                max_tokens=max_out_tokens,
+                temperature=0.05,
+                top_p=0.9,
+                repeat_penalty=1.0,
+                stop=["<|"],
+                stream=False,
+            )
+            raw_full = str(result["choices"][0].get("text", "") or "")
+            self._log_llm_io("Import-Markdown-Fix", prompt, raw_full)
+            payload = self._extract_tagged_payload(raw_full, "fixed_md")
+            if not payload.strip():
+                return source, {
+                    "applied": False,
+                    "reason": "empty_output",
+                    "raw_preview": raw_full[:220],
+                }
+            return payload, {
+                "applied": True,
+                "reason": "ok",
+                "raw_len": len(raw_full),
+                "out_len": len(payload),
+            }
+        except Exception as exc:
+            self._log_llm_io("Import-Markdown-Fix", prompt, error=str(exc))
+            if self._log:
+                self._log.error("LLM", f"Import markdown-fix failed: {exc}")
+            return source, {
+                "applied": False,
+                "reason": "exception",
+                "error": str(exc),
+            }
+
     def expand_query_tfidf_sync(self, query: str) -> str:
         """HyDE keyword expansion for the TF-IDF backend.
 
@@ -1424,9 +1571,6 @@ class LLMManager(QObject):
         lead = re.sub(r"\s+", " ", str(chunk_text or "")).strip()
         if not lead:
             return f"Chunk {index:02d}"
-        lead = lead[:68].rstrip()
-        if len(lead) < len(re.sub(r"\s+", " ", str(chunk_text or "")).strip()):
-            lead = lead.rstrip(".") + "..."
         return f"Chunk {index:02d}: {lead}"
 
     def _generate_chunk_mindmap_sync(

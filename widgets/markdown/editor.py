@@ -10,6 +10,7 @@ Behaviour is controlled exclusively via:
 from __future__ import annotations
 
 import os
+import re
 from typing import Callable
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
@@ -19,6 +20,7 @@ from PySide6.QtCore import Qt, Signal, QMimeData
 from PySide6.QtGui import QFont
 
 from widgets.markdown.highlighter import MarkdownHighlighter
+from features.canvas.file_actions import CanvasFileActions
 
 # ── Stylesheets ────────────────────────────────────────────────────────────────
 _FONT_STACK = "'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace"
@@ -158,8 +160,18 @@ class MarkdownEditor(QPlainTextEdit):
         super().wheelEvent(event)
 
     @staticmethod
+    def _escape_internal_word_asterisks(text: str) -> str:
+        # e.g. "Kuenstler*innen" -> "Kuenstler\\*innen"
+        return re.sub(
+            r"(?<=[^\W\d_])\*(?=[^\W\d_])",
+            r"\\*",
+            str(text or ""),
+            flags=re.UNICODE,
+        )
+
+    @staticmethod
     def _normalize_paste_text(text: str) -> str:
-        return (
+        normalized = (
             str(text or "")
             .replace("\r\n", "\n")
             .replace("\r", "\n")
@@ -171,6 +183,7 @@ class MarkdownEditor(QPlainTextEdit):
             .replace("\u200d", "")
             .replace("\ufeff", "")
         )
+        return MarkdownEditor._escape_internal_word_asterisks(normalized)
 
     def insertFromMimeData(self, source):
         if source is None or not source.hasText():
@@ -345,6 +358,7 @@ class TabbedEditorWidget(QWidget):
         stored_title_max_chars: int = 0,
         strip_file_extensions: bool = False,
         inactive_tab_label: str = "•",
+        export_scope: str = "draft",
         panel_factory: Callable[[bool], QWidget] | None = None,
     ):
         super().__init__(parent)
@@ -356,6 +370,7 @@ class TabbedEditorWidget(QWidget):
         self.stored_title_max_chars = max(0, int(stored_title_max_chars))
         self.strip_file_extensions = bool(strip_file_extensions)
         self.inactive_tab_label = str(inactive_tab_label or "•")
+        self.export_scope = str(export_scope or "draft").strip().lower() or "draft"
         self._panel_factory = panel_factory
         self._counter = 0
         self._setup_ui()
@@ -495,25 +510,27 @@ class TabbedEditorWidget(QWidget):
         text = (title or "").strip()
         if self.strip_file_extensions and text:
             text = os.path.splitext(text)[0]
-        max_chars = self.stored_title_max_chars
-        if max_chars > 0 and len(text) > max_chars:
-            if max_chars <= 3:
-                text = "." * max_chars
-            else:
-                text = text[: max_chars - 3] + "..."
         return text or self.tab_title_prefix
 
+    def _truncate_stored_title(self, title: str) -> str:
+        text = (title or "").strip() or self.tab_title_prefix
+        max_chars = self.stored_title_max_chars
+        if max_chars > 0 and len(text) > max_chars:
+            keep_chars = max(1, max_chars - 1)
+            text = text[:keep_chars] + "..."
+        return text
+
     def _set_full_tab_title(self, index: int, title: str):
-        full = (title or "").strip() or self.tab_title_prefix
+        full = self._clean_title(title)
         bar = self.tab_widget.tabBar()
         bar.setTabData(index, full)
         self.tab_widget.setTabToolTip(index, full)
         if not self.compact_inactive_tabs:
-            self.tab_widget.setTabText(index, full)
+            self.tab_widget.setTabText(index, self._truncate_stored_title(full))
 
     def _display_title(self, full: str, is_active: bool, index: int) -> str:
         if not self.compact_inactive_tabs:
-            return full
+            return self._truncate_stored_title(full)
         if not is_active:
             return str(index + 1)
         text = full
@@ -534,7 +551,7 @@ class TabbedEditorWidget(QWidget):
             ro_prefix = "🔒 " if self._panel_is_read_only(i) else ""
             display = self._display_title(full, i == cur, i)
             self.tab_widget.setTabText(i, f"{ro_prefix}{display}")
-            self.tab_widget.setTabToolTip(i, f"{ro_prefix}{full}")
+            self.tab_widget.setTabToolTip(i, full)
 
     def _panel_is_read_only(self, index: int) -> bool:
         panel = self.tab_widget.widget(index)
@@ -558,6 +575,8 @@ class TabbedEditorWidget(QWidget):
             return
 
         menu = QMenu(self)
+        export_action = menu.addAction("Exportieren…")
+        menu.addSeparator()
         read_only_action = menu.addAction("🔒 Read-Only")
         read_only_action.setCheckable(True)
         read_only_action.setChecked(bool(editor.isReadOnly()))
@@ -595,6 +614,17 @@ class TabbedEditorWidget(QWidget):
 
         picked = menu.exec(bar.mapToGlobal(pos))
         if picked is None:
+            return
+
+        if picked is export_action:
+            tab_name = self.get_tab_full_title(index)
+            exporter = CanvasFileActions(parent=self, tabs=self)
+            exporter.export_specific_panel(
+                panel,
+                default_format="pdf",
+                panel_scope=self.export_scope,
+                tab_name=tab_name,
+            )
             return
 
         if picked is read_only_action:

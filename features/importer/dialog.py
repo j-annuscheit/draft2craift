@@ -16,6 +16,7 @@ from .workers import (
     ConversionWorker,
     DetectWorker,
     FontAnalysisWorker,
+    MarkdownLLMFixWorker,
     SingleConversionWorker,
 )
 
@@ -51,8 +52,11 @@ class FileImportDialog(
         self._preview_worker: Optional[SingleConversionWorker] = None
         self._detect_worker: Optional[DetectWorker] = None
         self._font_worker: Optional[FontAnalysisWorker] = None
+        self._llm_fix_worker: Optional[MarkdownLLMFixWorker] = None
+        self._llm_fix_path: Optional[str] = None
+        self._llm_fix_status_by_path: dict[str, dict[str, object]] = {}
 
         self._splitter = None
-        self._settings_visible = True
+        self._settings_visible = False
 
         self._setup_ui()

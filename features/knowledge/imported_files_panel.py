@@ -107,6 +107,39 @@ class ImportedFilesPanel(QWidget):
         self._update_status()
         self._emit_selection()
 
+    def add_files(self, entries: list[tuple[str, str]]):
+        """
+        Register multiple imported files in one batch (checked by default).
+
+        Emits selection/state update only once to avoid repeated expensive
+        downstream work (e.g. RAG reindex storms during bulk import).
+        """
+        rows = list(entries or [])
+        if not rows:
+            self._update_status()
+            return
+
+        added = False
+        self._list.blockSignals(True)
+        try:
+            for name_raw, content_raw in rows:
+                name = str(name_raw or "").strip()
+                if not name or name in self._entries:
+                    continue
+                self._entries[name] = str(content_raw or "")
+                item = QListWidgetItem(name)
+                item.setData(Qt.ItemDataRole.UserRole, name)
+                item.setCheckState(Qt.CheckState.Checked)
+                self._list.addItem(item)
+                added = True
+        finally:
+            self._list.blockSignals(False)
+
+        if added:
+            self._emit_selection()
+        else:
+            self._update_status()
+
     def clear_all(self):
         """Remove all imported files and reset the panel to its initial state."""
         self._list.blockSignals(True)

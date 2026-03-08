@@ -8,7 +8,7 @@ Left-side QDockWidget containing:
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import QDockWidget, QSplitter, QTabWidget, QVBoxLayout, QWidget
 
 from services.rag.system import RAGSystem, RAGWorker
@@ -50,6 +50,10 @@ class KnowledgeDock(QDockWidget):
         super().__init__("Knowledge Base", parent)
         self.rag_system = rag_system
         self.rag_worker = RAGWorker(rag_system, parent=self)
+        self._pending_reindex_entries: list[tuple[str, str]] = []
+        self._reindex_timer = QTimer(self)
+        self._reindex_timer.setSingleShot(True)
+        self._reindex_timer.timeout.connect(self._flush_reindex_rag)
         self._setup_dock()
         self._connect_signals()
         self.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
@@ -106,7 +110,16 @@ class KnowledgeDock(QDockWidget):
         self.rag_worker.status_changed.connect(self._on_rag_status)
 
     def _reindex_rag(self, entries: list[tuple[str, str]]):
-        """Enqueue a RAG index rebuild (runs in background thread)."""
+        """
+        Schedule a RAG index rebuild asynchronously.
+
+        Selection bursts (e.g. bulk import) are coalesced and dispatched once.
+        """
+        self._pending_reindex_entries = list(entries or [])
+        self._reindex_timer.start(140)
+
+    def _flush_reindex_rag(self):
+        entries = list(self._pending_reindex_entries)
         self.rag_worker.enqueue_index(entries)
 
     def _run_rag_search(self, query: str):
@@ -133,13 +146,17 @@ class KnowledgeDock(QDockWidget):
             self.document_rename_requested.emit(old_key, new_key)
 
     def reindex_rag(self):
-        """Re-index all currently checked files (enqueues background task)."""
+        """Re-index all currently checked files (asynchronously, debounced)."""
         entries = self.imported_files.get_checked_files()
-        self.rag_worker.enqueue_index(entries)
+        self._reindex_rag(entries)
 
     def add_imported_file(self, name: str, content: str):
         """Register a newly imported file in the Files panel (auto-checked)."""
         self.imported_files.add_file(name, content)
+
+    def add_imported_files(self, entries: list[tuple[str, str]]):
+        """Register multiple imported files in one batch (auto-checked)."""
+        self.imported_files.add_files(entries)
 
     def open_content(self, title: str, content: str, doc_key: str = ""):
         """Open pre-converted markdown content in the Document Viewer."""
