@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 
 from .pdf_reflow import (
@@ -15,6 +16,23 @@ _TABLEISH_HEADING_RE = re.compile(r"(table|tabelle|tabellen|longtable|grid|matri
 _GENERIC_COL_RE = re.compile(r"^col\d+$", re.IGNORECASE)
 _CURRENCY_ONLY_RE = re.compile(r"^[€$£¥₹]+$")
 _TABLE_MENTION_RE = re.compile(r"\b(?:tabelle|tabellen|table|tables)\b", re.IGNORECASE)
+_RISKY_TABLE_DETECTION_ENABLED = str(
+    os.getenv("D2C_ENABLE_RISKY_PYMUPDF_TABLES", "")
+).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _safe_find_tables(page, **kwargs):
+    """
+    Wrapper for PyMuPDF ``find_tables``.
+
+    Disabled by default because some PDFs trigger hard native crashes inside
+    PyMuPDF table detection (not catchable via Python exceptions).
+    Re-enable explicitly via:
+      D2C_ENABLE_RISKY_PYMUPDF_TABLES=1
+    """
+    if not _RISKY_TABLE_DETECTION_ENABLED:
+        return None
+    return page.find_tables(**kwargs)
 
 
 def _rect_intersection_ratio(
@@ -35,11 +53,15 @@ def _rect_intersection_ratio(
 
 
 def _extract_table_bboxes(page, clip: tuple[float, float, float, float] | None = None) -> list[tuple[float, float, float, float]]:
+    if not _RISKY_TABLE_DETECTION_ENABLED:
+        return []
     rects: list[tuple[float, float, float, float]] = []
     for strategy in ("lines_strict", "lines"):
         try:
-            tabs = page.find_tables(strategy=strategy, clip=clip)
+            tabs = _safe_find_tables(page, strategy=strategy, clip=clip)
         except Exception:
+            continue
+        if tabs is None:
             continue
         for t in getattr(tabs, "tables", []):
             if int(getattr(t, "row_count", 0) or 0) < 2 or int(getattr(t, "col_count", 0) or 0) < 2:
@@ -248,19 +270,24 @@ def _table_markdown_from_rows(rows: list[list[str]]) -> str:
 
 
 def _best_text_table_in_clip(page, clip: tuple[float, float, float, float]) -> str:
+    if not _RISKY_TABLE_DETECTION_ENABLED:
+        return ""
     best_score = -1.0
     best_md = ""
     clip_area = max(1.0, (clip[2] - clip[0]) * (clip[3] - clip[1]))
 
     for mwv in (1, 2):
         try:
-            tabs = page.find_tables(
+            tabs = _safe_find_tables(
+                page,
                 strategy="text",
                 clip=clip,
                 min_words_vertical=mwv,
                 min_words_horizontal=1,
             )
         except Exception:
+            continue
+        if tabs is None:
             continue
         for t in getattr(tabs, "tables", []):
             mat = _normalize_table_rows(t.extract())
@@ -324,6 +351,8 @@ def _best_lines_table_candidate(
     top_m: float,
     bottom_m: float,
 ) -> tuple[str, list[list[str]]]:
+    if not _RISKY_TABLE_DETECTION_ENABLED:
+        return "", []
     h = float(page.rect.height or 0.0)
     w = float(page.rect.width or 0.0)
     if h <= 0 or w <= 0:
@@ -339,8 +368,10 @@ def _best_lines_table_candidate(
 
     for strategy in ("lines_strict", "lines"):
         try:
-            tabs = page.find_tables(strategy=strategy, clip=clip)
+            tabs = _safe_find_tables(page, strategy=strategy, clip=clip)
         except Exception:
+            continue
+        if tabs is None:
             continue
         for t in getattr(tabs, "tables", []):
             rows = int(getattr(t, "row_count", 0) or 0)
@@ -535,6 +566,8 @@ def _recover_dominant_lines_table(
     top_m: float,
     bottom_m: float,
 ) -> str:
+    if not _RISKY_TABLE_DETECTION_ENABLED:
+        return page_text
     if re.search(r"(?m)^\|.+\|$", page_text):
         return page_text
 
@@ -550,8 +583,10 @@ def _recover_dominant_lines_table(
     best_ratio = 0.0
     for strategy in ("lines_strict", "lines"):
         try:
-            tabs = page.find_tables(strategy=strategy, clip=clip)
+            tabs = _safe_find_tables(page, strategy=strategy, clip=clip)
         except Exception:
+            continue
+        if tabs is None:
             continue
         for t in getattr(tabs, "tables", []):
             rows = int(getattr(t, "row_count", 0) or 0)

@@ -108,7 +108,11 @@ class FileImportSelectionMixin:
             self._preview.clear_text()
             self._pdf_viewer.clear()
         self._btn_import.setEnabled(bool(self._entries))
-        self._btn_open.setEnabled(self._has_converted())
+        update_open = getattr(self, "_update_open_button_state", None)
+        if callable(update_open):
+            update_open()
+        else:
+            self._btn_open.setEnabled(self._has_converted())
         refresh = getattr(self, "_refresh_llm_fix_button", None)
         if callable(refresh):
             refresh()

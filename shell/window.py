@@ -248,6 +248,9 @@ class MainWindow(QMainWindow):
             "SYS",
             f"draft2craift started  |  RAG backend: {self.rag_system.current_backend()}",
         )
+        log_path = str(getattr(self.app_logger, "log_file_path", lambda: "")() or "").strip()
+        if log_path:
+            self.app_logger.info("SYS", f"Debug log file: {log_path}")
 
         # Periodic context-bar update
         self._ctx_timer = QTimer(self)
@@ -1211,22 +1214,34 @@ class MainWindow(QMainWindow):
         )
         if is_rag_busy:
             # Avoid heavy project serialisation while RAG indexing/searching
-            # is running in the worker thread.
-            self._autosave_full_timer.start(900)
+            # is running in the worker thread. Coalesce repeated retries.
+            if not self._autosave_full_timer.isActive():
+                self.app_logger.debug(
+                    "SYS",
+                    "[AUTOSAVE] Full flush delayed (RAG worker busy)",
+                )
+                self._autosave_full_timer.start(900)
             return
+        self.app_logger.debug("SYS", "[AUTOSAVE] Full flush start")
         self._autosave_prepare_workspace()
         self._autosave_flush_pending_preview_edits()
-        ok = self._project_manager.save_project(
-            self,
-            str(self._autosave_dir),
-            include_st_embeddings=False,
-        )
+        try:
+            ok = self._project_manager.save_project(
+                self,
+                str(self._autosave_dir),
+                include_st_embeddings=False,
+            )
+        except Exception as exc:
+            self.app_logger.error("SYS", f"[AUTOSAVE] Full flush failed: {exc}")
+            return
         if not ok:
+            self.app_logger.error("SYS", "[AUTOSAVE] Full flush failed (save_project returned False)")
             return
         self._autosave_rewire_editors()
         self._autosave_last_tab_count = self.canvas.tabs.tab_widget.count()
         self._autosave_last_signature = self._autosave_signature()
         self._autosave_show_saved_hint(full_snapshot=True)
+        self.app_logger.debug("SYS", "[AUTOSAVE] Full flush done")
 
     @staticmethod
     def _write_text_atomic(path: Path, content: str):
@@ -2925,6 +2940,13 @@ class MainWindow(QMainWindow):
 
     def _on_files_imported(self, results: list):
         """Slot: receives [(name, path, markdown), …] from FileImportDialog."""
+        total_results = len(results or [])
+        if total_results <= 0:
+            return
+        self.app_logger.debug(
+            "SYS",
+            f"[IMPORT/VIEWER] Begin handover  |  files={total_results}",
+        )
         newly_added: list[tuple[str, str]] = []   # (display_name, markdown)
 
         for name, path, markdown in results:
@@ -2939,18 +2961,118 @@ class MainWindow(QMainWindow):
             newly_added.append((display_name, markdown))
 
         self._update_loaded_menu()
+        self.app_logger.debug(
+            "SYS",
+            (
+                "[IMPORT/VIEWER] Registry updated  |  "
+                f"new={len(newly_added)}  total={len(self._file_registry)}"
+            ),
+        )
 
-        # Register all imported documents in one batch so RAG reindex gets
-        # triggered once (debounced async) instead of once per file.
-        if newly_added:
+        if not newly_added:
+            return
+
+        reindex_paused = False
+        suspend_reindex = getattr(self.knowledge_dock, "suspend_reindex", None)
+        resume_reindex = getattr(self.knowledge_dock, "resume_reindex", None)
+        prev_autosave_suspended = bool(self._autosave_suspended)
+        self._autosave_suspended = True
+
+        try:
+            if callable(suspend_reindex):
+                suspend_reindex()
+                reindex_paused = True
+                self.app_logger.debug("SYS", "[IMPORT/VIEWER] Reindex scheduling suspended")
+
+            # Register all imported documents in one batch; reindex is resumed
+            # only after all viewer/chat updates are complete.
             self.knowledge_dock.add_imported_files(newly_added)
+            self.app_logger.debug(
+                "SYS",
+                "[IMPORT/VIEWER] Imported-files panel updated",
+            )
 
-        for display_name, markdown in newly_added:
-            # Open in Document Viewer
-            self.knowledge_dock.open_content(display_name, markdown, doc_key=display_name)
-            # Register in Chat context selector
-            self.chat_dock.add_document(display_name, markdown)
-        self._autosave_schedule_full(delay_ms=120)
+            total_new = len(newly_added)
+            for idx, (display_name, markdown) in enumerate(newly_added, start=1):
+                activate = idx == 1
+                self.app_logger.debug(
+                    "SYS",
+                    (
+                        "[IMPORT/VIEWER] Open doc tab  |  "
+                        f"{idx}/{total_new}  title={display_name}  "
+                        f"chars={len(markdown or '')}  activate={int(activate)}"
+                    ),
+                )
+                # Open in Document Viewer (activate only first imported tab).
+                self.app_logger.debug(
+                    "SYS",
+                    (
+                        "[IMPORT/VIEWER] [CHKPT] viewer_open_start  |  "
+                        f"{idx}/{total_new}  title={display_name}"
+                    ),
+                )
+                self.knowledge_dock.open_content(
+                    display_name,
+                    markdown,
+                    doc_key=display_name,
+                    activate=activate,
+                )
+                self.app_logger.debug(
+                    "SYS",
+                    (
+                        "[IMPORT/VIEWER] [CHKPT] viewer_open_done  |  "
+                        f"{idx}/{total_new}  title={display_name}"
+                    ),
+                )
+                # Register in Chat context selector.
+                self.app_logger.debug(
+                    "SYS",
+                    (
+                        "[IMPORT/VIEWER] [CHKPT] chat_add_start  |  "
+                        f"{idx}/{total_new}  title={display_name}"
+                    ),
+                )
+                self.chat_dock.add_document(display_name, markdown)
+                self.app_logger.debug(
+                    "SYS",
+                    (
+                        "[IMPORT/VIEWER] [CHKPT] chat_add_done  |  "
+                        f"{idx}/{total_new}  title={display_name}"
+                    ),
+                )
+
+        finally:
+            self._autosave_suspended = prev_autosave_suspended
+            # Persist immediately before re-enabling reindexing so crash windows
+            # after Import-and-Close still have the latest imported state.
+            try:
+                self.app_logger.debug("SYS", "[IMPORT/VIEWER] [CHKPT] immediate_autosave_start")
+                self._autosave_flush_full()
+                self.app_logger.debug("SYS", "[IMPORT/VIEWER] [CHKPT] immediate_autosave_done")
+            except Exception as exc:
+                self.app_logger.error(
+                    "SYS",
+                    f"[IMPORT/VIEWER] Immediate autosave failed: {exc}",
+                )
+            if reindex_paused:
+                if callable(resume_reindex):
+                    self.app_logger.debug(
+                        "SYS",
+                        "[IMPORT/VIEWER] Resume reindex delayed (250ms)",
+                    )
+                    QTimer.singleShot(
+                        250,
+                        lambda fn=resume_reindex: fn(flush=True),
+                    )
+                else:
+                    self.app_logger.debug(
+                        "SYS",
+                        "[IMPORT/VIEWER] Reindex delayed (250ms)",
+                    )
+                    QTimer.singleShot(250, self.knowledge_dock.reindex_rag)
+
+        self._autosave_schedule_full(delay_ms=320)
+        self.app_logger.debug("SYS", "[IMPORT/VIEWER] Handover complete")
 
     def _update_loaded_menu(self):
         """Rebuild the 'Loaded Documents' submenu from the file registry."""

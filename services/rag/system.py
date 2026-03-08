@@ -381,10 +381,30 @@ class RAGSystem(QObject):
     def index_content(self, name: str, content: str) -> bool:
         t0 = time.perf_counter()
         try:
+            if self._log:
+                self._log.debug(
+                    "RAG",
+                    (
+                        "[INDEX] start"
+                        f"  |  doc='{name}'"
+                        f"  chars={len(content or '')}"
+                    ),
+                )
             # Store full content for extended context retrieval
             self._doc_full_content[name] = content
 
+            if self._log:
+                self._log.debug("RAG", f"[INDEX] build_chunks_start  |  doc='{name}'")
             chunks = self._build_chunks(content, name)
+            if self._log:
+                self._log.debug(
+                    "RAG",
+                    (
+                        "[INDEX] build_chunks_done"
+                        f"  |  doc='{name}'"
+                        f"  raw_chunks={len(chunks)}"
+                    ),
+                )
 
             # ── Pass 1: collect valid chunks ───────────────────────────────
             batch: dict[str, tuple[str, str]] = {}
@@ -401,12 +421,35 @@ class RAGSystem(QObject):
             if not batch:
                 # Rebuild TOC even if no chunks (e.g. blank doc registered)
                 self._global_toc = self._build_global_toc()
+                if self._log:
+                    self._log.debug(
+                        "RAG",
+                        f"[INDEX] no_nonempty_chunks  |  doc='{name}'",
+                    )
                 return True
 
             # ── Pass 2: single TF-IDF rebuild for all chunks at once ───────
+            if self._log:
+                self._log.debug(
+                    "RAG",
+                    (
+                        "[INDEX] tfidf_batch_start"
+                        f"  |  doc='{name}'"
+                        f"  chunks={len(batch)}"
+                    ),
+                )
             self._index.add_documents_batch(
                 {k: v[1] for k, v in batch.items()}
             )
+            if self._log:
+                self._log.debug(
+                    "RAG",
+                    (
+                        "[INDEX] tfidf_batch_done"
+                        f"  |  doc='{name}'"
+                        f"  chunks={len(batch)}"
+                    ),
+                )
 
             # ── Pass 3: update caches ──────────────────────────────────────
             for ckey, (raw_text, indexed_text) in batch.items():
@@ -415,15 +458,44 @@ class RAGSystem(QObject):
                 self._indexed_text[ckey]  = indexed_text
                 self._chunk_to_doc[ckey]  = name
             self._chunk_parents.update(new_parents)
+            if self._log:
+                self._log.debug(
+                    "RAG",
+                    (
+                        "[INDEX] cache_update_done"
+                        f"  |  doc='{name}'"
+                        f"  indexed_keys={len(batch)}"
+                    ),
+                )
 
             # ── Pass 4: batch ST embedding ─────────────────────────────────
             if self.config.use_st and self._st_model:
+                if self._log:
+                    self._log.debug(
+                        "RAG",
+                        (
+                            "[INDEX] st_embed_start"
+                            f"  |  doc='{name}'"
+                            f"  chunks={len(batch)}"
+                        ),
+                    )
                 self._embed_documents_batch(
                     {k: v[1] for k, v in batch.items()}
                 )
+                if self._log:
+                    self._log.debug(
+                        "RAG",
+                        (
+                            "[INDEX] st_embed_done"
+                            f"  |  doc='{name}'"
+                            f"  chunks={len(batch)}"
+                        ),
+                    )
 
             # ── Pass 5: rebuild global TOC ─────────────────────────────────
             self._global_toc = self._build_global_toc()
+            if self._log:
+                self._log.debug("RAG", f"[INDEX] toc_rebuild_done  |  doc='{name}'")
 
             if self._log:
                 dt       = (time.perf_counter() - t0) * 1000
@@ -447,6 +519,80 @@ class RAGSystem(QObject):
             return self.index_content(path, content)
         except Exception:
             return False
+
+    def sync_index(self, entries: list[tuple[str, str]]) -> tuple[int, int, int]:
+        """
+        Incrementally sync indexed documents with *entries*.
+
+        Returns:
+            (indexed_count, skipped_unchanged_count, removed_count)
+        """
+        target_map: dict[str, str] = {}
+        for name_raw, content_raw in list(entries or []):
+            name = str(name_raw or "").strip()
+            if not name:
+                continue
+            target_map[name] = str(content_raw or "")
+
+        target_names = set(target_map.keys())
+        existing_names = set(str(k or "") for k in self._doc_full_content.keys())
+
+        removed_count = 0
+        for obsolete in sorted(existing_names - target_names):
+            if not obsolete:
+                continue
+            if self._log:
+                self._log.debug("RAG", f"[SYNC] remove_obsolete_start  |  doc='{obsolete}'")
+            self.remove_file(obsolete)
+            removed_count += 1
+            if self._log:
+                self._log.debug("RAG", f"[SYNC] remove_obsolete_done  |  doc='{obsolete}'")
+
+        indexed_count = 0
+        skipped_count = 0
+        for name, content in target_map.items():
+            prev = self._doc_full_content.get(name, None)
+            if self._log:
+                self._log.debug(
+                    "RAG",
+                    (
+                        "[SYNC] doc_start"
+                        f"  |  doc='{name}'"
+                        f"  chars={len(content or '')}"
+                        f"  unchanged={int(prev is not None and prev == content)}"
+                    ),
+                )
+            if prev is not None and prev == content:
+                skipped_count += 1
+                if self._log:
+                    self._log.debug("RAG", f"[SYNC] doc_skip_unchanged  |  doc='{name}'")
+                continue
+            if prev is not None:
+                if self._log:
+                    self._log.debug("RAG", f"[SYNC] remove_previous_start  |  doc='{name}'")
+                self.remove_file(name)
+                if self._log:
+                    self._log.debug("RAG", f"[SYNC] remove_previous_done  |  doc='{name}'")
+            if self.index_content(name, content):
+                indexed_count += 1
+                if self._log:
+                    self._log.debug("RAG", f"[SYNC] doc_index_done  |  doc='{name}'")
+            else:
+                if self._log:
+                    self._log.error("RAG", f"[SYNC] doc_index_failed  |  doc='{name}'")
+
+        if self._log:
+            self._log.debug(
+                "RAG",
+                (
+                    "Incremental sync"
+                    f"  |  target={len(target_map)}"
+                    f"  indexed={indexed_count}"
+                    f"  skipped={skipped_count}"
+                    f"  removed={removed_count}"
+                ),
+            )
+        return indexed_count, skipped_count, removed_count
 
     def remove_file(self, name: str):
         to_remove = [
@@ -1769,16 +1915,28 @@ class RAGWorker(QThread):
 
             elif task == "index":
                 n = len(data)
+                if self._rag._log:
+                    self._rag._log.debug(
+                        "RAG",
+                        f"[WORKER] index_task_start  |  entries={n}",
+                    )
                 self.status_changed.emit(
                     f"Indexing {n} file{'s' if n != 1 else ''}…"
                 )
                 with self._rag._lock:
-                    self._rag.clear()
-                    count = sum(
-                        1 for name, content in data
-                        if self._rag.index_content(name, content)
-                    )
+                    count, skipped, removed = self._rag.sync_index(data)
                 self.index_complete.emit(count)
+                if self._rag._log:
+                    self._rag._log.debug(
+                        "RAG",
+                        (
+                            "Index task complete"
+                            f"  |  indexed={count}"
+                            f"  skipped={skipped}"
+                            f"  removed={removed}"
+                        ),
+                    )
+                    self._rag._log.debug("RAG", "[WORKER] index_task_done")
                 self.status_changed.emit("")
 
             elif task == "load_st":

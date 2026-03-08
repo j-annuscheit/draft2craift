@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import datetime
 import html as _html
+from pathlib import Path
+import threading
 
 from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtGui import QFont, QTextCursor
@@ -79,10 +81,75 @@ class AppLogger(QObject):
 
     message_logged = Signal(str, str, str, str)   # ts, level, category, message
 
-    def __init__(self, enabled: bool = True, parent: QObject | None = None):
+    def __init__(
+        self,
+        enabled: bool = True,
+        parent: QObject | None = None,
+        *,
+        persist_to_file: bool = True,
+        log_file_path: str | None = None,
+    ):
         super().__init__(parent)
         self._enabled = enabled
         self._entries: list[LogEntry] = []
+        self._persist_to_file = bool(persist_to_file)
+        self._io_lock = threading.Lock()
+        self._log_file_path = self._resolve_log_file_path(log_file_path)
+        self._log_file_handle = None
+        if self._persist_to_file:
+            self._open_log_file()
+
+    @staticmethod
+    def _resolve_log_file_path(path: str | None) -> Path | None:
+        custom = str(path or "").strip()
+        if custom:
+            return Path(custom).expanduser()
+        candidates = [
+            Path.home() / ".draft2craift" / "logs" / "debug.log",
+            Path("/tmp") / "draft2craift" / "logs" / "debug.log",
+        ]
+        for candidate in candidates:
+            try:
+                candidate.parent.mkdir(parents=True, exist_ok=True)
+                return candidate
+            except Exception:
+                continue
+        return None
+
+    def _open_log_file(self):
+        if not self._persist_to_file:
+            return
+        path = self._log_file_path
+        if path is None:
+            self._persist_to_file = False
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._log_file_handle = path.open(
+                "a",
+                encoding="utf-8",
+                errors="replace",
+                buffering=1,  # line-buffered
+            )
+        except Exception:
+            self._log_file_handle = None
+            self._persist_to_file = False
+
+    def _append_to_file(self, entry: LogEntry):
+        if not self._persist_to_file or self._log_file_handle is None:
+            return
+        ts, level, category, message = entry
+        line = f"{ts} [{category}] [{level:<7}] {message}\n"
+        with self._io_lock:
+            try:
+                self._log_file_handle.write(line)
+                self._log_file_handle.flush()
+            except Exception:
+                self._persist_to_file = False
+
+    def log_file_path(self) -> str:
+        path = self._log_file_path
+        return str(path) if path is not None else ""
 
     # ── Control ───────────────────────────────────────────────────────────────
 
@@ -117,6 +184,7 @@ class AppLogger(QObject):
         ts    = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
         entry = (ts, level, category, message)
         self._entries.append(entry)
+        self._append_to_file(entry)
         self.message_logged.emit(*entry)
 
     def debug(self, category: str, message: str):

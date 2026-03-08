@@ -55,8 +55,47 @@ class FileImportDialog(
         self._llm_fix_worker: Optional[MarkdownLLMFixWorker] = None
         self._llm_fix_path: Optional[str] = None
         self._llm_fix_status_by_path: dict[str, dict[str, object]] = {}
+        self._llm_fix_queue: list[str] = []
+        self._llm_fix_total: int = 0
+        self._llm_fix_done_count: int = 0
+        self._llm_fix_batch_active: bool = False
+        self._pending_select_after_import: Optional[str] = None
 
         self._splitter = None
         self._settings_visible = False
 
         self._setup_ui()
+
+    def _prepare_for_handover_and_close(self):
+        """
+        Deterministically release heavy preview resources before dialog close.
+
+        This avoids late C-level cleanup races (fitz/PyMuPDF in PDF preview)
+        during object destruction after Import-and-Close.
+        """
+        try:
+            viewer = getattr(self, "_pdf_viewer", None)
+            if viewer is not None and hasattr(viewer, "clear"):
+                viewer.clear()
+        except Exception:
+            pass
+        try:
+            self._current_path = None
+            preview = getattr(self, "_preview", None)
+            if preview is not None and hasattr(preview, "clear_text"):
+                preview.clear_text()
+        except Exception:
+            pass
+
+    def reject(self):
+        busy_check = getattr(self, "_has_running_background_worker", None)
+        if callable(busy_check) and bool(busy_check()):
+            status = getattr(self, "_preview_status", None)
+            if status is not None:
+                status.setText("Bitte warten: Hintergrundjob laeuft noch…")
+                status.setToolTip(
+                    "Schliessen ist blockiert, bis Import/Analyse abgeschlossen ist."
+                )
+                status.setVisible(True)
+            return
+        super().reject()

@@ -51,6 +51,7 @@ class KnowledgeDock(QDockWidget):
         self.rag_system = rag_system
         self.rag_worker = RAGWorker(rag_system, parent=self)
         self._pending_reindex_entries: list[tuple[str, str]] = []
+        self._reindex_suspended = False
         self._reindex_timer = QTimer(self)
         self._reindex_timer.setSingleShot(True)
         self._reindex_timer.timeout.connect(self._flush_reindex_rag)
@@ -116,10 +117,42 @@ class KnowledgeDock(QDockWidget):
         Selection bursts (e.g. bulk import) are coalesced and dispatched once.
         """
         self._pending_reindex_entries = list(entries or [])
+        rag_log = getattr(self.rag_system, "_log", None)
+        if rag_log is not None:
+            try:
+                rag_log.debug(
+                    "RAG",
+                    (
+                        "[QUEUE] reindex_requested"
+                        f"  |  entries={len(self._pending_reindex_entries)}"
+                        f"  suspended={int(bool(self._reindex_suspended))}"
+                    ),
+                )
+            except Exception:
+                pass
+        if self._reindex_suspended:
+            return
         self._reindex_timer.start(140)
 
     def _flush_reindex_rag(self):
+        if self._reindex_suspended:
+            rag_log = getattr(self.rag_system, "_log", None)
+            if rag_log is not None:
+                try:
+                    rag_log.debug("RAG", "[QUEUE] flush skipped (suspended)")
+                except Exception:
+                    pass
+            return
         entries = list(self._pending_reindex_entries)
+        rag_log = getattr(self.rag_system, "_log", None)
+        if rag_log is not None:
+            try:
+                rag_log.debug(
+                    "RAG",
+                    f"[QUEUE] enqueue_index  |  entries={len(entries)}",
+                )
+            except Exception:
+                pass
         self.rag_worker.enqueue_index(entries)
 
     def _run_rag_search(self, query: str):
@@ -158,10 +191,35 @@ class KnowledgeDock(QDockWidget):
         """Register multiple imported files in one batch (auto-checked)."""
         self.imported_files.add_files(entries)
 
-    def open_content(self, title: str, content: str, doc_key: str = ""):
+    def open_content(
+        self,
+        title: str,
+        content: str,
+        doc_key: str = "",
+        *,
+        activate: bool = True,
+    ):
         """Open pre-converted markdown content in the Document Viewer."""
-        self.doc_viewer.open_content(title, content, doc_key=doc_key)
-        self.tab_widget.setCurrentWidget(self.doc_viewer)
+        self.doc_viewer.open_content(
+            title,
+            content,
+            doc_key=doc_key,
+            activate=activate,
+        )
+        if activate:
+            self.tab_widget.setCurrentWidget(self.doc_viewer)
+
+    def suspend_reindex(self):
+        """Pause auto-reindex scheduling (used during bulk UI imports)."""
+        self._reindex_suspended = True
+        self._reindex_timer.stop()
+
+    def resume_reindex(self, *, flush: bool = True):
+        """Resume reindex scheduling and optionally flush pending selection."""
+        self._reindex_suspended = False
+        if flush:
+            self._reindex_timer.stop()
+            self._flush_reindex_rag()
 
     def remove_imported_file(self, name: str):
         """Remove one imported file from the selector (and trigger reindex)."""

@@ -413,6 +413,7 @@ class TabbedEditorWidget(QWidget):
         content: str = "",
         file_path: str = "",
         read_only: bool | None = None,
+        activate: bool = True,
     ) -> QWidget:
         self._counter += 1
         if not title:
@@ -435,7 +436,8 @@ class TabbedEditorWidget(QWidget):
 
         idx = self.tab_widget.addTab(panel, title)
         self._set_full_tab_title(idx, title)
-        self.tab_widget.setCurrentIndex(idx)
+        if activate:
+            self.tab_widget.setCurrentIndex(idx)
         self._refresh_tab_labels()
         self._update_close_buttons()
         return panel

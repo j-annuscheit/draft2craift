@@ -76,9 +76,12 @@ class ConversionWorker(QThread):
             return
 
         worker_count = min(len(jobs), self._max_workers)
-        use_parallel = worker_count > 1
+        has_pdf_jobs = any(
+            os.path.splitext(path)[1].lower() == ".pdf"
+            for _idx, path, _settings in jobs
+        )
 
-        if use_parallel and self._parallel_backend == "thread":
+        if worker_count > 1 and self._parallel_backend == "thread":
             try:
                 with ThreadPoolExecutor(max_workers=worker_count) as pool:
                     future_map = {
@@ -107,7 +110,7 @@ class ConversionWorker(QThread):
                 # Fallback to in-thread sequential mode if thread pool init fails.
                 pass
 
-        if use_parallel and self._parallel_backend == "process":
+        if self._parallel_backend == "process":
             try:
                 # "spawn" is safer with Qt apps than forking from a worker thread.
                 mp_ctx = multiprocessing.get_context("spawn")
@@ -137,9 +140,19 @@ class ConversionWorker(QThread):
                         self.file_done.emit(idx, name, path, md, error, settings)
                 self.all_done.emit()
                 return
-            except Exception:
-                # Fallback to in-thread sequential mode if process pool init fails.
-                pass
+            except Exception as exc:
+                # Do NOT fall back to in-thread PDF conversion when process
+                # isolation was requested: native PDF libs may crash the app.
+                if has_pdf_jobs:
+                    for idx, path, settings in jobs:
+                        if self._stop:
+                            break
+                        name = os.path.basename(path)
+                        error = f"Isolated PDF process failed: {exc}"
+                        self.file_done.emit(idx, name, path, "", error, settings)
+                    self.all_done.emit()
+                    return
+                # Non-PDF fallback can still run sequentially.
 
         for i, path, settings in jobs:
             if self._stop:
@@ -263,11 +276,22 @@ class MarkdownLLMFixWorker(QThread):
     def _numbers_signature(text: str) -> tuple[str, ...]:
         return tuple(re.findall(r"\d+(?:[.,]\d+)?", str(text or "")))
 
+    @staticmethod
+    def _page_marker_signature(text: str) -> tuple[str, ...]:
+        matches = re.findall(
+            r"\[\s*Seite\s+(\d+)\s*\]",
+            str(text or ""),
+            flags=re.IGNORECASE,
+        )
+        return tuple(str(int(num)) for num in matches)
+
     @classmethod
     def _accept_candidate(cls, original: str, candidate: str) -> bool:
         orig = str(original or "")
         cand = str(candidate or "")
         if not cand.strip():
+            return False
+        if cls._page_marker_signature(orig) != cls._page_marker_signature(cand):
             return False
         if cls._numbers_signature(orig) != cls._numbers_signature(cand):
             return False
@@ -292,6 +316,78 @@ class MarkdownLLMFixWorker(QThread):
         if fence:
             return str(fence.group(1) or "")
         return text
+
+    @staticmethod
+    def _source_has_xml_tag(text: str, tag_name: str) -> bool:
+        return bool(
+            re.search(
+                rf"</?\s*{re.escape(str(tag_name or '').strip())}\s*>",
+                str(text or ""),
+                flags=re.IGNORECASE,
+            )
+        )
+
+    @classmethod
+    def _remove_leaked_prompt_tags(cls, original: str, candidate: str) -> str:
+        src = str(original or "")
+        out = str(candidate or "")
+        if not out:
+            return out
+
+        if not cls._source_has_xml_tag(src, "fixed_md"):
+            out = re.sub(r"</?\s*fixed_md\s*>", "", out, flags=re.IGNORECASE)
+        if not cls._source_has_xml_tag(src, "markdown_input"):
+            out = re.sub(r"</?\s*markdown_input\s*>", "", out, flags=re.IGNORECASE)
+        if "<|" not in src:
+            out = re.sub(r"<\|[^|>\n]{1,120}\|>", "", out)
+        return out
+
+    @staticmethod
+    def _restore_percent_signs(original: str, candidate: str) -> str:
+        src = str(original or "")
+        out = str(candidate or "")
+        if "%" not in src:
+            return out
+        return re.sub(
+            r"(\d+(?:[.,]\d+)?)\s*(?:Prozent|prozent)\b",
+            r"\1 %",
+            out,
+        )
+
+    @classmethod
+    def _restore_page_markers(cls, original: str, candidate: str) -> str:
+        """
+        Preserve generated page markers in canonical form: ``[Seite N]``.
+        """
+        src = str(original or "")
+        out = str(candidate or "")
+        src_signature = cls._page_marker_signature(src)
+        if not src_signature:
+            return out
+
+        # Normalize already bracketed variants to canonical spelling/spacing.
+        out = re.sub(
+            r"\[\s*Seite\s+(\d+)\s*\]",
+            lambda m: f"[Seite {int(m.group(1))}]",
+            out,
+            flags=re.IGNORECASE,
+        )
+
+        allowed = {str(int(num)) for num in src_signature}
+
+        # Repair line-only degradations like "Seite 12" -> "[Seite 12]".
+        def _line_marker_repl(m: re.Match[str]) -> str:
+            num = str(int(m.group(1)))
+            if num in allowed:
+                return f"[Seite {num}]"
+            return str(m.group(0) or "")
+
+        out = re.sub(
+            r"(?im)^\s*Seite\s+(\d+)\s*$",
+            _line_marker_repl,
+            out,
+        )
+        return out
 
     @staticmethod
     def _escape_internal_word_asterisks(text: str) -> str:
@@ -603,6 +699,9 @@ class MarkdownLLMFixWorker(QThread):
                 meta = {"applied": False, "reason": f"exception:{exc}"}
 
             fixed = self._extract_markdown_payload(str(fixed_raw or ""))
+            fixed = self._remove_leaked_prompt_tags(chunk, fixed)
+            fixed = self._restore_percent_signs(chunk, fixed)
+            fixed = self._restore_page_markers(chunk, fixed)
             fixed = self._escape_internal_word_asterisks(fixed)
             fixed = self._strip_new_single_emphasis_markup(chunk, fixed)
             fixed = self._restore_heading_boundaries(chunk, fixed)
@@ -611,7 +710,11 @@ class MarkdownLLMFixWorker(QThread):
                 out_chunks.append(chunk)
                 rejected += 1
                 reason = str(meta.get("reason", "") if isinstance(meta, dict) else "")
-                if reason.startswith("exception") or "error" in reason.casefold():
+                if (
+                    reason.startswith("exception")
+                    or "error" in reason.casefold()
+                    or "fallback" in reason.casefold()
+                ):
                     errors += 1
                 continue
 

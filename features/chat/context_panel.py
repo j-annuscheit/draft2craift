@@ -1,7 +1,7 @@
 """Context source selection panel for chat requests."""
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import QTimer, Signal, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -30,6 +30,7 @@ class ContextSelectorPanel(QWidget):
 
     preferred_height_changed = Signal(int)
     _HEIGHT_PADDING = 10
+    _MAX_VISIBLE_DOC_ROWS = 10
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -64,6 +65,8 @@ class ContextSelectorPanel(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet(
             "QScrollArea { background: palette(base); border: none; }"
         )
@@ -120,10 +123,31 @@ class ContextSelectorPanel(QWidget):
             body_h = self._body.sizeHint().height()
         else:
             body_h = 0
+        if self._cbs and len(self._cbs) > self._MAX_VISIBLE_DOC_ROWS:
+            full_docs_h = self._docs_rows_height()
+            limited_docs_h = self._docs_rows_height(self._MAX_VISIBLE_DOC_ROWS)
+            body_h = max(0, body_h - max(0, full_docs_h - limited_docs_h))
         frame_h = 0
         if self._scroll is not None:
             frame_h = self._scroll.frameWidth() * 2
         return max(52, header_h + body_h + frame_h + self._HEIGHT_PADDING)
+
+    def _docs_rows_height(self, limit: int | None = None) -> int:
+        if not self._cbs:
+            return 0
+        rows = list(self._cbs.values())
+        if limit is not None:
+            rows = rows[: max(0, int(limit))]
+        if not rows:
+            return 0
+        spacing = 0
+        if self._body_layout is not None:
+            spacing = max(0, int(self._body_layout.spacing()))
+        total = 0
+        for cb in rows:
+            total += max(14, int(cb.sizeHint().height()))
+        total += spacing * max(0, len(rows) - 1)
+        return total
 
     def _schedule_height_refresh(self):
         QTimer.singleShot(0, self._refresh_height)

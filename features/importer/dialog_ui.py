@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -51,9 +51,6 @@ class FileImportDialogUIMixin:
         toolbar.addWidget(self._btn_toggle_settings)
 
         toolbar.addStretch()
-        btn_close = QPushButton("✕  Close")
-        btn_close.clicked.connect(self.reject)
-        toolbar.addWidget(btn_close)
         root.addLayout(toolbar)
 
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -105,21 +102,13 @@ class FileImportDialogUIMixin:
         md_layout.setContentsMargins(0, 4, 0, 0)
         md_layout.setSpacing(4)
         hdr_row = QHBoxLayout()
-        self._btn_llm_fix = QPushButton("Fix by LLM")
-        self._btn_llm_fix.setToolTip(
-            "Korrigiert Markdown-Struktur blockweise per LLM "
-            "(Ueberschriften, Tabellen, Zeilenumbrueche, OCR-Formatfehler). "
-            "Inhalte sollen unveraendert bleiben."
-        )
-        self._btn_llm_fix.clicked.connect(self._run_llm_fix_current_markdown)
-        hdr_row.addWidget(self._btn_llm_fix)
         hdr_row.addStretch()
         self._preview_status = QLabel("")
         self._preview_status.setStyleSheet("color: #F9E2AF; font-size: 10px;")
         self._preview_status.setWordWrap(False)
-        self._preview_status.setMaximumWidth(220)
+        self._preview_status.setMaximumWidth(16777215)
         self._preview_status.setSizePolicy(
-            QSizePolicy.Policy.Maximum,
+            QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
         self._preview_status.setAlignment(
@@ -172,15 +161,26 @@ class FileImportDialogUIMixin:
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        self._btn_import = QPushButton("Import All")
+        self._btn_llm_fix = QPushButton("Use LLM to optimize")
+        self._btn_llm_fix.setToolTip(
+            "Korrigiert die Markdown-Struktur fuer alle geladenen Dateien nacheinander per LLM "
+            "(Ueberschriften, Tabellen, Zeilenumbrueche, OCR-Formatfehler). "
+            "Inhalte sollen unveraendert bleiben."
+        )
+        self._btn_llm_fix.clicked.connect(self._run_llm_fix_current_markdown)
+        self._btn_import = QPushButton("Convert to MarkDown")
         self._btn_import.setObjectName("primary")
         self._btn_import.setEnabled(False)
         self._btn_import.clicked.connect(self._start_import)
-        self._btn_open = QPushButton("Open in Viewer")
+        self._btn_open = QPushButton("Import and Close")
         self._btn_open.setEnabled(False)
         self._btn_open.clicked.connect(self._open_in_viewer)
+        self._btn_cancel = QPushButton("Abbrechen")
+        self._btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(self._btn_import)
+        btn_row.addWidget(self._btn_llm_fix)
         btn_row.addWidget(self._btn_open)
+        btn_row.addWidget(self._btn_cancel)
         root.addLayout(btn_row)
         refresh = getattr(self, "_refresh_llm_fix_button", None)
         if callable(refresh):
@@ -208,17 +208,79 @@ class FileImportDialogUIMixin:
         return any(entry.status == _STATUS_DONE for entry in self._entries.values())
 
     def _open_in_viewer(self):
+        parent = self.parent()
+        logger = getattr(parent, "app_logger", None)
+        if logger is not None:
+            try:
+                logger.debug(
+                    "SYS",
+                    (
+                        "[IMPORT/DIALOG] Import-and-Close clicked"
+                        f"  |  entries={len(getattr(self, '_entries', {}) or {})}"
+                    ),
+                )
+            except Exception:
+                pass
+        busy_check = getattr(self, "_has_running_background_worker", None)
+        if callable(busy_check) and bool(busy_check()):
+            self._preview_status.setText("Bitte warten: Import/Analyse laeuft noch…")
+            self._preview_status.setToolTip(
+                "Import and Close ist erst moeglich, wenn alle Hintergrundjobs fertig sind."
+            )
+            self._preview_status.setVisible(True)
+            if logger is not None:
+                try:
+                    logger.debug("SYS", "[IMPORT/DIALOG] Import-and-Close blocked (background worker busy)")
+                except Exception:
+                    pass
+            return
+        prepare = getattr(self, "_prepare_for_handover_and_close", None)
+        if callable(prepare):
+            if logger is not None:
+                try:
+                    logger.debug("SYS", "[IMPORT/DIALOG] Releasing preview resources before handover")
+                except Exception:
+                    pass
+            prepare()
         results = converted_results(self._entries)
         if not results:
+            if logger is not None:
+                try:
+                    logger.debug("SYS", "[IMPORT/DIALOG] No converted results to hand over")
+                except Exception:
+                    pass
             return
-        parent = self.parent()
+        if logger is not None:
+            try:
+                logger.debug("SYS", f"[IMPORT/DIALOG] Handover payload prepared  |  files={len(results)}")
+            except Exception:
+                pass
         direct_handler = getattr(parent, "_on_files_imported", None)
         # Prefer direct in-process handoff for large payloads (markdown blobs)
         # to avoid heavy Qt signal marshalling of giant Python lists.
         if callable(direct_handler):
-            direct_handler(results)
+            payload = [(str(n), str(p), str(m)) for (n, p, m) in results]
+            if logger is not None:
+                try:
+                    logger.debug(
+                        "SYS",
+                        f"[IMPORT/DIALOG] Direct handover scheduled via QTimer  |  files={len(payload)}",
+                    )
+                except Exception:
+                    pass
+            self.accept()
+            QTimer.singleShot(
+                0,
+                lambda cb=direct_handler, data=payload: cb(data),
+            )
             return
+        if logger is not None:
+            try:
+                logger.debug("SYS", "[IMPORT/DIALOG] Emitting files_imported signal")
+            except Exception:
+                pass
         self.files_imported.emit(results)
+        self.accept()
 
     def _open_tab_context_menu(self, pos):
         bar = self._tabs.tabBar()

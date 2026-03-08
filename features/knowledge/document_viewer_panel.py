@@ -32,11 +32,14 @@ class DocumentViewerPanel(QWidget):
                 show_toolbar=True,
                 lock_toggle_enabled=False,
                 allow_preview_editing=True,
+                show_markdown_by_default=True,
+                show_preview_by_default=False,
                 highlight_scope="viewer",
             ),
         )
         layout.addWidget(self.tabs)
         self.tabs.tab_renamed.connect(self._on_tab_renamed)
+        self.tabs.tab_widget.currentChanged.connect(self._on_current_tab_changed)
 
         try:
             self.tabs.tab_widget.tabCloseRequested.disconnect(self.tabs._close_tab)
@@ -53,10 +56,21 @@ class DocumentViewerPanel(QWidget):
                 return
         self.tabs.add_file_tab(path)
 
-    def open_content(self, title: str, content: str, doc_key: str = ""):
+    def open_content(
+        self,
+        title: str,
+        content: str,
+        doc_key: str = "",
+        *,
+        activate: bool = True,
+    ):
         """Open pre-converted markdown content in a new viewer tab."""
-        panel = self.tabs.add_tab(title=title, content=content)
+        panel = self.tabs.add_tab(title=title, content="", activate=activate)
         setattr(panel, "_doc_key", str(doc_key or "").strip())
+        setattr(panel, "_lazy_markdown_content", str(content or ""))
+        if activate:
+            self._materialize_panel_content(panel)
+            self._schedule_panel_preview_update(panel)
 
     def get_current_text(self) -> str:
         panel = self.tabs.current_panel()
@@ -153,3 +167,36 @@ class DocumentViewerPanel(QWidget):
         new_key = str(new_title or "").strip()
         if old_key and new_key and old_key != new_key:
             self.document_rename_requested.emit(old_key, new_key)
+
+    def _on_current_tab_changed(self, index: int):
+        panel = self.tabs.tab_widget.widget(index)
+        if isinstance(panel, QWidget):
+            self._materialize_panel_content(panel)
+            self._schedule_panel_preview_update(panel)
+
+    @staticmethod
+    def _schedule_panel_preview_update(panel: QWidget):
+        refresh = getattr(panel, "refresh_preview_overlays", None)
+        if callable(refresh):
+            try:
+                refresh()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _materialize_panel_content(panel: QWidget):
+        text = getattr(panel, "_lazy_markdown_content", None)
+        if text is None:
+            return
+        editor = getattr(panel, "editor", None)
+        if editor is None:
+            return
+        old_block = bool(editor.blockSignals(True))
+        try:
+            editor.setPlainText(str(text or ""))
+            try:
+                delattr(panel, "_lazy_markdown_content")
+            except Exception:
+                setattr(panel, "_lazy_markdown_content", None)
+        finally:
+            editor.blockSignals(old_block)

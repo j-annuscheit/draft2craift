@@ -5,6 +5,8 @@ Entry point.
 import sys
 import os
 import multiprocessing
+import faulthandler
+from pathlib import Path
 
 # Make sure sibling imports work regardless of CWD
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -16,9 +18,28 @@ from shell.window import MainWindow
 from shell.theme import apply_theme
 
 
+def _enable_fault_logging():
+    """
+    Persist Python fault traces (incl. SIGSEGV context) to disk.
+    """
+    try:
+        target = Path.home() / ".draft2craift" / "logs" / "faulthandler.log"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fh = target.open("a", encoding="utf-8", errors="replace")
+        faulthandler.enable(file=fh, all_threads=True)
+        # Keep file handle alive for process lifetime.
+        globals()["_FAULT_LOG_HANDLE"] = fh
+    except Exception:
+        try:
+            faulthandler.enable(all_threads=True)
+        except Exception:
+            pass
+
+
 def main():
     # High-DPI support
     os.environ.setdefault("QT_AUTO_SCREEN_SCALE_FACTOR", "1")
+    _enable_fault_logging()
 
     app = QApplication(sys.argv)
     app.setApplicationName("draft2craift")

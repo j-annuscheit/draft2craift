@@ -18,6 +18,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -100,6 +101,7 @@ class LLMWorker(QThread):
         self._forbidden_chars: tuple[str, ...] = ()
         self._forbidden_bias_cache_model: tuple[str, int] | None = None
         self._forbidden_bias_cache: dict[tuple[str, ...], dict[int, float]] = {}
+        self._model_thread_ident: int | None = None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -166,6 +168,7 @@ class LLMWorker(QThread):
             self._release_loaded_model()
             from llama_cpp import Llama  # type: ignore
             self._model = Llama(model_path=self._model_path, **self._load_params)
+            self._model_thread_ident = int(threading.get_ident())
             self._forbidden_bias_cache_model = None
             self._forbidden_bias_cache.clear()
             self.model_loaded.emit(True, f"✓ {os.path.basename(self._model_path)}")
@@ -181,6 +184,7 @@ class LLMWorker(QThread):
         """Release currently loaded model resources before loading another one."""
         model = self._model
         self._model = None
+        self._model_thread_ident = None
         self._forbidden_bias_cache_model = None
         self._forbidden_bias_cache.clear()
         if model is None:
@@ -939,20 +943,25 @@ class LLMManager(QObject):
 
     @staticmethod
     def _extract_tagged_payload(raw_text: str, tag: str) -> str:
+        payload, _tag_found = LLMManager._extract_tagged_payload_with_flag(raw_text, tag)
+        return payload
+
+    @staticmethod
+    def _extract_tagged_payload_with_flag(raw_text: str, tag: str) -> tuple[str, bool]:
         raw = str(raw_text or "")
         if not raw.strip():
-            return ""
+            return "", False
         tag_name = str(tag or "").strip()
         if not tag_name:
-            return raw.strip()
+            return raw.strip(), True
         m = re.search(
             rf"<{re.escape(tag_name)}>\s*([\s\S]*?)\s*</{re.escape(tag_name)}>",
             raw,
             flags=re.IGNORECASE,
         )
         if m:
-            return str(m.group(1) or "").strip()
-        return raw.strip()
+            return str(m.group(1) or "").strip(), True
+        return raw.strip(), False
 
     def fix_markdown_chunk_sync(
         self,
@@ -987,6 +996,19 @@ class LLMManager(QObject):
                 "applied": False,
                 "reason": "model_missing",
             }
+        if self._log:
+            caller_tid = int(threading.get_ident())
+            model_tid = int(getattr(self.worker, "_model_thread_ident", 0) or 0)
+            self._log.debug(
+                "LLM",
+                (
+                    "[Import-Markdown-Fix] call context"
+                    f"  |  caller_tid={caller_tid}"
+                    f"  model_tid={model_tid}"
+                    f"  same_thread={int(caller_tid == model_tid and model_tid != 0)}"
+                    f"  worker_running={int(bool(self.worker.isRunning()))}"
+                ),
+            )
 
         system_prompt = (
             "Du bist ein strenger Markdown-Repair-Assistent.\n"
@@ -1017,72 +1039,111 @@ class LLMManager(QObject):
             "erhalten bleiben.\n"
             "Wenn unsicher: Original unveraendert lassen."
         )
-        user_prompt = (
-            "Repariere den folgenden Markdown-Block.\n"
-            "Gib NUR den korrigierten Markdown-Block zurueck, eingeschlossen in:\n"
-            "<fixed_md>\n"
-            "...markdown...\n"
-            "</fixed_md>\n"
-            "Kein weiterer Text.\n\n"
-            "<markdown_input>\n"
-            f"{source}\n"
-            "</markdown_input>"
-        )
-        prompt = (
-            "<|system|>\n"
-            f"{system_prompt}\n"
-            "<|user|>\n"
-            f"{user_prompt}\n"
-            "<|assistant|>\n"
-        )
-
         source_tokens = max(1, self._count_tokens(source))
         max_out_tokens = max(280, min(2200, int(source_tokens * 2.1)))
-        window_err = self._check_prompt_window(prompt, max_out_tokens)
-        if window_err:
-            if self._log:
-                self._log.error("LLM", f"Import markdown-fix context too large: {window_err}")
-            self._log_llm_io("Import-Markdown-Fix", prompt, error=window_err)
-            return source, {
-                "applied": False,
-                "reason": "context_too_large",
-                "error": window_err,
-            }
+        max_attempts = 3
+        last_raw_full = ""
+        last_error = ""
 
-        try:
-            result = model(
-                prompt,
-                max_tokens=max_out_tokens,
-                temperature=0.05,
-                top_p=0.9,
-                repeat_penalty=1.0,
-                stop=["<|"],
-                stream=False,
+        for attempt in range(1, max_attempts + 1):
+            retry_hint = ""
+            if attempt >= 2:
+                retry_hint = (
+                    "\nWICHTIG: Deine Antwort MUSS exakt ein <fixed_md>...</fixed_md> "
+                    "enthalten. Keine weiteren Tags, kein Fliesstext ausserhalb."
+                )
+            user_prompt = (
+                "Repariere den folgenden Markdown-Block.\n"
+                "Gib NUR den korrigierten Markdown-Block zurueck, eingeschlossen in:\n"
+                "<fixed_md>\n"
+                "...markdown...\n"
+                "</fixed_md>\n"
+                "Kein weiterer Text."
+                f"{retry_hint}\n\n"
+                "<markdown_input>\n"
+                f"{source}\n"
+                "</markdown_input>"
             )
-            raw_full = str(result["choices"][0].get("text", "") or "")
-            self._log_llm_io("Import-Markdown-Fix", prompt, raw_full)
-            payload = self._extract_tagged_payload(raw_full, "fixed_md")
-            if not payload.strip():
+            prompt = (
+                "<|system|>\n"
+                f"{system_prompt}\n"
+                "<|user|>\n"
+                f"{user_prompt}\n"
+                "<|assistant|>\n"
+            )
+            window_err = self._check_prompt_window(prompt, max_out_tokens)
+            if window_err:
+                if self._log:
+                    self._log.error("LLM", f"Import markdown-fix context too large: {window_err}")
+                self._log_llm_io(
+                    f"Import-Markdown-Fix#{attempt}",
+                    prompt,
+                    error=window_err,
+                )
                 return source, {
                     "applied": False,
-                    "reason": "empty_output",
-                    "raw_preview": raw_full[:220],
+                    "reason": "context_too_large",
+                    "error": window_err,
                 }
-            return payload, {
+            try:
+                result = model(
+                    prompt,
+                    max_tokens=max_out_tokens,
+                    temperature=0.05,
+                    top_p=0.9,
+                    repeat_penalty=1.0,
+                    stop=["<|"],
+                    stream=False,
+                )
+                raw_full = str(result["choices"][0].get("text", "") or "")
+                last_raw_full = raw_full
+                self._log_llm_io(f"Import-Markdown-Fix#{attempt}", prompt, raw_full)
+                payload, tag_found = self._extract_tagged_payload_with_flag(
+                    raw_full,
+                    "fixed_md",
+                )
+                if tag_found and payload.strip():
+                    return payload, {
+                        "applied": True,
+                        "reason": "ok",
+                        "attempt": attempt,
+                        "tag_found": True,
+                        "raw_len": len(raw_full),
+                        "out_len": len(payload),
+                    }
+            except Exception as exc:
+                last_error = str(exc)
+                self._log_llm_io(
+                    f"Import-Markdown-Fix#{attempt}",
+                    prompt,
+                    error=last_error,
+                )
+                if self._log:
+                    self._log.error("LLM", f"Import markdown-fix failed (attempt {attempt}): {exc}")
+
+        # After 3 failed tagged attempts, use full output as a last fallback.
+        fallback = str(last_raw_full or "").strip()
+        if fallback:
+            return fallback, {
                 "applied": True,
-                "reason": "ok",
-                "raw_len": len(raw_full),
-                "out_len": len(payload),
+                "reason": "fallback_raw_output",
+                "attempt": max_attempts,
+                "tag_found": False,
+                "raw_len": len(last_raw_full),
+                "out_len": len(fallback),
             }
-        except Exception as exc:
-            self._log_llm_io("Import-Markdown-Fix", prompt, error=str(exc))
-            if self._log:
-                self._log.error("LLM", f"Import markdown-fix failed: {exc}")
+
+        if last_error:
             return source, {
                 "applied": False,
                 "reason": "exception",
-                "error": str(exc),
+                "error": last_error,
             }
+        return source, {
+            "applied": False,
+            "reason": "empty_output",
+            "raw_preview": str(last_raw_full or "")[:220],
+        }
 
     def expand_query_tfidf_sync(self, query: str) -> str:
         """HyDE keyword expansion for the TF-IDF backend.
