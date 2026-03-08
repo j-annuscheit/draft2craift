@@ -1445,7 +1445,12 @@ class LLMManager(QObject):
 
         size = max(220, min(4200, int(chunk_size or 900)))
         overlap = max(0, min(size - 20, int(chunk_overlap or 160)))
-        leaf_limit = max(1, min(360, int(max_nodes or 32)))
+        # chunkmap: max_nodes <= 0 means "no hard leaf limit".
+        try:
+            requested_limit = int(max_nodes)
+        except Exception:
+            requested_limit = 0
+        leaf_limit = requested_limit if requested_limit > 0 else 0
 
         cfg = RAGConfig(
             use_tfidf=False,
@@ -1529,7 +1534,7 @@ class LLMManager(QObject):
             if not chunk_text:
                 continue
             total_chunks += 1
-            if chunk_count >= leaf_limit:
+            if leaf_limit > 0 and chunk_count >= leaf_limit:
                 truncated = True
                 continue
 

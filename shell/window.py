@@ -108,7 +108,10 @@ class _LLMSideTaskWorker(QObject):
                 context_text = str(self._payload.get("context_text", "") or "")
                 query = str(self._payload.get("query", "") or "")
                 mode = str(self._payload.get("mode", "mindmap") or "mindmap")
-                max_nodes = int(self._payload.get("max_nodes", 32) or 32)
+                try:
+                    max_nodes = int(self._payload.get("max_nodes", 32))
+                except Exception:
+                    max_nodes = 32
                 chunking_strategy = str(
                     self._payload.get("chunking_strategy", "sliding_window")
                     or "sliding_window"
@@ -2132,9 +2135,10 @@ class MainWindow(QMainWindow):
     ) -> str:
         parts: list[str] = []
         try:
-            char_limit = max(1, int(max_chars))
+            char_limit = int(max_chars)
         except Exception:
             char_limit = 22000
+        unlimited = char_limit <= 0
         total_len = 0
         truncated = False
 
@@ -2145,6 +2149,11 @@ class MainWindow(QMainWindow):
                 return True
             header = f"## {label}\n"
             footer = "\n\n"
+            if unlimited:
+                chunk = f"{header}{body}{footer}"
+                parts.append(chunk)
+                total_len += len(chunk)
+                return True
             room = char_limit - total_len - len(header) - len(footer)
             if room <= 0:
                 truncated = True
@@ -2167,7 +2176,7 @@ class MainWindow(QMainWindow):
             if not add_chunk(f"Quelle: {name}", str(content or "")):
                 break
 
-        if total_len < char_limit:
+        if unlimited or total_len < char_limit:
             for path, score, excerpt in list(ctx.get("rag_results", []) or []):
                 label = str(path or "").strip() or "RAG Results"
                 try:
@@ -2180,7 +2189,7 @@ class MainWindow(QMainWindow):
                 ):
                     break
 
-        if total_len < char_limit:
+        if unlimited or total_len < char_limit:
             selected_text = str(ctx.get("selected_text", "") or "").strip()
             if selected_text:
                 add_chunk("Ausgewählter Text (Draft)", selected_text)
@@ -2199,7 +2208,7 @@ class MainWindow(QMainWindow):
                     break
 
         text = "".join(parts).strip()
-        if truncated and text:
+        if (not unlimited) and truncated and text:
             return f"{text}\n\n[Hinweis: Kontext wurde aus Platzgründen gekürzt.]"
         return text
 
@@ -2216,9 +2225,10 @@ class MainWindow(QMainWindow):
         """
         out: list[str] = []
         try:
-            char_limit = max(1, int(max_chars))
+            char_limit = int(max_chars)
         except Exception:
             char_limit = 22000
+        unlimited = char_limit <= 0
         total_len = 0
         truncated = False
 
@@ -2229,6 +2239,11 @@ class MainWindow(QMainWindow):
                 return True
             header = f"[{label}]\n"
             footer = "\n\n"
+            if unlimited:
+                block = f"{header}{body}{footer}"
+                out.append(block)
+                total_len += len(block)
+                return True
             room = char_limit - total_len - len(header) - len(footer)
             if room <= 0:
                 truncated = True
@@ -2255,7 +2270,7 @@ class MainWindow(QMainWindow):
             if not add_raw(f"Quelle: {name}", body):
                 break
 
-        if total_len < char_limit:
+        if unlimited or total_len < char_limit:
             for item in list(ctx.get("rag_results", []) or []):
                 if not isinstance(item, (tuple, list)) or len(item) < 3:
                     continue
@@ -2264,13 +2279,13 @@ class MainWindow(QMainWindow):
                 if not add_raw(f"RAG: {path}", excerpt):
                     break
 
-        if total_len < char_limit:
+        if unlimited or total_len < char_limit:
             selected = str(ctx.get("selected_text", "") or "")
             if selected.strip():
                 add_raw("Ausgewählter Text (Draft)", selected)
 
         text = "".join(out).strip()
-        if truncated and text:
+        if (not unlimited) and truncated and text:
             return f"{text}\n\n[Hinweis: Kontext wurde aus Platzgründen gekürzt.]"
         return text
 
@@ -2622,9 +2637,11 @@ class MainWindow(QMainWindow):
                 "wenn die aktuelle Generation fertig ist.",
             )
 
-        context_text = self._build_context_text_from_llm_context(ctx)
+        # MindMap/Graph/Chunk-MindMap should see full selected context without
+        # artificial truncation markers from context assembly.
+        context_text = self._build_context_text_from_llm_context(ctx, max_chars=0)
         if not context_text:
-            context_text = self._fallback_context_text_from_ctx(ctx)
+            context_text = self._fallback_context_text_from_ctx(ctx, max_chars=0)
         if not context_text:
             selected_text_len = len(str(ctx.get("selected_text", "") or "").strip())
             file_count = len(list(ctx.get("file_contents", []) or []))
@@ -2663,7 +2680,7 @@ class MainWindow(QMainWindow):
                 "context_text": context_text,
                 "query": query,
                 "mode": mode,
-                "max_nodes": 32,
+                "max_nodes": (0 if mode == "chunkmap" else 32),
                 "chunking_strategy": str(
                     getattr(rag_cfg, "chunking_strategy", "sliding_window")
                     or "sliding_window"

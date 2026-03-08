@@ -39,6 +39,39 @@ _GRAPH_MARKDOWN_LONG_QUOTE = "```mindmap\n" + json.dumps(
     ensure_ascii=False,
     indent=2,
 ) + "\n```"
+_GRAPH_MARKDOWN_NESTED = "```mindmap\n" + json.dumps(
+    {
+        "type": "mindmap",
+        "title": "Nested",
+        "nodes": [
+            {
+                "id": "root",
+                "label": "Root",
+                "children": [
+                    {
+                        "id": "h1",
+                        "label": "H1",
+                        "children": [
+                            {
+                                "id": "h1a",
+                                "label": "H1A",
+                                "children": [
+                                    {
+                                        "id": "leaf",
+                                        "label": "Leaf",
+                                        "quote": "Q",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    },
+    ensure_ascii=False,
+    indent=2,
+) + "\n```"
 
 
 class PreviewStructuredGraphCommitTests(unittest.TestCase):
@@ -57,6 +90,18 @@ class PreviewStructuredGraphCommitTests(unittest.TestCase):
         pane.show()
         self.__class__._app.processEvents()
         return pane, editor
+
+    @classmethod
+    def _visible_node_ids(cls, pane: CanvasPreviewPane) -> set[str]:
+        scene = pane._graph_scene
+        if scene is None:
+            return set()
+        out: set[str] = set()
+        for item in scene.items():
+            node_id = getattr(item, "_node_id", None)
+            if isinstance(node_id, str) and node_id:
+                out.add(node_id)
+        return out
 
     def test_commit_does_not_overwrite_editor_when_structured_graph_active(self):
         pane, editor = self._build_pane()
@@ -106,6 +151,57 @@ class PreviewStructuredGraphCommitTests(unittest.TestCase):
             assert scene is not None
             tips = [item.toolTip() for item in scene.items() if item.toolTip()]
             self.assertTrue(any("ChunkEndMarker" in tip for tip in tips))
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_mindmap_initially_shows_only_base_nodes(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText(_GRAPH_MARKDOWN_NESTED)
+            pane._render()
+            self.assertTrue(pane._structured_view_active)
+            visible = self._visible_node_ids(pane)
+            self.assertIn("root", visible)
+            self.assertIn("h1", visible)
+            self.assertNotIn("h1a", visible)
+            self.assertNotIn("leaf", visible)
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            self.__class__._app.processEvents()
+
+    def test_mindmap_reopen_resets_descendant_expansion(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText(_GRAPH_MARKDOWN_NESTED)
+            pane._render()
+            self.assertTrue(pane._structured_view_active)
+
+            pane._on_graph_node_toggled("h1")
+            self.__class__._app.processEvents()
+            visible = self._visible_node_ids(pane)
+            self.assertIn("h1a", visible)
+            self.assertNotIn("leaf", visible)
+
+            pane._on_graph_node_toggled("h1a")
+            self.__class__._app.processEvents()
+            visible = self._visible_node_ids(pane)
+            self.assertIn("leaf", visible)
+
+            pane._on_graph_node_toggled("h1")
+            self.__class__._app.processEvents()
+            visible = self._visible_node_ids(pane)
+            self.assertNotIn("h1a", visible)
+            self.assertNotIn("leaf", visible)
+
+            pane._on_graph_node_toggled("h1")
+            self.__class__._app.processEvents()
+            visible = self._visible_node_ids(pane)
+            self.assertIn("h1a", visible)
+            # Reopen must not keep descendant expansion from previous run.
+            self.assertNotIn("leaf", visible)
         finally:
             pane.deleteLater()
             editor.deleteLater()

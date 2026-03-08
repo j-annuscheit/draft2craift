@@ -3967,6 +3967,20 @@ class CanvasPreviewPane(QWidget):
         if node.node_id in expandable:
             if node.node_id in self._graph_collapsed_ids:
                 self._graph_collapsed_ids.discard(node.node_id)
+                # MindMap UX: when opening a node, start one level deep and keep
+                # descendant branches collapsed until explicitly opened.
+                if spec.kind == "mindmap":
+                    descendants = self._collect_descendants(
+                        spec,
+                        start_id=node.node_id,
+                        include_edges=False,
+                    )
+                    collapsed_descendants = {
+                        child_id
+                        for child_id in descendants
+                        if child_id in expandable
+                    }
+                    self._graph_collapsed_ids.update(collapsed_descendants)
             else:
                 self._graph_collapsed_ids.add(node.node_id)
             self._render_structured_graph_scene(spec)
@@ -4031,11 +4045,33 @@ class CanvasPreviewPane(QWidget):
             stack = list(child_map.get(start, []))
             while stack:
                 node_id = stack.pop()
-                if node_id in hidden or node_id in collapsed_ids:
+                if node_id in hidden:
                     continue
                 hidden.add(node_id)
                 stack.extend(child_map.get(node_id, []))
         return hidden
+
+    @classmethod
+    def _collect_descendants(
+        cls,
+        spec: GraphSpec,
+        *,
+        start_id: str,
+        include_edges: bool,
+    ) -> set[str]:
+        nodes = spec.nodes
+        if start_id not in nodes:
+            return set()
+        child_map = cls._graph_child_map(spec, include_edges=include_edges)
+        out: set[str] = set()
+        stack = list(child_map.get(start_id, []))
+        while stack:
+            node_id = stack.pop()
+            if node_id in out or node_id not in nodes:
+                continue
+            out.add(node_id)
+            stack.extend(child_map.get(node_id, []))
+        return out
 
     @classmethod
     def _initial_collapsed_graph_nodes(
