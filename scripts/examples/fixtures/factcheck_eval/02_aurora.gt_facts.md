@@ -1,4 +1,0 @@
-- Projekt Aurora Version 4.2 wurde 2025 veroeffentlicht.
-- Aurora 4.2 unterstuetzt Linux und Windows.
-- Aurora 4.2 bietet bereits vollstaendige macOS-Unterstuetzung.
-- Das Training basierte auf 1,2 Millionen Support-Tickets.

@@ -1,5 +1,0 @@
-# draft2craift — full runtime profile (recommended default)
-# Installs core + full optional feature stack.
-
--r requirements-core.txt
--r packaging/requirements-optional-full.txt

@@ -56,18 +56,22 @@ pdf = [
 ]
 
 [project.scripts]
-draft2craift = "main:main"
+draft2craift = "studio.main:main"
 
 [tool.hatch.build.targets.wheel]
 # Include all source files at the package root
 include = [
-    "main.py",
-    "core/**/*.py",
-    "services/**/*.py",
-    "features/**/*.py",
-    "shell/**/*.py",
+    "studio/main.py",
+    "studio/app.py",
+    "shared/domain/**/*.py",
+    "shared/services/**/*.py",
     "widgets/**/*.py",
-    "prompts/**",
+    "studio/**/*.py",
+    "eval/**/*.py",
+    "eval/examples/**",
+    "test_studio/**/*.py",
+    "testcase_studio/**/*.py",
+    "data/**",
 ]
 
 [tool.hatch.build.targets.wheel.sources]
