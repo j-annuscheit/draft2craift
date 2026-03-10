@@ -7,7 +7,7 @@
 # Build profiles:
 #   full    = all features, AGPL-3.0 distribution (default)
 #             bundles pymupdf4llm (AGPL), html2text (GPL)
-#   minimal = no AGPL/GPL optional packages, reduced PDF/HTML support
+#   minimal = reduced extras: no AGPL/GPL import stack, no Speech/NLI add-ons
 #             suitable if downstream consumers require a non-copyleft binary
 #
 # Outputs:
@@ -41,7 +41,12 @@ pip install -U pip
 pip install -U pyinstaller
 
 # ── Install base deps (llama-cpp-python handled separately per variant) ───────
-grep -v "^\s*llama-cpp-python" requirements.txt > /tmp/draft2craift-req-no-llama.txt
+CORE_REQ="requirements-core.txt"
+if [ ! -f "$CORE_REQ" ]; then
+  CORE_REQ="requirements.txt"
+fi
+
+grep -v "^\s*llama-cpp-python" "$CORE_REQ" > /tmp/draft2craift-req-no-llama.txt
 pip install -r /tmp/draft2craift-req-no-llama.txt
 rm -f /tmp/draft2craift-req-no-llama.txt
 

@@ -99,6 +99,7 @@ offline workflow.
 
 - Whisper dictation (`faster-whisper` + `sounddevice`)
 - Offline TTS with Piper (`piper-tts` + `onnxruntime` + `pathvalidate`)
+- Local fallback TTS engine (`pyttsx3`)
 
 ### 8) Prompt and settings control
 
@@ -179,7 +180,7 @@ Note: snapshot based on official docs as of March 2026.
 - `pip`
 - Windows, Linux, or macOS
 
-### 1) Clone and install base requirements
+### 1) Clone and install full requirements (recommended)
 
 ```bash
 git clone https://github.com/annuscheit-jonas/draft2craift.git
@@ -190,7 +191,12 @@ pip install -U pip
 pip install -r requirements.txt
 ```
 
-### 2) Install llama-cpp-python (choose one)
+`requirements.txt` installs the full runtime stack (core + semantic RAG + NLI + speech + import backends).
+
+### 2) Optional: switch `llama-cpp-python` build variant
+
+`requirements.txt` installs the default wheel.
+If you need a specific hardware build, reinstall one of the following:
 
 CPU:
 
@@ -210,22 +216,19 @@ Metal (Apple Silicon):
 CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python
 ```
 
-### 3) Optional extras
+### 3) Optional: lean profile (advanced)
 
-| Package | Enables |
-|---|---|
-| `pip install sentence-transformers` | semantic RAG backend |
-| `pip install faster-whisper sounddevice` | local dictation |
-| `pip install piper-tts onnxruntime pathvalidate` | offline TTS (Piper) |
-| `pip install pymupdf4llm` | full PDF pipeline |
-| `pip install python-docx` | DOCX import |
-| `pip install markdownify` | HTML import |
-| `pip install odfpy` | ODT import |
-
-Install all optional packages:
+If you intentionally want a reduced dependency footprint:
 
 ```bash
-pip install sentence-transformers faster-whisper sounddevice piper-tts onnxruntime pathvalidate pymupdf4llm python-docx markdownify odfpy
+pip install -r requirements-core.txt
+pip install -r packaging/requirements-optional-minimal.txt
+```
+
+To add AGPL/GPL import extras on top:
+
+```bash
+pip install -r packaging/requirements-optional-full.txt
 ```
 
 Piper notes:
@@ -249,7 +252,8 @@ export DRAFT2CRAIFT_PIPER_MODELS_DIR=/path/to/local/piper-models
 ```bash
 conda env create -f environment.yml
 conda activate draft2craift
-# then install llama-cpp-python manually (CPU/CUDA/Metal)
+# environment.yml is full-feature by default
+# optionally reinstall llama-cpp-python for CUDA/Metal
 ```
 
 ---
@@ -356,6 +360,11 @@ powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1 -Variant cu
 # both
 powershell -ExecutionPolicy Bypass -File packaging\build_windows_all.ps1 -LicenseProfile full
 ```
+
+Step-by-step German guide for building a portable Windows bundle and using it on a second PC:
+
+- [docs/windows-portable-anleitung.md](docs/windows-portable-anleitung.md)
+- [docs/windows-enterprise-package-anleitung.md](docs/windows-enterprise-package-anleitung.md) (enterprise install + software distribution)
 
 Build profile hint:
 

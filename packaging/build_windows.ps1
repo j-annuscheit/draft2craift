@@ -13,7 +13,7 @@ $ErrorActionPreference = "Stop"
 # - Supports build profiles:
 #     full     = all features, AGPL-3.0 distribution (default)
 #                bundles pymupdf4llm (AGPL), html2text (GPL)
-#     minimal  = no AGPL/GPL optional packages, reduced PDF/HTML support
+#     minimal  = reduced extras: no AGPL/GPL import stack, no Speech/NLI add-ons
 #                suitable if downstream consumers require a non-copyleft binary
 # - Produces variant/profile-labeled artifacts: portable ZIP + optional installer
 
@@ -36,8 +36,13 @@ if (-not (Test-Path $venvPath)) {
 python -m pip install -U pip
 python -m pip install -U pyinstaller
 
+$coreReq = Join-Path $repoRoot "requirements-core.txt"
+if (-not (Test-Path $coreReq)) {
+  $coreReq = Join-Path $repoRoot "requirements.txt"
+}
+
 $tmpReq = Join-Path ([System.IO.Path]::GetTempPath()) "draft2craift-requirements-no-llama.txt"
-Get-Content requirements.txt |
+Get-Content $coreReq |
   Where-Object { $_ -notmatch "^\s*llama-cpp-python" } |
   Set-Content -Path $tmpReq -Encoding UTF8
 python -m pip install -r $tmpReq

@@ -1,41 +1,5 @@
-# draft2craift — Document Retrieval Augmented File Tool 2 Collaboratively Revised AI Formatted Text
-# Required
-PySide6>=6.6.0
-networkx>=3.2
+# draft2craift — full runtime profile (recommended default)
+# Installs core + full optional feature stack.
 
-# Required for GGUF inference
-# Install the variant that matches your hardware:
-#   CPU only:          pip install llama-cpp-python
-#   CUDA (NVIDIA):     CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python
-#   Metal (Apple Si):  CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python
-llama-cpp-python>=0.2.57
-
-# Optional — upgrades RAG from TF-IDF to semantic embeddings
-# sentence-transformers>=2.7.0
-
-# Optional — dedicated NLI backend (Transformers cross-encoder)
-# transformers>=4.40.0
-# torch>=2.2.0
-
-# Optional — Live speech-to-text (Whisper dictation)
-# faster-whisper>=1.0.3
-# sounddevice>=0.4.6
-# numpy>=1.24
-
-# Optional — Offline high-quality text-to-speech (Piper)
-# piper-tts>=1.3.0
-# onnxruntime>=1.17
-# pathvalidate>=3.2.0
-
-# Optional — File Import: PDF support (pymupdf4llm is the only backend)
-# pymupdf4llm>=0.0.17      # pip install pymupdf4llm
-
-# Optional — File Import: DOCX support
-# python-docx>=1.1.0       # pip install python-docx
-
-# Optional — File Import: HTML → Markdown (install at least one)
-# html2text>=2020.1.16     # pip install html2text
-# markdownify>=0.11.6      # fallback; pip install markdownify
-
-# Optional — File Import: ODT support
-# odfpy>=1.4.1             # pip install odfpy
+-r requirements-core.txt
+-r packaging/requirements-optional-full.txt
