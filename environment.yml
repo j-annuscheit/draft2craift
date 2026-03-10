@@ -1,0 +1,46 @@
+# draft2craift — Conda environment
+#
+# Setup:
+#   conda env create -f environment.yml
+#   conda activate draft2craift
+#   python main.py
+
+# This environment installs the full feature stack by default.
+
+name: draft2craift
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python>=3.10,<3.13
+  - pip
+
+  # Core GUI + graph stack
+  - pyside6>=6.6.0
+  - networkx>=3.2
+  - numpy>=1.24
+
+  # Full runtime stack via pip
+  - pip:
+    # Core inference — choose the variant that matches your hardware.
+    #   CPU:   pip install llama-cpp-python
+    #   CUDA:  CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python
+    #   Metal: CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python
+    - llama-cpp-python>=0.2.57
+    - sentence-transformers>=2.7.0
+    - transformers>=4.40.0
+    - torch>=2.2.0
+    - faster-whisper>=1.0.3
+    - sounddevice>=0.4.6
+    - piper-tts>=1.3.0
+    - onnxruntime>=1.17
+    - pathvalidate>=3.2.0
+    - pyttsx3>=2.90
+    - python-docx>=1.1.0
+    - odfpy>=1.4.1
+    - markdownify>=0.11.6
+    - html2text>=2020.1.16
+    - pymupdf>=1.24.0
+    - pymupdf4llm>=0.0.17

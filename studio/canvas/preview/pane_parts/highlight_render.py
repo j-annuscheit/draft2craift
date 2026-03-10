@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .deps import *  # noqa: F403
+from .models import _RenderedHighlight
 
 def _schedule_highlight_sync(self):
     self._highlight_sync_timer.start(self._HIGHLIGHT_SYNC_DELAY_MS)

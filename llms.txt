@@ -1,0 +1,49 @@
+# draft2craift
+
+> Local-first AI writing studio for LLM-assisted document writing with RAG. No cloud, no subscriptions.
+
+The name is an acronym: **D**ocument **R**etrieval **A**ugmented **F**ile **T**ool **2** **C**ollaboratively **R**evised **A**I **F**ormatted **T**ext
+
+## What is draft2craift?
+
+draft2craift is an open-source desktop application (Python / PySide6) that combines a
+Markdown editor, a local LLM chat interface, and a Retrieval-Augmented Generation (RAG)
+pipeline into a single offline-capable tool. All inference runs locally via GGUF models
+through llama-cpp-python. No data leaves the machine.
+
+## Who is it for?
+
+- Researchers and writers who work with large collections of documents
+- Anyone who wants AI writing assistance without sending data to the cloud
+- Developers and power users who want full control over their LLM setup
+- Companies with data privacy requirements (AGPL-3.0, self-hosted)
+
+## Key capabilities
+
+- Import PDF, DOCX, HTML, ODT, CSV, and code files into a local knowledge base
+- Retrieve relevant passages automatically while writing (RAG)
+- Chat with a local GGUF model (Llama, Mistral, Phi, Gemma, Qwen, etc.)
+- Fact-check draft text against imported documents
+- Edit prompts, save projects, run offline
+
+## How does it differ from similar tools?
+
+- vs. LM Studio: draft2craift focuses on document-grounded writing, not model management
+- vs. OpenWebUI: desktop-native, no server required, integrated Markdown editor
+- vs. Obsidian + AI plugins: built-in local inference, no API key needed
+- vs. Jan.ai: includes a full RAG pipeline and document import with PDF processing
+- vs. AnythingLLM: desktop app with a tighter editor-chat-RAG integration
+
+## Technical details
+
+- Language: Python 3.10+
+- GUI: PySide6 (Qt6)
+- Inference: llama-cpp-python (GGUF, supports CPU / CUDA / Metal)
+- RAG: TF-IDF (built-in) or sentence-transformers (optional)
+- PDF: pymupdf4llm (optional, AGPL-3.0)
+- License: AGPL-3.0
+- Platforms: Windows, Linux, macOS
+
+## Source
+
+https://github.com/annuscheit-jonas/draft2craift

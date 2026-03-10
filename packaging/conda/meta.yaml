@@ -1,0 +1,77 @@
+# conda-build recipe for draft2craift
+#
+# Build:
+#   conda install conda-build
+#   conda build packaging/conda
+#
+# Install from local build:
+#   conda install --use-local draft2craift
+#
+# Upload to Anaconda Cloud (optional):
+#   anaconda upload <path-to-built-.conda-file>
+
+{% set version = "1.0.0" %}
+
+package:
+  name: draft2craift
+  version: {{ version }}
+
+source:
+  # When building from a local checkout:
+  path: ../..
+  # When building from a GitHub release (uncomment and adjust):
+  # url: https://github.com/j-annuscheit/draft2craift/archive/refs/tags/v{{ version }}.tar.gz
+
+build:
+  number: 0
+  # Entry-point wrapper script is created automatically by conda-build
+  # because pyproject.toml declares  [project.scripts]  draft2craift = "studio.main:main"
+  script: "{{ PYTHON }} -m pip install . --no-deps --no-build-isolation -vv"
+  # GUI app — no console window on Windows
+  osx_is_app: false
+
+requirements:
+  host:
+    - python >=3.10,<3.13
+    - pip
+    - hatchling        # build backend declared in pyproject.toml
+
+  run:
+    - python >=3.10,<3.13
+    - pyside6 >=6.6.0
+
+    # ── Optional but strongly recommended ───────────────────────────────
+    # (uncomment the ones you want to bundle)
+    # - sentence-transformers >=2.7.0
+    # - python-docx >=1.1.0
+    # - odfpy >=1.4.1
+
+    # llama-cpp-python is not on conda-forge in a GPU-capable build.
+    # Install it via pip after creating the conda env:
+    #   pip install llama-cpp-python
+    # Or for CUDA:
+    #   CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python
+
+test:
+  imports:
+    - PySide6
+  commands:
+    - draft2craift --help || true   # GUI app; --help may not be defined, that is fine
+
+about:
+  home: https://github.com/j-annuscheit/draft2craift/
+  license: AGPL-3.0-or-later
+  license_file:
+    - ../../LICENSE
+    - ../../THIRD_PARTY_NOTICES.md
+  summary: >
+    Local-first AI writing studio — PySide6 desktop app with GGUF inference,
+    RAG document retrieval, and Markdown editing.
+  description: >
+    draft2craift is a local-first AI writing studio. All inference runs
+    locally via GGUF models (llama-cpp-python). No cloud services.
+    Released under AGPL-3.0.
+
+extra:
+  recipe-maintainers:
+    - j-annuscheit

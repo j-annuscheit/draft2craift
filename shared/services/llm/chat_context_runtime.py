@@ -233,3 +233,4 @@ def _on_nli_model_loaded(self, success: bool, message: str):
             self._log.info("NLI", f"Model ready: {message}")
         else:
             self._log.error("NLI", f"Model load failed: {message}")
+    self.nli_model_loaded.emit(success, message)
