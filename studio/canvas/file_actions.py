@@ -1,74 +1,21 @@
 """File open/save/export actions for canvas tabs."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
 from typing import TYPE_CHECKING
 
-from PySide6.QtGui import QTextDocument
-from PySide6.QtPrintSupport import QPrinter
-from PySide6.QtWidgets import (
-    QComboBox,
-    QDialog,
-    QDialogButtonBox,
-    QFileDialog,
-    QFormLayout,
-    QMessageBox,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox, QWidget
+
+from .exporting import ExportOptions, ExportOptionsDialog, write_docx, write_pdf
 
 if TYPE_CHECKING:
     from studio.canvas.editor_panel import EditorPanel
     from studio.canvas.tabbed_editor_widget import TabbedEditorWidget
 
 
-@dataclass(slots=True)
-class ExportOptions:
-    output_format: str = "pdf"
-
-
-class ExportOptionsDialog(QDialog):
-    def __init__(self, parent: QWidget | None = None, default_format: str = "pdf"):
-        super().__init__(parent)
-        self.setWindowTitle("Export Optionen")
-        root = QVBoxLayout(self)
-        form = QFormLayout()
-        self.format_combo = QComboBox()
-        self.format_combo.addItem("PDF", "pdf")
-        self.format_combo.addItem("Word (DOCX)", "word")
-        self.format_combo.setCurrentIndex(1 if str(default_format).lower() == "word" else 0)
-        form.addRow("Format:", self.format_combo)
-        root.addLayout(form)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
-
-    def options(self) -> ExportOptions:
-        fmt = str(self.format_combo.currentData() or "pdf").strip().lower()
-        return ExportOptions(output_format="word" if fmt == "word" else "pdf")
-
-
-def _write_pdf(markdown_text: str, path: str) -> None:
-    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-    printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-    printer.setOutputFileName(path)
-    doc = QTextDocument()
-    doc.setMarkdown(str(markdown_text or ""))
-    doc.print_(printer)
-
-
-def _write_docx(markdown_text: str, path: str) -> None:
-    import docx
-
-    doc = docx.Document()
-    for line in str(markdown_text or "").splitlines():
-        doc.add_paragraph(line)
-    doc.save(path)
-
-
 class CanvasFileActions:
+    """Encapsulates file dialogs and export logic for canvas tabs."""
+
     def __init__(self, parent: QWidget, tabs: "TabbedEditorWidget"):
         self._parent = parent
         self._tabs = tabs
@@ -87,6 +34,7 @@ class CanvasFileActions:
         panel = self._current_panel()
         if panel is None:
             return
+
         path = panel.file_path or ""
         if not path:
             path, _ = QFileDialog.getSaveFileName(
@@ -97,6 +45,7 @@ class CanvasFileActions:
             )
         if not path:
             return
+
         if panel.editor.save_file(path):
             panel.file_path = path
             idx = self._tabs.tab_widget.currentIndex()
@@ -105,7 +54,12 @@ class CanvasFileActions:
     def export_document(self, default_format: str = "pdf") -> bool:
         panel = self._current_panel()
         tab_name = self._tab_name_for_panel(panel) if panel is not None else ""
-        return self.export_specific_panel(panel, default_format=default_format, panel_scope="draft", tab_name=tab_name)
+        return self.export_specific_panel(
+            panel,
+            default_format=default_format,
+            panel_scope="draft",
+            tab_name=tab_name,
+        )
 
     def export_pdf(self) -> None:
         self.export_document(default_format="pdf")
@@ -121,37 +75,69 @@ class CanvasFileActions:
         panel_scope: str = "draft",
         tab_name: str = "",
     ) -> bool:
-        del panel_scope
         if panel is None:
             return False
         editor = getattr(panel, "editor", None)
         if editor is None or not hasattr(editor, "toPlainText"):
             return False
+
         options = self._ask_export_options(default_format)
         if options is None:
             return False
-        is_word = str(options.output_format).lower() == "word"
+
+        is_word = str(options.output_format).strip().lower() == "word"
         suffix = ".docx" if is_word else ".pdf"
         file_filter = "Word Document (*.docx)" if is_word else "PDF (*.pdf)"
         title = "Export as Word" if is_word else "Export as PDF"
-        stem_source = str(getattr(panel, "file_path", "") or "").strip() or str(tab_name or self._tab_name_for_panel(panel) or "untitled")
+        stem_source = str(getattr(panel, "file_path", "") or "").strip()
+        if not stem_source:
+            stem_source = str(tab_name or self._tab_name_for_panel(panel) or "untitled")
         stem = os.path.splitext(stem_source)[0] or "untitled"
-        path, _ = QFileDialog.getSaveFileName(self._parent, title, stem + suffix, file_filter)
+
+        path, _ = QFileDialog.getSaveFileName(
+            self._parent,
+            title,
+            stem + suffix,
+            file_filter,
+        )
         if not path:
             return False
+
+        scope = str(panel_scope or "draft").strip().lower() or "draft"
+        resolved_tab_name = str(tab_name or self._tab_name_for_panel(panel) or "").strip()
         markdown_text = str(editor.toPlainText() or "")
+
         try:
             if is_word:
-                _write_docx(markdown_text, path)
+                write_docx(
+                    markdown_text,
+                    path,
+                    options=options,
+                    panel_scope=scope,
+                    tab_name=resolved_tab_name,
+                )
             else:
-                _write_pdf(markdown_text, path)
+                write_pdf(
+                    markdown_text,
+                    path,
+                    options=options,
+                    panel_scope=scope,
+                    tab_name=resolved_tab_name,
+                )
             return True
         except ImportError:
-            QMessageBox.warning(
-                self._parent,
-                "Missing Dependency",
-                "python-docx ist nicht installiert. Bitte ausführen: pip install python-docx",
-            )
+            if is_word:
+                QMessageBox.warning(
+                    self._parent,
+                    "Missing Dependency",
+                    "python-docx ist nicht installiert. Bitte ausfuehren: pip install python-docx",
+                )
+            else:
+                QMessageBox.warning(
+                    self._parent,
+                    "Missing Dependency",
+                    "Eine benoetigte Export-Abhaengigkeit ist nicht installiert.",
+                )
             return False
         except Exception as exc:
             kind = "Word" if is_word else "PDF"
@@ -178,6 +164,6 @@ class CanvasFileActions:
 
     def _ask_export_options(self, default_format: str) -> ExportOptions | None:
         dialog = ExportOptionsDialog(self._parent, default_format=default_format)
-        if dialog.exec() != dialog.DialogCode.Accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         return dialog.options()
