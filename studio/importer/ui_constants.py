@@ -22,6 +22,10 @@ QPushButton {
 }
 QPushButton:hover { border-color: palette(highlight); }
 QPushButton:disabled { color: palette(placeholder-text); background: palette(window); }
+QPushButton[toolbarButton="true"] {
+    padding: 0px 4px;
+    font-weight: bold;
+}
 QPushButton#primary { background: palette(highlight); color: palette(highlighted-text); border-color: palette(highlight); font-weight: bold; }
 QPushButton#primary:hover { border-color: palette(highlight); }
 QPushButton#primary:disabled { background: palette(alternate-base); color: palette(placeholder-text); border-color: palette(mid); }
