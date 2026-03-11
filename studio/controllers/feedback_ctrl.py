@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QDialog, QWidget
 from shared.config.setting_keys import FeedbackSettingsKeys
 from shared.services.feedback.service import FeedbackService
 from shared.services.feedback.settings import FeedbackSettings
+from studio.dialogs.window_manager import find_dialog_manager
 
 
 class FeedbackController:
@@ -56,17 +57,40 @@ class FeedbackController:
 
     def open_settings_dialog(self):
         from studio.feedback.settings_dialog import FeedbackSettingsDialog
+        manager = find_dialog_manager(self._parent)
+        if manager is not None:
+            manager.show_dialog(
+                "feedback-settings",
+                lambda: FeedbackSettingsDialog(self._feedback_settings, parent=self._parent),
+                on_accept=lambda dlg: self._apply_settings_dialog(dlg),
+            )
+            return
         dlg = FeedbackSettingsDialog(self._feedback_settings, parent=self._parent)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.save(dlg.get_settings())
-            self._show_status("Feedback-Einstellungen gespeichert.", 3000)
+            self._apply_settings_dialog(dlg)
 
     def open_stats_dialog(self):
         from studio.feedback.stats_dialog import FeedbackStatsDialog
+        manager = find_dialog_manager(self._parent)
+        if manager is not None:
+            manager.show_dialog(
+                "feedback-stats",
+                lambda: FeedbackStatsDialog(self._feedback_service, parent=self._parent),
+                on_reopen=lambda dlg: dlg._load_data(),
+            )
+            return
         FeedbackStatsDialog(self._feedback_service, parent=self._parent).exec()
 
     def open_freeform_dialog(self):
         from studio.feedback.freeform_dialog import FeedbackFreeformDialog
+        manager = find_dialog_manager(self._parent)
+        if manager is not None:
+            manager.show_dialog(
+                "feedback-freeform",
+                lambda: FeedbackFreeformDialog(self._feedback_service, parent=self._parent),
+                on_accept=lambda _dlg: self._show_status("Feedback gespeichert. Danke!", 3000),
+            )
+            return
         dlg = FeedbackFreeformDialog(self._feedback_service, parent=self._parent)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._show_status("Feedback gespeichert. Danke!", 3000)
@@ -107,3 +131,10 @@ class FeedbackController:
             ),
         }
         return FeedbackSettings.from_dict(raw)
+
+    def _apply_settings_dialog(self, dialog: QDialog) -> None:
+        get_settings = getattr(dialog, "get_settings", None)
+        if not callable(get_settings):
+            return
+        self.save(get_settings())
+        self._show_status("Feedback-Einstellungen gespeichert.", 3000)

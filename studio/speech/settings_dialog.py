@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QSpinBox, QTabWidget, QVBoxLayout, QWidget
 
 from shared.services.speech.devices import list_input_devices, list_output_devices
@@ -262,6 +263,14 @@ class SpeechSettingsDialog(QDialog):
 
     def _set_status(self, text: str) -> None:
         self._status_label.setText(str(text or "").strip())
+
+    def reject(self) -> None:
+        self._stop_probe()
+        super().reject()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self._stop_probe()
+        super().closeEvent(event)
 
     def get_settings(self) -> SpeechSettings:
         return SpeechSettings.from_dict({

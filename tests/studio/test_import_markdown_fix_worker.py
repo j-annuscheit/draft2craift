@@ -2,7 +2,64 @@ from __future__ import annotations
 
 import unittest
 
+from shared.services.llm.markdown_fix_tasks import fix_markdown_chunk_sync
 from studio.importer.workers import MarkdownLLMFixWorker
+
+
+class _FakeWorker:
+    def __init__(self, model):
+        self._model = model
+        self._model_thread_ident = 0
+
+    def isRunning(self):
+        return False
+
+
+class _FakeModel:
+    def __init__(self, tokens: list[str]):
+        self.tokens = list(tokens)
+        self.calls: list[dict[str, object]] = []
+
+    def __call__(self, prompt, **kwargs):
+        self.calls.append({"prompt": prompt, **kwargs})
+
+        def _iter():
+            for token in self.tokens:
+                yield {"choices": [{"text": token}]}
+
+        return _iter()
+
+
+class _FakeManager:
+    def __init__(self, model):
+        self.worker = _FakeWorker(model)
+        self._log = None
+        self.logged_io: list[tuple[str, str | None]] = []
+
+    def is_model_loaded(self):
+        return True
+
+    def _count_tokens(self, text):
+        return max(1, len(str(text or "").split()))
+
+    def _check_prompt_window(self, prompt, max_out_tokens):
+        _ = prompt, max_out_tokens
+        return ""
+
+    def _log_llm_io(self, call_name, prompt, output=None, error=None):
+        _ = prompt
+        self.logged_io.append((str(call_name), str(error) if error is not None else None))
+
+    @staticmethod
+    def _extract_tagged_payload_with_flag(raw_text, tag):
+        text = str(raw_text or "")
+        open_tag = f"<{tag}>"
+        close_tag = f"</{tag}>"
+        if open_tag in text and close_tag in text:
+            start = text.index(open_tag) + len(open_tag)
+            end = text.index(close_tag, start)
+            return text[start:end].strip(), True
+        return text.strip(), False
 
 
 class ImportMarkdownFixWorkerTests(unittest.TestCase):
@@ -61,6 +118,37 @@ class ImportMarkdownFixWorkerTests(unittest.TestCase):
         )
         offset = MarkdownLLMFixWorker._infer_numbered_heading_offset(source, default=1)
         self.assertEqual(offset, 1)
+
+    def test_fix_markdown_chunk_sync_uses_streaming_generation(self):
+        model = _FakeModel(["<fixed_md>\n## Titel\n", "Text\n", "</fixed_md>"])
+        manager = _FakeManager(model)
+
+        output, meta = fix_markdown_chunk_sync(manager, "# Titel\nText\n")
+
+        self.assertEqual(output, "## Titel\nText")
+        self.assertEqual(meta.get("reason"), "ok")
+        self.assertEqual(len(model.calls), 1)
+        self.assertTrue(bool(model.calls[0].get("stream")))
+
+    def test_fix_markdown_chunk_sync_stops_cleanly(self):
+        model = _FakeModel(["<fixed_md>\nTeil", "weise", "</fixed_md>"])
+        manager = _FakeManager(model)
+        calls = {"count": 0}
+
+        def stop_requested():
+            calls["count"] += 1
+            return calls["count"] >= 2
+
+        source = "# Original\nText\n"
+        output, meta = fix_markdown_chunk_sync(
+            manager,
+            source,
+            stop_requested=stop_requested,
+        )
+
+        self.assertEqual(output, source)
+        self.assertEqual(meta.get("reason"), "stopped")
+        self.assertTrue(any(error == "stopped" for _name, error in manager.logged_io))
 
 
 if __name__ == "__main__":

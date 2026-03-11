@@ -15,7 +15,6 @@ from pathlib import Path
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QDialog,
     QInputDialog,
     QLabel,
     QMainWindow,
@@ -36,6 +35,7 @@ from studio.controllers.theme_ctrl import ThemeController
 from studio.feedback.bar import FeedbackBar
 from studio.glossary.editor import GlossaryEditorDialog
 from studio.importer.dialog import FileImportDialog
+from studio.dialogs.window_manager import DialogWindowManager
 from studio.setup.controllers_setup import init_controllers as _setup_controllers
 from studio.setup.docks_setup import init_docks as _setup_docks
 from studio.setup.services_setup import init_services as _setup_services
@@ -75,6 +75,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self._dialog_manager = DialogWindowManager(self)
         self._init_services()
         self._init_early_controllers()
         self._init_window()
@@ -251,6 +252,8 @@ class MainWindow(QMainWindow):
     def apply_preview_theme_id(self, theme_id: object, *, persist: bool = True): self._theme_ctrl.apply_preview_theme_id(theme_id, persist=persist)
     def get_speech_settings(self) -> dict: return self._speech_ctrl.get_speech_settings()
     def apply_speech_settings(self, raw: object): self._speech_ctrl.apply_speech_settings(raw)
+    @property
+    def dialog_manager(self) -> DialogWindowManager: return self._dialog_manager
 
     # ── LLM tasks ─────────────────────────────────────────────────────
 
@@ -374,9 +377,12 @@ class MainWindow(QMainWindow):
         self._theme_ctrl.refresh_all_preview_overlays()
         self.statusBar().showMessage("Glossar-Overlay: AN" if checked else "Glossar-Overlay: AUS", 2500)
     def _open_glossary_editor(self):
-        dialog = GlossaryEditorDialog(self)
-        dialog.glossary_saved.connect(self._on_glossary_saved_from_editor)
-        dialog.exec()
+        def _create() -> GlossaryEditorDialog:
+            dialog = GlossaryEditorDialog(self)
+            dialog.glossary_saved.connect(self._on_glossary_saved_from_editor)
+            return dialog
+
+        self._dialog_manager.show_dialog("glossary-editor", _create)
     def _on_glossary_saved_from_editor(self, count: int):
         self._theme_ctrl.refresh_all_preview_overlays()
         overlays_on = get_highlight_store().is_glossary_enabled()
@@ -414,10 +420,32 @@ class MainWindow(QMainWindow):
     def _save_project(self) -> bool: return self._project_controller.save_project()
     def _load_project(self): self._project_controller.load_project()
     def _open_import_dialog(self):
-        dlg = FileImportDialog(self, user_mode=self._user_mode,
-                               feedback_service=self._feedback_ctrl.service)
-        dlg.files_imported.connect(self._knowledge_controller.on_files_imported)
-        dlg.exec()
+        def _create() -> FileImportDialog:
+            dlg = FileImportDialog(
+                self,
+                user_mode=self._user_mode,
+                feedback_service=self._feedback_ctrl.service,
+            )
+            dlg.files_imported.connect(self._knowledge_controller.on_files_imported)
+            return dlg
+
+        existing = self._dialog_manager.get("import-dialog")
+        self._dialog_manager.show_dialog("import-dialog", _create)
+        if existing is not None:
+            self.statusBar().showMessage("Import-Fenster ist bereits geöffnet.", 2500)
+
+    def _import_dialog_busy(self) -> bool:
+        dlg = self._dialog_manager.get("import-dialog")
+        if dlg is None:
+            return False
+        busy_check = getattr(dlg, "_has_running_background_worker", None)
+        if not callable(busy_check):
+            return False
+        try:
+            return bool(busy_check())
+        except Exception:
+            return False
+
     def _rename_imported_document(self, old_name: str, new_name: str):
         self._knowledge_controller.rename_imported_document(old_name, new_name)
     def _remove_imported_document(self, display_name: str):
@@ -463,9 +491,11 @@ class MainWindow(QMainWindow):
                 "Im Einfach-Modus ist der Prompt-Editor ausgeblendet.\nWechsle zu Plus oder Experte.")
             return
         from studio.dialogs.prompt_editor import PromptEditorDialog
-        dlg = PromptEditorDialog(self.llm_manager, self._user_mode, parent=self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self._autosave_ctrl.schedule_full(delay_ms=300)
+        self._dialog_manager.show_dialog(
+            "prompt-editor",
+            lambda: PromptEditorDialog(self.llm_manager, self._user_mode, parent=self),
+            on_accept=lambda _dlg: self._autosave_ctrl.schedule_full(delay_ms=300),
+        )
     def _focus_model_panel(self):
         self.chat_dock.show(); self.chat_dock.raise_()
         self.chat_dock.set_model_panel_visible(True); self._sync_model_controls_toggle_action()
@@ -516,10 +546,19 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Bitte warten",
                 "Es läuft noch eine Glossar/MindMap/Graph-Generierung.\nBitte warten, bis die Aufgabe abgeschlossen ist.")
             event.ignore(); return
+        if self._import_dialog_busy():
+            QMessageBox.information(
+                self,
+                "Bitte warten",
+                "Der Import-Dialog verarbeitet noch Dateien.\n"
+                "Bitte warten, bis Import, Analyse oder LLM-Optimierung abgeschlossen ist.",
+            )
+            event.ignore(); return
         self._theme_ctrl._persist_preview_page_margin_settings()
         self._theme_ctrl._persist_theme_id(self.get_theme_id())
         self._autosave_ctrl.flush_before_close()
         self._speech_ctrl.stop_all()
+        self._dialog_manager.close_all()
         llm_worker = self.llm_manager.worker
         if llm_worker.isRunning():
             llm_worker.request_stop()

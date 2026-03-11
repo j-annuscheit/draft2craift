@@ -8,6 +8,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QDialog, QMessageBox
 
 from studio.controllers.knowledge_ports import ChatDockPort, KnowledgeDockPort
+from studio.dialogs.window_manager import find_dialog_manager
 
 if TYPE_CHECKING:
     from shared.services.rag.orchestrator import RAGSystem
@@ -327,6 +328,18 @@ class KnowledgeController:
 
     def open_rag_settings_dialog(self) -> None:
         from studio.knowledge.rag_settings.dialog import RAGSettingsDialog
+        manager = find_dialog_manager(self._parent)
+        if manager is not None:
+            manager.show_dialog(
+                "rag-settings",
+                lambda: RAGSettingsDialog(
+                    self._rag_system.config,
+                    self._parent,
+                    user_mode=self._context.get_user_mode(),
+                ),
+                on_accept=lambda dlg: self._apply_rag_settings_dialog(dlg),
+            )
+            return
         dlg = RAGSettingsDialog(
             self._rag_system.config,
             self._parent,
@@ -334,32 +347,7 @@ class KnowledgeController:
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        old_model = self._rag_system.config.backend.st_model_name
-        new_cfg = dlg.get_config()
-        self._rag_system.config = new_cfg
-        if new_cfg.backend.use_st and (
-            not self._rag_system.st_model_loaded
-            or new_cfg.backend.st_model_name != old_model
-        ):
-            if self._st_loaded_connected:
-                self._knowledge_dock.rag_worker.st_loaded.disconnect(self._on_st_loaded)
-                self._st_loaded_connected = False
-            self._knowledge_dock.rag_worker.st_loaded.connect(self._on_st_loaded)
-            self._st_loaded_connected = True
-            self._knowledge_dock.rag_worker.enqueue_load_st(new_cfg.backend.st_model_name)
-        self._knowledge_dock.reindex_rag()
-        self._app_logger.info(
-            "SYS",
-            f"RAG reconfigured | backends={self._rag_system.current_backend()} "
-            f"strategy={new_cfg.chunking.strategy}",
-        )
-        self._context.show_status(
-            f"RAG re-indexed  ·  strategy: {new_cfg.chunking.strategy}"
-            f"  ·  chunks: {new_cfg.chunking.chunk_size} chars"
-            f"  ·  backends: {self._rag_system.current_backend()}",
-            4000,
-        )
-        self._context.schedule_autosave(350)
+        self._apply_rag_settings_dialog(dlg)
 
     def try_load_sentence_transformers(self) -> None:
         self._rag_system.config.backend.use_st = True
@@ -385,3 +373,34 @@ class KnowledgeController:
                 "sentence-transformers not available — using TF-IDF.\n\n"
                 "Install with:\n  pip install sentence-transformers",
             )
+
+    def _apply_rag_settings_dialog(self, dialog: QDialog) -> None:
+        get_config = getattr(dialog, "get_config", None)
+        if not callable(get_config):
+            return
+        old_model = self._rag_system.config.backend.st_model_name
+        new_cfg = get_config()
+        self._rag_system.config = new_cfg
+        if new_cfg.backend.use_st and (
+            not self._rag_system.st_model_loaded
+            or new_cfg.backend.st_model_name != old_model
+        ):
+            if self._st_loaded_connected:
+                self._knowledge_dock.rag_worker.st_loaded.disconnect(self._on_st_loaded)
+                self._st_loaded_connected = False
+            self._knowledge_dock.rag_worker.st_loaded.connect(self._on_st_loaded)
+            self._st_loaded_connected = True
+            self._knowledge_dock.rag_worker.enqueue_load_st(new_cfg.backend.st_model_name)
+        self._knowledge_dock.reindex_rag()
+        self._app_logger.info(
+            "SYS",
+            f"RAG reconfigured | backends={self._rag_system.current_backend()} "
+            f"strategy={new_cfg.chunking.strategy}",
+        )
+        self._context.show_status(
+            f"RAG re-indexed  ·  strategy: {new_cfg.chunking.strategy}"
+            f"  ·  chunks: {new_cfg.chunking.chunk_size} chars"
+            f"  ·  backends: {self._rag_system.current_backend()}",
+            4000,
+        )
+        self._context.schedule_autosave(350)

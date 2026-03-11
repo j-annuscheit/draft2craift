@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import threading
-from typing import Any
+from typing import Any, Callable
 
 
 def fix_markdown_chunk_sync(
     self,
     markdown_chunk: str,
+    stop_requested: Callable[[], bool] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Repair Markdown formatting for one chunk while preserving content meaning.
@@ -51,6 +52,14 @@ def fix_markdown_chunk_sync(
                 f"  worker_running={int(bool(self.worker.isRunning()))}"
             ),
         )
+
+    def _stop_requested() -> bool:
+        if stop_requested is None:
+            return False
+        try:
+            return bool(stop_requested())
+        except Exception:
+            return False
 
     system_prompt = (
         "Du bist ein strenger Markdown-Repair-Assistent.\n"
@@ -127,7 +136,16 @@ def fix_markdown_chunk_sync(
                 "reason": "context_too_large",
                 "error": window_err,
             }
+        if _stop_requested():
+            return source, {
+                "applied": False,
+                "reason": "stopped",
+                "attempt": attempt,
+            }
         try:
+            # ``stream=False`` can monopolize the interpreter for large chunks and
+            # make the GUI appear frozen. Stream incrementally so the event loop
+            # keeps getting scheduling opportunities between token fetches.
             result = model(
                 prompt,
                 max_tokens=max_out_tokens,
@@ -135,10 +153,32 @@ def fix_markdown_chunk_sync(
                 top_p=0.9,
                 repeat_penalty=1.0,
                 stop=["<|"],
-                stream=False,
+                stream=True,
             )
-            raw_full = str(result["choices"][0].get("text", "") or "")
+            parts: list[str] = []
+            stopped = False
+            for event in result:
+                if _stop_requested():
+                    stopped = True
+                    break
+                token = str(event["choices"][0].get("text", "") or "")
+                if token:
+                    parts.append(token)
+            raw_full = "".join(parts)
             last_raw_full = raw_full
+            if stopped:
+                self._log_llm_io(
+                    f"Import-Markdown-Fix#{attempt}",
+                    prompt,
+                    output=raw_full,
+                    error="stopped",
+                )
+                return source, {
+                    "applied": False,
+                    "reason": "stopped",
+                    "attempt": attempt,
+                    "raw_len": len(raw_full),
+                }
             self._log_llm_io(f"Import-Markdown-Fix#{attempt}", prompt, raw_full)
             payload, tag_found = self._extract_tagged_payload_with_flag(
                 raw_full,
@@ -186,4 +226,3 @@ def fix_markdown_chunk_sync(
         "reason": "empty_output",
         "raw_preview": str(last_raw_full or "")[:220],
     }
-

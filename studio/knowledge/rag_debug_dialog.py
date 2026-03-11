@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from studio.dialogs.window_manager import find_dialog_manager
+
 from .rag_results.styles import RAG_DEBUG_DIALOG_STYLE, RAG_DEBUG_SELECTOR_STYLE
 
 
@@ -36,53 +38,82 @@ def _payload_text(entry: dict) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
+class RAGDebugHistoryDialog(QDialog):
+    """Modeless viewer for stored RAG debug entries."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("RAG Debug History")
+        self.resize(980, 720)
+        self.setStyleSheet(RAG_DEBUG_DIALOG_STYLE)
+        self._entries: list[dict] = []
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+
+        self._selector = QComboBox()
+        self._selector.setStyleSheet(RAG_DEBUG_SELECTOR_STYLE)
+        self._selector.currentIndexChanged.connect(self._render_selected)
+        layout.addWidget(self._selector)
+
+        self._text_view = QTextEdit()
+        self._text_view.setReadOnly(True)
+        layout.addWidget(self._text_view)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        buttons.accepted.connect(self.accept)
+        close_button = buttons.button(QDialogButtonBox.StandardButton.Close)
+        if close_button is not None:
+            close_button.clicked.connect(self.accept)
+        layout.addWidget(buttons)
+
+    def set_history(self, history: list[dict]) -> None:
+        self._entries = list(reversed(list(history or [])))
+        self._selector.blockSignals(True)
+        self._selector.clear()
+        for index, entry in enumerate(self._entries):
+            self._selector.addItem(_entry_label(entry), index)
+        self._selector.blockSignals(False)
+        self._render_selected()
+
+    def _render_selected(self) -> None:
+        selected = self._selector.currentData()
+        if selected is None:
+            self._text_view.setPlainText("No debug entry selected.")
+            return
+        pos = int(selected)
+        if not (0 <= pos < len(self._entries)):
+            self._text_view.setPlainText("No debug entry selected.")
+            return
+        self._text_view.setPlainText(_payload_text(self._entries[pos]))
+
+
 def show_rag_debug_history(parent: QWidget, history: list[dict]) -> None:
-    """Show a modal dialog with stored RAG debug entries."""
+    """Show stored RAG debug entries in a singleton, modeless dialog."""
     if not history:
         QMessageBox.information(parent, "RAG Debug", "No search debug data available yet.")
         return
 
-    dialog = QDialog(parent)
-    dialog.setWindowTitle("RAG Debug History")
-    dialog.resize(980, 720)
-    dialog.setStyleSheet(RAG_DEBUG_DIALOG_STYLE)
+    manager = find_dialog_manager(parent)
+    if manager is not None:
+        def _create() -> RAGDebugHistoryDialog:
+            dialog = RAGDebugHistoryDialog(parent)
+            dialog.set_history(history)
+            return dialog
 
-    layout = QVBoxLayout(dialog)
+        def _refresh(dialog: QDialog) -> None:
+            if isinstance(dialog, RAGDebugHistoryDialog):
+                dialog.set_history(history)
 
-    selector = QComboBox()
-    selector.setStyleSheet(RAG_DEBUG_SELECTOR_STYLE)
+        manager.show_dialog(
+            "rag-debug-history",
+            _create,
+            on_reopen=_refresh,
+        )
+        return
 
-    entries = list(reversed(history))
-    for index, entry in enumerate(entries):
-        selector.addItem(_entry_label(entry), index)
-    layout.addWidget(selector)
-
-    text_view = QTextEdit()
-    text_view.setReadOnly(True)
-    layout.addWidget(text_view)
-
-    def render_selected() -> None:
-        selected = selector.currentData()
-        if selected is None:
-            text_view.setPlainText("No debug entry selected.")
-            return
-
-        pos = int(selected)
-        if not (0 <= pos < len(entries)):
-            text_view.setPlainText("No debug entry selected.")
-            return
-
-        text_view.setPlainText(_payload_text(entries[pos]))
-
-    selector.currentIndexChanged.connect(render_selected)
-    render_selected()
-
-    buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-    buttons.rejected.connect(dialog.reject)
-    buttons.accepted.connect(dialog.accept)
-    close_button = buttons.button(QDialogButtonBox.StandardButton.Close)
-    if close_button is not None:
-        close_button.clicked.connect(dialog.accept)
-    layout.addWidget(buttons)
-
+    dialog = RAGDebugHistoryDialog(parent)
+    dialog.set_history(history)
     dialog.exec()

@@ -337,10 +337,19 @@ class MarkdownLLMFixWorker(QThread):
             self.progress.emit(idx - 1, total, info)
 
             try:
-                fixed_raw, meta = manager.fix_markdown_chunk_sync(chunk)
+                fixed_raw, meta = manager.fix_markdown_chunk_sync(
+                    chunk,
+                    stop_requested=lambda: bool(self._stop),
+                )
             except Exception as exc:
                 fixed_raw = chunk
                 meta = {"applied": False, "reason": f"exception:{exc}"}
+
+            reason = str(meta.get("reason", "") if isinstance(meta, dict) else "")
+            if self._stop or reason == "stopped":
+                out_chunks.append(chunk)
+                out_chunks.extend(chunks[idx:])
+                break
 
             fixed = self._extract_markdown_payload(str(fixed_raw or ""))
             fixed = self._remove_leaked_prompt_tags(chunk, fixed)

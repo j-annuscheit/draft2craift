@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 from shared.config.app_settings import SpeechSettings
 from shared.services.speech.tts import TextToSpeechManager
 from shared.services.speech.dictation import WhisperDictationWorker
+from studio.dialogs.window_manager import find_dialog_manager
 
 if TYPE_CHECKING:
     from studio.canvas.tabs import CanvasTabWidget
@@ -81,26 +82,18 @@ class SpeechController(QObject):
 
     def open_speech_settings_dialog(self, parent_widget: QWidget):
         from studio.speech.settings_dialog import SpeechSettingsDialog  # local import
+        manager = find_dialog_manager(parent_widget)
+        if manager is not None:
+            manager.show_dialog(
+                "speech-settings",
+                lambda: SpeechSettingsDialog(self._speech_settings, parent_widget),
+                on_accept=lambda dialog: self._apply_speech_settings_dialog(dialog),
+            )
+            return
         dialog = SpeechSettingsDialog(self._speech_settings, parent_widget)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        self._speech_settings = dialog.get_settings()
-        self._apply_runtime_settings()
-        self._app_logger.info(
-            "STT",
-            "Speech settings updated | "
-            f"backend={self._speech_settings.stt_backend} "
-            f"input={self._speech_settings.stt_input_device or 'auto'} "
-            f"model={self._speech_settings.stt_model_size}",
-        )
-        try:
-            self._autosave_schedule_fn(300)
-        except Exception as exc:
-            self._app_logger.warning(
-                "STT",
-                f"Autosave scheduling after speech settings update failed: {exc}",
-            )
-        self._show_status("Speech settings gespeichert.", 2500)
+        self._apply_speech_settings_dialog(dialog)
 
     def start_whisper_dictation(self):
         if self._dictation_worker is not None and self._dictation_worker.isRunning():
@@ -198,6 +191,28 @@ class SpeechController(QObject):
                 "STT",
                 f"Applying chat TTS mode failed: {exc}",
             )
+
+    def _apply_speech_settings_dialog(self, dialog: QDialog) -> None:
+        get_settings = getattr(dialog, "get_settings", None)
+        if not callable(get_settings):
+            return
+        self._speech_settings = get_settings()
+        self._apply_runtime_settings()
+        self._app_logger.info(
+            "STT",
+            "Speech settings updated | "
+            f"backend={self._speech_settings.stt_backend} "
+            f"input={self._speech_settings.stt_input_device or 'auto'} "
+            f"model={self._speech_settings.stt_model_size}",
+        )
+        try:
+            self._autosave_schedule_fn(300)
+        except Exception as exc:
+            self._app_logger.warning(
+                "STT",
+                f"Autosave scheduling after speech settings update failed: {exc}",
+            )
+        self._show_status("Speech settings gespeichert.", 2500)
 
     def _set_dictation_running(self, running: bool):
         self._dictation_running = bool(running)

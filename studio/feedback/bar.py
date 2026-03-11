@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from .dialog import FeedbackNegativeDialog
+from studio.dialogs.window_manager import find_dialog_manager
 from studio.theme import theme_tokens
 
 _BTN_BASE = (
@@ -127,10 +128,21 @@ class FeedbackBar(QWidget):
         self._confirm_and_hide("👍 Gespeichert", theme_tokens()["success"])
 
     def _on_dislike(self):
+        manager = find_dialog_manager(self)
+        if manager is not None:
+            manager.show_dialog(
+                f"feedback-negative:{id(self)}",
+                lambda: FeedbackNegativeDialog(self._use_case, parent=self),
+                on_accept=lambda dlg: self._submit_negative_feedback(dlg),
+            )
+            return
         dlg = FeedbackNegativeDialog(self._use_case, parent=self)
         if dlg.exec() != FeedbackNegativeDialog.DialogCode.Accepted:
             return
-        tags = dlg.get_error_tags()
-        note = dlg.get_note()
+        self._submit_negative_feedback(dlg)
+
+    def _submit_negative_feedback(self, dialog: FeedbackNegativeDialog) -> None:
+        tags = dialog.get_error_tags()
+        note = dialog.get_note()
         self.feedback_submitted.emit("negative", tags, note)
         self._confirm_and_hide("👎 Danke", theme_tokens()["danger"])
