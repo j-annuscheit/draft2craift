@@ -7,6 +7,9 @@ import pickle
 from pathlib import Path
 from typing import Any
 
+from shared.services.highlights.store import get_highlight_store
+from shared.services.highlights.store_storage import save_store_data
+
 from .project_paths import ProjectPaths
 
 
@@ -27,6 +30,7 @@ class ProjectSaver:
         self._save_chat_history(mw)
         self._save_chunk_claim_cache(mw)
         self._save_log_entries(mw)
+        self._save_highlights()
         rag_results = self._collect_rag_results(mw)
 
         manifest = self._build_manifest(
@@ -240,6 +244,10 @@ class ProjectSaver:
             for ts, level, category, message in mw.app_logger.get_entries()
         ]
         self._write_json(self._paths.log_entries, log_entries)
+
+    def _save_highlights(self) -> None:
+        snapshot = get_highlight_store().snapshot()
+        save_store_data(self._paths.highlights, snapshot)
 
     def _collect_rag_results(self, mw: Any) -> list[dict]:
         rag_tab_widget = mw.knowledge_dock.rag_panel.tabs.tab_widget

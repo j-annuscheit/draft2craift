@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -183,6 +184,33 @@ class AutosaveControllerTests(unittest.TestCase):
             resolved,
             Path("/home/fallback/.draft2craift/autosave_project").resolve(),
         )
+
+    def test_signature_includes_highlight_store_markers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            highlight_file = (Path(tmp) / "highlights.json").resolve()
+            highlight_file.write_text("{}", encoding="utf-8")
+
+            class _StoreStub:
+                path = highlight_file
+
+                @staticmethod
+                def is_glossary_enabled():
+                    return False
+
+            self.controller._collect_canvas_tabs_data = Mock(return_value=[])
+            self.controller._context.autosave_state_extras.return_value = {}
+            self.controller._context.chat_tts_mode.return_value = "off"
+
+            with patch(
+                "studio.controllers.autosave.get_highlight_store",
+                return_value=_StoreStub(),
+            ):
+                payload = json.loads(self.controller._signature())
+
+            highlights = payload.get("highlights", {})
+            self.assertEqual(highlights.get("path"), str(highlight_file))
+            self.assertEqual(highlights.get("size"), highlight_file.stat().st_size)
+            self.assertIs(highlights.get("glossary_enabled"), False)
 
 if __name__ == "__main__":
     unittest.main()

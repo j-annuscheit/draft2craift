@@ -29,6 +29,7 @@ class ProjectPaths:
         self.logs = self.base / "logs"
 
         self.manifest = self.base / "project.json"
+        self.highlights = self.base / "highlights.json"
         self.rag_index = self.rag / "index.pkl"
         self.rag_embeddings = self.rag / "embeddings.pt"
         self.chat_history = self.chat / "history.json"

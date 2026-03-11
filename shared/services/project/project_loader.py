@@ -8,6 +8,7 @@ from typing import Any
 
 from PySide6.QtCore import QByteArray
 
+from shared.services.highlights.store import get_highlight_store
 from shared.services.rag.config import RAGConfig
 
 from .project_paths import ProjectPaths
@@ -26,6 +27,7 @@ class ProjectLoader:
     def load(self, mw: Any) -> None:
         data = self._read_manifest()
 
+        self._restore_highlights(mw)
         self._restore_rag_config(mw, data)
         self._restore_knowledge_files(mw, data)
         self._restore_rag_index(mw)
@@ -38,6 +40,19 @@ class ProjectLoader:
         self._restore_settings(mw, data)
         self._restore_llm_ui(mw, data)
         self._restore_ui_state(mw, data)
+
+    def _restore_highlights(self, mw: Any) -> None:
+        store = get_highlight_store()
+        store.rebind_path(self._paths.highlights, reload=True)
+        action = getattr(mw, "_action_glossary_overlay", None)
+        if action is None:
+            return
+        try:
+            blocked = action.blockSignals(True)
+            action.setChecked(store.is_glossary_enabled())
+            action.blockSignals(blocked)
+        except Exception:
+            return
 
     def _read_manifest(self) -> dict:
         if not self._paths.manifest.exists():

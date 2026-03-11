@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject, QSettings, QStandardPaths, QTimer
 from PySide6.QtWidgets import QMessageBox, QWidget
 
 from shared.config.setting_keys import AutosaveSettingsKeys
+from shared.services.highlights.store import get_highlight_store
 
 if TYPE_CHECKING:
     from studio.app_context import AppContext
@@ -380,8 +381,33 @@ class AutosaveController(QObject):
             "chat_tts_mode": tts_mode,
             "preview_page_margin": extras.get("preview_page_margin", {}),
             "preview_theme": extras.get("preview_theme", ""),
+            "highlights": self._highlight_store_signature(),
         }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+    def _highlight_store_signature(self) -> dict[str, object]:
+        """Return cheap change markers so highlight edits trigger full autosave."""
+        try:
+            store = get_highlight_store()
+            path = store.path.resolve(strict=False)
+            stat = path.stat() if path.exists() else None
+            return {
+                "path": str(path),
+                "mtime_ns": int(stat.st_mtime_ns) if stat is not None else 0,
+                "size": int(stat.st_size) if stat is not None else 0,
+                "glossary_enabled": bool(store.is_glossary_enabled()),
+            }
+        except Exception as exc:
+            self._app_logger.warning(
+                "SYS",
+                f"[AUTOSAVE] highlight signature probe failed: {exc}",
+            )
+            return {
+                "path": "",
+                "mtime_ns": 0,
+                "size": 0,
+                "glossary_enabled": True,
+            }
 
     def _collect_canvas_tabs_data(self) -> list[dict]:
         tabs = self._canvas.tabs.tab_widget

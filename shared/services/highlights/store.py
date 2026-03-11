@@ -1,6 +1,7 @@
 """Persistent text-highlight store for HTML preview overlays."""
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 import threading
 import uuid
@@ -38,6 +39,27 @@ class HighlightStore:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    @property
+    def path(self) -> Path:
+        with self._lock:
+            return Path(self._path)
+
+    def rebind_path(self, path: Path | str, *, reload: bool = True) -> None:
+        target = Path(path).expanduser().resolve(strict=False)
+        with self._lock:
+            changed = target != self._path
+            if changed:
+                self._path = target
+            if changed or reload:
+                self._loaded = False
+                self._data = default_data()
+            self._load_if_needed()
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            self._load_if_needed()
+            return deepcopy(self._data)
 
     def add_from_selection(
         self,
