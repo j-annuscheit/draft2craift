@@ -13,34 +13,37 @@ from PySide6.QtWidgets import (
 
 _FILES_STYLE = """
 QListWidget {
-    background: #181825;
-    color: #CDD6F4;
+    background: palette(base);
+    color: palette(text);
     border: none;
     font-size: 11px;
 }
 QListWidget::item {
     padding: 4px 6px;
-    border-bottom: 1px solid #2A2A3E;
+    border-bottom: 1px solid palette(mid);
 }
 QListWidget::item:selected {
-    background: #313244;
+    background: palette(highlight);
+    color: palette(highlighted-text);
 }
 QListWidget::item:hover {
-    background: #2A2A3E;
+    background: palette(alternate-base);
 }
 """
 
 _FILES_BAR_STYLE = """
 QWidget {
-    background: #2A2A3E;
-    border-bottom: 1px solid #45475A;
+    background: palette(alternate-base);
+    border-bottom: 1px solid palette(mid);
 }
 QPushButton {
-    background: #313244; color: #CDD6F4;
-    border: none; padding: 2px 8px;
+    background: palette(base);
+    color: palette(text);
+    border: 1px solid palette(mid);
+    padding: 2px 8px;
     border-radius: 3px; font-size: 10px;
 }
-QPushButton:hover { background: #45475A; }
+QPushButton:hover { border: 1px solid palette(highlight); }
 """
 
 
@@ -70,7 +73,9 @@ class ImportedFilesPanel(QWidget):
         hbox.setSpacing(4)
 
         lbl = QLabel("Select files for RAG")
-        lbl.setStyleSheet("color: #6C7086; font-size: 10px; background: transparent;")
+        lbl.setStyleSheet(
+            "color: palette(placeholder-text); font-size: 10px; background: transparent;"
+        )
         hbox.addWidget(lbl)
         hbox.addStretch()
 
@@ -89,8 +94,8 @@ class ImportedFilesPanel(QWidget):
 
         self._status_lbl = QLabel("No files imported yet")
         self._status_lbl.setStyleSheet(
-            "color: #6C7086; font-size: 10px; padding: 4px 8px;"
-            "background: #181825; border-top: 1px solid #2A2A3E;"
+            "color: palette(placeholder-text); font-size: 10px; padding: 4px 8px;"
+            "background: palette(base); border-top: 1px solid palette(mid);"
         )
         layout.addWidget(self._status_lbl)
 

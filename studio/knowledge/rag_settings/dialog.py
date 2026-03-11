@@ -66,7 +66,7 @@ class RAGSettingsDialog(QDialog):
 
         mode_hint = QLabel("")
         mode_hint.setWordWrap(True)
-        mode_hint.setStyleSheet("color: #6C7086; font-size: 10px;")
+        mode_hint.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
         root.addWidget(mode_hint)
 
         groups: dict[str, QGroupBox] = {}
@@ -129,7 +129,7 @@ class RAGSettingsDialog(QDialog):
         widgets["st_n_threads"] = st_n_threads
 
         hint = QLabel("At least one backend must be active (TF-IDF, ST or Literal).")
-        hint.setStyleSheet("color: #F38BA8; font-size: 10px;")
+        hint.setStyleSheet("color: palette(bright-text); font-size: 10px;")
         form.addRow(hint)
         widgets["backends_hint"] = hint
 
@@ -180,7 +180,7 @@ class RAGSettingsDialog(QDialog):
             "top_k_threshold: best N above score\n"
             "Applied to all backends (TF-IDF, ST, Literal)."
         )
-        hint.setStyleSheet("color: #6C7086; font-size: 10px;")
+        hint.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
         form.addRow(hint)
         widgets["selection_hint"] = hint
 
@@ -221,7 +221,7 @@ class RAGSettingsDialog(QDialog):
         rerank_hint = QLabel(
             "Requires a loaded LLM. Hits are classified as 'sinnvoll' or 'nicht_sinnvoll'."
         )
-        rerank_hint.setStyleSheet("color: #6C7086; font-size: 10px;")
+        rerank_hint.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
         form.addRow(rerank_hint)
         widgets["rerank_hint"] = rerank_hint
 
@@ -229,7 +229,7 @@ class RAGSettingsDialog(QDialog):
         form = add_group(root, groups, forms, "literal", "Direct Match (Literal Search)")
 
         hint = QLabel("Details for the Literal backend (configured above).")
-        hint.setStyleSheet("color: #6C7086; font-size: 10px;")
+        hint.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
         form.addRow(hint)
         widgets["literal_hint"] = hint
 

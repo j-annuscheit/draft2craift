@@ -12,13 +12,13 @@ from PySide6.QtWidgets import (
 
 _DIALOG_STYLE = """
 QDialog {
-    background: #1E1E2E;
-    color: #CDD6F4;
+    background: palette(window);
+    color: palette(window-text);
 }
 QGroupBox {
-    background: #181825;
-    color: #CDD6F4;
-    border: 1px solid #45475A;
+    background: palette(base);
+    color: palette(text);
+    border: 1px solid palette(mid);
     border-radius: 4px;
     margin-top: 8px;
     padding: 6px 8px;
@@ -28,43 +28,43 @@ QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
     padding: 0 4px;
-    color: #CBA6F7;
+    color: palette(highlight);
 }
 QCheckBox {
-    color: #CDD6F4;
+    color: palette(text);
     font-size: 11px;
     spacing: 6px;
 }
 QCheckBox::indicator {
     width: 14px;
     height: 14px;
-    border: 1px solid #45475A;
+    border: 1px solid palette(mid);
     border-radius: 2px;
-    background: #313244;
+    background: palette(alternate-base);
 }
 QCheckBox::indicator:checked {
-    background: #CBA6F7;
-    border-color: #CBA6F7;
+    background: palette(highlight);
+    border-color: palette(highlight);
 }
 QPlainTextEdit {
-    background: #313244;
-    color: #CDD6F4;
-    border: 1px solid #45475A;
+    background: palette(base);
+    color: palette(text);
+    border: 1px solid palette(mid);
     border-radius: 4px;
     padding: 4px;
     font-size: 11px;
 }
-QPlainTextEdit:focus { border-color: #89B4FA; }
+QPlainTextEdit:focus { border-color: palette(highlight); }
 QPushButton {
-    background: #313244;
-    color: #CDD6F4;
-    border: 1px solid #45475A;
+    background: palette(alternate-base);
+    color: palette(text);
+    border: 1px solid palette(mid);
     border-radius: 4px;
     padding: 4px 12px;
     font-size: 11px;
 }
-QPushButton:hover { background: #45475A; }
-QPushButton:pressed { background: #585B70; }
+QPushButton:hover { border-color: palette(highlight); }
+QPushButton:pressed { background: palette(mid); }
 """
 
 _CATEGORIES: dict[str, list[str]] = {

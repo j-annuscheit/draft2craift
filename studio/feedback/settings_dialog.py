@@ -44,7 +44,7 @@ class FeedbackSettingsDialog(QDialog):
             "Use-Case-Daten neben den Bewertungen abgelegt."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #CDD6F4;")
+        intro.setStyleSheet("color: palette(text);")
         root.addWidget(intro)
 
         group = QGroupBox("Feedback Erfassung")
@@ -81,7 +81,7 @@ class FeedbackSettingsDialog(QDialog):
             "App-Datenordners aufgelöst."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #A6ADC8; font-size: 11px;")
+        hint.setStyleSheet("color: palette(placeholder-text); font-size: 11px;")
         form.addRow("", hint)
 
         root.addWidget(group, 1)

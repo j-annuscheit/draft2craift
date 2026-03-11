@@ -101,7 +101,7 @@ def add_extended_context_controls(
     widgets["extended_context"] = extended_context
 
     hint = QLabel("Expandiert jeden Treffer um ±N Zeichen im Originaldokument.")
-    hint.setStyleSheet("color: #6C7086; font-size: 10px;")
+    hint.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
     form.addRow(hint)
     widgets["extended_hint"] = hint
 

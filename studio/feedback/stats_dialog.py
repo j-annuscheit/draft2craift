@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -15,38 +16,40 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from studio.theme import theme_tokens
+
 _DIALOG_STYLE = """
 QDialog {
-    background: #1E1E2E;
-    color: #CDD6F4;
+    background: palette(window);
+    color: palette(window-text);
 }
-QLabel { color: #CDD6F4; font-size: 11px; }
+QLabel { color: palette(text); font-size: 11px; }
 QTableWidget {
-    background: #181825;
-    color: #CDD6F4;
-    border: 1px solid #45475A;
-    gridline-color: #313244;
+    background: palette(base);
+    color: palette(text);
+    border: 1px solid palette(mid);
+    gridline-color: palette(alternate-base);
     font-size: 11px;
 }
 QTableWidget::item { padding: 4px 8px; }
-QTableWidget::item:selected { background: #313244; }
+QTableWidget::item:selected { background: palette(highlight); color: palette(highlighted-text); }
 QHeaderView::section {
-    background: #313244;
-    color: #CBA6F7;
+    background: palette(alternate-base);
+    color: palette(highlight);
     border: none;
-    border-right: 1px solid #45475A;
+    border-right: 1px solid palette(mid);
     padding: 4px 8px;
     font-size: 11px;
 }
 QPushButton {
-    background: #313244;
-    color: #CDD6F4;
-    border: 1px solid #45475A;
+    background: palette(alternate-base);
+    color: palette(text);
+    border: 1px solid palette(mid);
     border-radius: 4px;
     padding: 4px 12px;
     font-size: 11px;
 }
-QPushButton:hover { background: #45475A; }
+QPushButton:hover { border-color: palette(highlight); }
 """
 
 
@@ -95,6 +98,7 @@ class FeedbackStatsDialog(QDialog):
         root.addLayout(btn_row)
 
     def _load_data(self):
+        tokens = theme_tokens()
         try:
             counters = self._service.get_counters()
         except Exception:
@@ -130,10 +134,10 @@ class FeedbackStatsDialog(QDialog):
             self._table.setItem(row_idx, 0, self._cell(str(use_case)))
             self._table.setItem(row_idx, 1, self._cell(str(events), align_right=True))
             pos_item = self._cell(str(pos), align_right=True)
-            pos_item.setForeground(Qt.GlobalColor.green)
+            pos_item.setForeground(QColor(tokens["success"]))
             self._table.setItem(row_idx, 2, pos_item)
             neg_item = self._cell(str(neg), align_right=True)
-            neg_item.setForeground(Qt.GlobalColor.red)
+            neg_item.setForeground(QColor(tokens["danger"]))
             self._table.setItem(row_idx, 3, neg_item)
 
         self._table.resizeColumnsToContents()

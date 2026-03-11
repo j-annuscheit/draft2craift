@@ -14,45 +14,66 @@ from PySide6.QtWidgets import (
 )
 
 from shared.services.feedback.settings import FEEDBACK_USE_CASES
+from studio.theme import theme_tokens
 
-_STYLE = """
-QDialog { background: #1E1E2E; color: #CDD6F4; }
-QLabel { color: #CDD6F4; font-size: 11px; }
-QGroupBox {
-    background: #181825; color: #CDD6F4;
-    border: 1px solid #45475A; border-radius: 4px;
+def _dialog_style() -> str:
+    tokens = theme_tokens()
+    return f"""
+QDialog {{ background: palette(window); color: palette(window-text); }}
+QLabel {{ color: palette(text); font-size: 11px; }}
+QGroupBox {{
+    background: palette(base); color: palette(text);
+    border: 1px solid palette(mid); border-radius: 4px;
     margin-top: 8px; padding: 6px 8px; font-size: 11px;
-}
-QGroupBox::title {
+}}
+QGroupBox::title {{
     subcontrol-origin: margin; subcontrol-position: top left;
-    padding: 0 4px; color: #CBA6F7;
-}
-QComboBox {
-    background: #313244; color: #CDD6F4;
-    border: 1px solid #45475A; border-radius: 3px;
+    padding: 0 4px; color: palette(highlight);
+}}
+QComboBox {{
+    background: palette(base); color: palette(text);
+    border: 1px solid palette(mid); border-radius: 3px;
     padding: 3px 8px; font-size: 11px;
-}
-QComboBox::drop-down { border: none; }
-QComboBox QAbstractItemView {
-    background: #313244; color: #CDD6F4;
-    border: 1px solid #45475A; selection-background-color: #45475A;
-}
-QPlainTextEdit {
-    background: #313244; color: #CDD6F4;
-    border: 1px solid #45475A; border-radius: 4px;
+}}
+QComboBox::drop-down {{ border: none; }}
+QComboBox QAbstractItemView {{
+    background: palette(alternate-base); color: palette(text);
+    border: 1px solid palette(mid);
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
+}}
+QPlainTextEdit {{
+    background: palette(base); color: palette(text);
+    border: 1px solid palette(mid); border-radius: 4px;
     padding: 4px; font-size: 11px;
-}
-QPlainTextEdit:focus { border-color: #89B4FA; }
-QPushButton {
-    background: #313244; color: #CDD6F4;
-    border: 1px solid #45475A; border-radius: 4px;
+}}
+QPlainTextEdit:focus {{ border-color: palette(highlight); }}
+QPushButton {{
+    background: palette(alternate-base); color: palette(text);
+    border: 1px solid palette(mid); border-radius: 4px;
     padding: 4px 12px; font-size: 11px;
-}
-QPushButton:hover { background: #45475A; }
-QPushButton#like  { background: #1E3A2F; border-color: #A6E3A1; color: #A6E3A1; }
-QPushButton#like:checked  { background: #2A5040; border-color: #A6E3A1; }
-QPushButton#dislike { background: #3A1E2A; border-color: #F38BA8; color: #F38BA8; }
-QPushButton#dislike:checked { background: #5A2A3A; border-color: #F38BA8; }
+}}
+QPushButton:hover {{ border-color: palette(highlight); }}
+QPushButton#like {{
+    background: palette(base);
+    border-color: {tokens["success"]};
+    color: {tokens["success"]};
+}}
+QPushButton#like:checked {{
+    background: {tokens["success"]};
+    border-color: {tokens["success"]};
+    color: palette(highlighted-text);
+}}
+QPushButton#dislike {{
+    background: palette(base);
+    border-color: {tokens["danger"]};
+    color: {tokens["danger"]};
+}}
+QPushButton#dislike:checked {{
+    background: {tokens["danger"]};
+    border-color: {tokens["danger"]};
+    color: palette(highlighted-text);
+}}
 """
 
 _USE_CASE_LABELS: dict[str, str] = {
@@ -82,7 +103,7 @@ class FeedbackFreeformDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Feedback geben")
         self.resize(440, 360)
-        self.setStyleSheet(_STYLE)
+        self.setStyleSheet(_dialog_style())
         self._service = feedback_service
         self._sentiment = ""
         self._setup_ui()

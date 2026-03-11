@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -60,7 +60,7 @@ class FileImportDialogUIMixin:
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(4)
         lbl_files = QLabel("Files")
-        lbl_files.setStyleSheet("color: #6C7086; font-size: 10px;")
+        lbl_files.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
         left_layout.addWidget(lbl_files)
         self._list = QListWidget()
         self._list.currentItemChanged.connect(self._on_item_selected)
@@ -73,7 +73,7 @@ class FileImportDialogUIMixin:
         mid_layout.setContentsMargins(0, 0, 0, 0)
         mid_layout.setSpacing(4)
         lbl_settings = QLabel("PDF Settings")
-        lbl_settings.setStyleSheet("color: #6C7086; font-size: 10px;")
+        lbl_settings.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
         mid_layout.addWidget(lbl_settings)
         self._pdf_panel = PDFSettingsPanel()
         self._pdf_panel.set_user_mode(self._user_mode)
@@ -88,9 +88,10 @@ class FileImportDialogUIMixin:
         self._tabs = QTabWidget()
         self._tabs.setStyleSheet(
             "QTabWidget::pane { border: none; }"
-            "QTabBar::tab { background: #313244; color: #CDD6F4; padding: 4px 12px; "
-            "               border-radius: 3px 3px 0 0; font-size: 11px; }"
-            "QTabBar::tab:selected { background: #45475A; }"
+            "QTabBar::tab { background: palette(alternate-base); color: palette(text);"
+            "               padding: 4px 12px; border-radius: 3px 3px 0 0; font-size: 11px; }"
+            "QTabBar::tab:selected { background: palette(base); color: palette(text); }"
+            "QTabBar::tab:hover { background: palette(highlight); color: palette(highlighted-text); }"
         )
 
         self._pdf_viewer = PDFViewerPanel()
@@ -104,7 +105,7 @@ class FileImportDialogUIMixin:
         hdr_row = QHBoxLayout()
         hdr_row.addStretch()
         self._preview_status = QLabel("")
-        self._preview_status.setStyleSheet("color: #F9E2AF; font-size: 10px;")
+        self._preview_status.setStyleSheet("color: palette(highlight); font-size: 10px;")
         self._preview_status.setWordWrap(False)
         self._preview_status.setMaximumWidth(16777215)
         self._preview_status.setSizePolicy(
@@ -154,7 +155,7 @@ class FileImportDialogUIMixin:
         self._progress.setFixedHeight(8)
         self._progress.setVisible(False)
         self._progress_lbl = QLabel("")
-        self._progress_lbl.setStyleSheet("color: #6C7086; font-size: 10px;")
+        self._progress_lbl.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
         progress_row.addWidget(self._progress)
         progress_row.addWidget(self._progress_lbl)
         root.addLayout(progress_row)
@@ -194,7 +195,12 @@ class FileImportDialogUIMixin:
         entry = self._entries.get(path)
         if not entry:
             return
-        color = QColor("#A6E3A1") if status == _STATUS_DONE else QColor("#F38BA8")
+        role = (
+            QPalette.ColorRole.Highlight
+            if status == _STATUS_DONE
+            else QPalette.ColorRole.BrightText
+        )
+        color = self.palette().color(role)
         for i in range(self._list.count()):
             item = self._list.item(i)
             if item.data(Qt.ItemDataRole.UserRole) == path:

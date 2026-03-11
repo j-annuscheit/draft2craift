@@ -10,22 +10,23 @@ from PySide6.QtWidgets import (
 )
 
 from .dialog import FeedbackNegativeDialog
+from studio.theme import theme_tokens
 
 _BTN_BASE = (
     "QPushButton {"
-    "    background: #313244; color: #CDD6F4;"
-    "    border: 1px solid #45475A; border-radius: 3px;"
+    "    background: palette(alternate-base); color: palette(text);"
+    "    border: 1px solid palette(mid); border-radius: 3px;"
     "    padding: 2px 8px; font-size: 12px;"
     "}"
-    "QPushButton:hover { background: #45475A; }"
-    "QPushButton:pressed { background: #585B70; }"
-    "QPushButton:disabled { background: #1E1E2E; color: #45475A; border-color: #313244; }"
+    "QPushButton:hover { border-color: palette(highlight); }"
+    "QPushButton:pressed { background: palette(mid); }"
+    "QPushButton:disabled { background: palette(window); color: palette(placeholder-text); border-color: palette(alternate-base); }"
 )
 
 _BAR_STYLE = (
     "QWidget#FeedbackBar {"
-    "    background: #181825;"
-    "    border-top: 1px solid #313244;"
+    "    background: palette(base);"
+    "    border-top: 1px solid palette(alternate-base);"
     "}"
 )
 
@@ -81,7 +82,9 @@ class FeedbackBar(QWidget):
         self._dislike_btn.clicked.connect(self._on_dislike)
 
         self._status_lbl = QLabel("")
-        self._status_lbl.setStyleSheet("color: #6C7086; font-size: 10px; background: transparent;")
+        self._status_lbl.setStyleSheet(
+            "color: palette(placeholder-text); font-size: 10px; background: transparent;"
+        )
 
         layout.addWidget(self._like_btn)
         layout.addWidget(self._dislike_btn)
@@ -96,7 +99,7 @@ class FeedbackBar(QWidget):
         self._dislike_btn.setEnabled(True)
         self._status_lbl.setText("")
         self._status_lbl.setStyleSheet(
-            "color: #6C7086; font-size: 10px; background: transparent;"
+            "color: palette(placeholder-text); font-size: 10px; background: transparent;"
         )
         self.show()
 
@@ -121,7 +124,7 @@ class FeedbackBar(QWidget):
 
     def _on_like(self):
         self.feedback_submitted.emit("positive", [], "")
-        self._confirm_and_hide("👍 Gespeichert", "#A6E3A1")
+        self._confirm_and_hide("👍 Gespeichert", theme_tokens()["success"])
 
     def _on_dislike(self):
         dlg = FeedbackNegativeDialog(self._use_case, parent=self)
@@ -130,4 +133,4 @@ class FeedbackBar(QWidget):
         tags = dlg.get_error_tags()
         note = dlg.get_note()
         self.feedback_submitted.emit("negative", tags, note)
-        self._confirm_and_hide("👎 Danke", "#F38BA8")
+        self._confirm_and_hide("👎 Danke", theme_tokens()["danger"])

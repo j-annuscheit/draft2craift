@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import Qt, QRect, QSize, Signal
-from PySide6.QtGui import QColor, QCursor, QImage, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QCursor, QImage, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
@@ -231,8 +231,9 @@ class PDFPageView(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         if self._pixmap is None:
-            p.fillRect(self.rect(), QColor("#181825"))
-            p.setPen(QColor("#6C7086"))
+            palette = self.palette()
+            p.fillRect(self.rect(), palette.color(QPalette.ColorRole.Base))
+            p.setPen(palette.color(QPalette.ColorRole.PlaceholderText))
             p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No PDF loaded")
             return
 
@@ -401,7 +402,7 @@ class PDFViewerPanel(QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(False)
         self._scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._scroll.setStyleSheet("QScrollArea { border: none; background: #181825; }")
+        self._scroll.setStyleSheet("QScrollArea { border: none; background: palette(base); }")
 
         self._page_view = PDFPageView()
         self._page_view.zone_changed.connect(self.zone_changed)
