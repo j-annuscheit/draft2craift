@@ -1,73 +1,155 @@
-"""Runtime application context shared across Writing Studio controllers."""
+"""Runtime application context shared across Writing Studio controllers.
+
+Role: Mediator
+--------------
+AppContext is a *Mediator* — it gives controllers a stable, named API for
+cross-cutting operations (show a status message, schedule an autosave, resolve
+a document) without requiring them to know about each other directly.
+
+What belongs here
+~~~~~~~~~~~~~~~~~
+* Forwarding calls that cross controller boundaries (autosave ↔ knowledge,
+  knowledge ↔ chat, any controller ↔ project/settings).
+* Runtime state that truly has no single owner (user_mode, feedback payload).
+* Validation that all required bindings are present after setup.
+
+What does NOT belong here
+~~~~~~~~~~~~~~~~~~~~~~~~~
+* Business logic — keep that in the individual controllers.
+* New delegation methods that just wrap a single controller method.
+  Add those directly to the controller and call it from the consumer.
+* Direct dock access — route through the controller that owns the dock.
+"""
 from __future__ import annotations
 
 from collections.abc import Mapping
+import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QMainWindow
+
+    from shared.services.llm.manager import LLMManager
+    from shared.services.project.manager import ProjectManager
+    from shared.services.rag.orchestrator import RAGSystem
+    from studio.controllers.autosave import AutosaveController
+    from studio.controllers.chat_controller import ChatController
+    from studio.controllers.knowledge_controller import KnowledgeController
+    from studio.controllers.theme_ctrl import ThemeController
+    from studio.logger import AppLogger
 
 
 class AppContext:
-    """Central access point for cross-controller services and runtime state."""
+    """Mediator for cross-controller operations and shared runtime state.
+
+    Bind all controllers after construction via the ``bind_*`` methods, then
+    call :meth:`validate` to assert completeness in debug builds.
+    """
 
     def __init__(
         self,
         *,
-        window,
-        app_logger,
-        rag_system,
-        llm_manager,
-        project_manager,
-        app_settings,
+        window: QMainWindow,
+        app_logger: AppLogger,
+        rag_system: RAGSystem,
+        llm_manager: LLMManager,
+        project_manager: ProjectManager,
+        app_settings: QSettings,
         file_registry: dict[str, tuple[str, str]],
         user_mode: str,
-    ):
+    ) -> None:
+        # ── Services (long-lived, set at construction) ─────────────────
         self._window = window
-        self.app_logger = app_logger
-        self.rag_system = rag_system
-        self.llm_manager = llm_manager
-        self.project_manager = project_manager
-        self.app_settings = app_settings
-        self.file_registry = file_registry
-        self.user_mode = str(user_mode or "")
+        self.app_logger: AppLogger = app_logger
+        self.rag_system: RAGSystem = rag_system
+        self.llm_manager: LLMManager = llm_manager
+        self.project_manager: ProjectManager = project_manager
+        self.app_settings: QSettings = app_settings
+        self.file_registry: dict[str, tuple[str, str]] = file_registry
+        self.user_mode: str = str(user_mode or "")
 
-        self._theme_controller = None
-        self._autosave_controller = None
-        self._knowledge_controller = None
-        self._chat_controller = None
-        self._chat_dock = None
-        self._knowledge_dock = None
+        # ── Controller bindings (populated during setup) ───────────────
+        self._theme_controller: ThemeController | None = None
+        self._autosave_controller: AutosaveController | None = None
+        self._knowledge_controller: KnowledgeController | None = None
+        self._chat_controller: ChatController | None = None
+
+        # ── UI-widget bindings (populated during setup) ────────────────
+        self._glossary_feedback_bar = None
+
+        # ── Runtime state ──────────────────────────────────────────────
         self._status_feedback_payload: dict[str, object] = {}
 
+    # ── Bind points ───────────────────────────────────────────────────
+
+    def bind_theme_controller(self, controller: ThemeController) -> None:
+        self._theme_controller = controller
+
+    def bind_autosave_controller(self, controller: AutosaveController) -> None:
+        self._autosave_controller = controller
+
+    def bind_knowledge_controller(self, controller: KnowledgeController) -> None:
+        self._knowledge_controller = controller
+
+    def bind_chat_controller(self, controller: ChatController) -> None:
+        self._chat_controller = controller
+
+    def bind_glossary_feedback_bar(self, bar: object) -> None:
+        self._glossary_feedback_bar = bar
+
+    # ── Properties ────────────────────────────────────────────────────
+
     @property
-    def window(self):
+    def window(self) -> QMainWindow:
         return self._window
 
     @property
-    def autosave_controller(self):
+    def autosave_controller(self) -> AutosaveController | None:
         return self._autosave_controller
+
+    @property
+    def theme_controller(self) -> ThemeController | None:
+        return self._theme_controller
+
+    @property
+    def glossary_feedback_bar(self) -> object:
+        return self._glossary_feedback_bar
 
     @property
     def status_feedback_payload(self) -> dict[str, object]:
         return dict(self._status_feedback_payload)
 
-    def bind_theme_controller(self, controller) -> None:
-        self._theme_controller = controller
+    # ── Setup validation ──────────────────────────────────────────────
 
-    def bind_autosave_controller(self, controller) -> None:
-        self._autosave_controller = controller
+    @staticmethod
+    def _parse_debug_env_flag(value: str | None) -> bool | None:
+        raw = str(value or "").strip().casefold()
+        if not raw:
+            return None
+        if raw in {"1", "true", "yes", "on"}:
+            return True
+        if raw in {"0", "false", "no", "off"}:
+            return False
+        return None
 
-    def bind_knowledge_controller(self, controller) -> None:
-        self._knowledge_controller = controller
-
-    def bind_chat_controller(self, controller) -> None:
-        self._chat_controller = controller
-
-    def bind_docks(self, *, knowledge_dock, chat_dock) -> None:
-        self._knowledge_dock = knowledge_dock
-        self._chat_dock = chat_dock
+    @classmethod
+    def _debug_validation_enabled(cls) -> bool:
+        env_override = cls._parse_debug_env_flag(os.getenv("APP_DEBUG"))
+        if env_override is not None:
+            return env_override
+        return bool(__debug__)
 
     def validate(self) -> None:
-        """Raise when required runtime bindings are incomplete."""
+        """Assert all required controller bindings are present.
+
+        Raises :class:`RuntimeError` in debug mode when any binding is missing.
+        Has no effect in optimised (``python -O``) builds unless
+        ``APP_DEBUG=1`` is set.
+        """
+        if not self._debug_validation_enabled():
+            return
         missing: list[str] = []
         if self._theme_controller is None:
             missing.append("theme_controller")
@@ -77,27 +159,19 @@ class AppContext:
             missing.append("knowledge_controller")
         if self._chat_controller is None:
             missing.append("chat_controller")
-        if self._knowledge_dock is None:
-            missing.append("knowledge_dock")
-        if self._chat_dock is None:
-            missing.append("chat_dock")
-        if not missing:
-            return
-        raise RuntimeError(
-            "AppContext bindings incomplete: " + ", ".join(missing)
-        )
+        if missing:
+            raise RuntimeError(
+                "AppContext bindings incomplete: " + ", ".join(missing)
+            )
+
+    # ── Window operations ─────────────────────────────────────────────
 
     def show_status(self, message: str, timeout_ms: int = 0) -> None:
+        """Display *message* in the main window status bar."""
         status_bar = self._window.statusBar()
         if status_bar is None:
             return
         status_bar.showMessage(str(message or ""), int(timeout_ms))
-
-    def set_status_feedback_payload(self, payload: Mapping[str, object] | None) -> None:
-        self._status_feedback_payload = dict(payload or {})
-
-    def get_user_mode(self) -> str:
-        return str(self.user_mode or "")
 
     def save_project(self, path: Path | str, *, include_st_embeddings: bool = True) -> bool:
         return bool(
@@ -111,11 +185,46 @@ class AppContext:
     def load_project(self, path: Path | str) -> bool:
         return bool(self.project_manager.load_project(self._window, str(path)))
 
+    # ── Cross-controller queries ──────────────────────────────────────
+
     def is_rag_busy(self) -> bool:
-        worker = getattr(self._knowledge_dock, "rag_worker", None)
-        if worker is None:
+        """Return True if the RAG worker is currently indexing or searching."""
+        ctrl = self._knowledge_controller
+        if ctrl is None:
             return False
-        return bool(getattr(worker, "isRunning", lambda: False)())
+        return ctrl.is_rag_busy()
+
+    def chat_tts_mode(self) -> str:
+        """Return the current TTS mode from the chat dock ('off', 'auto', …)."""
+        ctrl = self._chat_controller
+        if ctrl is None:
+            return "off"
+        return ctrl.get_tts_mode()
+
+    def resolve_imported_doc_content(self, name: str) -> str:
+        ctrl = self._knowledge_controller
+        if ctrl is None:
+            return ""
+        return str(ctrl.resolve_imported_doc_content(name) or "")
+
+    def refresh_context_bar(self) -> None:
+        ctrl = self._chat_controller
+        if ctrl is None:
+            return
+        ctrl.refresh_context_bar()
+
+    # ── Runtime state helpers ─────────────────────────────────────────
+
+    def get_user_mode(self) -> str:
+        return str(self.user_mode or "")
+
+    def set_status_feedback_payload(self, payload: Mapping[str, object] | None) -> None:
+        self._status_feedback_payload = dict(payload or {})
+
+    # ── Autosave coordination ─────────────────────────────────────────
+    # These methods let controllers (knowledge, project) coordinate with
+    # AutosaveController without depending on it directly.  All calls are
+    # no-ops if the autosave controller has not been bound yet.
 
     def get_autosave_suspended(self) -> bool:
         ctrl = self._autosave_controller
@@ -153,45 +262,34 @@ class AppContext:
             return
         ctrl.rewire_editors()
 
-    def refresh_context_bar(self) -> None:
-        ctrl = self._chat_controller
-        if ctrl is None:
-            return
-        ctrl.refresh_context_bar()
-
-    def resolve_imported_doc_content(self, name: str) -> str:
-        ctrl = self._knowledge_controller
-        if ctrl is None:
-            return ""
-        return str(ctrl.resolve_imported_doc_content(name) or "")
-
-    def chat_tts_mode(self) -> str:
-        if self._chat_dock is None:
-            return "off"
-        try:
-            return str(self._chat_dock.chat_tts_mode() or "off")
-        except Exception:
-            return "off"
-
     def autosave_state_extras(self) -> dict[str, Any]:
+        """Gather cross-controller state required for the autosave snapshot.
+
+        Collects theme, preview settings, user mode, and imported-doc list.
+        Each piece is fetched defensively so a failing controller cannot abort
+        the autosave cycle.
+        """
         theme = ""
         preview_margin: dict[str, object] = {}
         preview_theme = ""
-        if self._theme_controller is not None:
+        ctrl = self._theme_controller
+        if ctrl is not None:
             try:
-                theme = str(self._theme_controller.get_theme_id() or "")
-            except Exception:
-                theme = ""
+                theme = str(ctrl.get_theme_id() or "")
+            except Exception as exc:
+                self.app_logger.warning("SYS", f"[AUTOSAVE] get_theme_id failed: {exc}")
             try:
-                preview_margin = dict(
-                    self._theme_controller.get_preview_page_margin_settings() or {}
+                preview_margin = dict(ctrl.get_preview_page_margin_settings() or {})
+            except Exception as exc:
+                self.app_logger.warning(
+                    "SYS", f"[AUTOSAVE] get_preview_page_margin_settings failed: {exc}"
                 )
-            except Exception:
-                preview_margin = {}
             try:
-                preview_theme = str(self._theme_controller.get_preview_theme_id() or "")
-            except Exception:
-                preview_theme = ""
+                preview_theme = str(ctrl.get_preview_theme_id() or "")
+            except Exception as exc:
+                self.app_logger.warning(
+                    "SYS", f"[AUTOSAVE] get_preview_theme_id failed: {exc}"
+                )
         return {
             "user_mode": self.get_user_mode(),
             "theme": theme,

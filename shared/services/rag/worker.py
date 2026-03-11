@@ -44,7 +44,7 @@ class RAGWorker(QThread):
 
     def _drain(self, task_type: str) -> None:
         kept: list[tuple[str, object]] = []
-        while not self._queue.empty():
+        while True:
             try:
                 item = self._queue.get_nowait()
             except _queue.Empty:

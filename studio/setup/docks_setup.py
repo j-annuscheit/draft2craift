@@ -30,10 +30,6 @@ def init_docks(ctx: AppContext, *, feedback_service) -> DockBundle:
     chat_dock = ChatDock(ctx.llm_manager, window)
     chat_dock.setObjectName("chat_dock")
     window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, chat_dock)
-    ctx.bind_docks(
-        knowledge_dock=knowledge_dock,
-        chat_dock=chat_dock,
-    )
 
     chat_dock.set_context_getter(window._build_llm_context)
     chat_dock.set_canvas_selection_getter(window._canvas_selection_text)

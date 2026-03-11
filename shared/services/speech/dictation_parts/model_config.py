@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .deps import *  # noqa: F403
+from shared.config.paths import app_data_dir
 
 @staticmethod
 def _env_flag(name: str) -> bool:
@@ -71,7 +72,7 @@ def _whisper_download_dir(self) -> str:
     if env_raw:
         root = Path(env_raw).expanduser()
     else:
-        root = (Path.cwd() / "models" / "whisper").resolve()
+        root = (app_data_dir() / "models" / "whisper").resolve(strict=False)
     try:
         root.mkdir(parents=True, exist_ok=True)
     except Exception:

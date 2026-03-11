@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 import os
 from pathlib import Path
 
+from shared.config.paths import app_data_dir
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -30,7 +32,7 @@ def default_store_path() -> Path:
     raw = str(os.getenv("DRAFT2CRAIFT_HIGHLIGHTS_JSON", "")).strip()
     if raw:
         return Path(raw).expanduser()
-    return (Path.cwd() / "highlights.json").resolve()
+    return (app_data_dir() / "highlights.json").resolve(strict=False)
 
 
 __all__ = [

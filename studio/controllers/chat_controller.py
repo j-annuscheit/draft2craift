@@ -81,7 +81,14 @@ class ChatController:
             "grounding_rag_has_data": rag_has_data,
         }
 
-    def refresh_context_bar(self):
+    def get_tts_mode(self) -> str:
+        """Return the current TTS mode setting from the chat dock."""
+        try:
+            return str(self._chat_dock.chat_tts_mode() or "off")
+        except Exception:
+            return "off"
+
+    def refresh_context_bar(self) -> None:
         use_canvas, use_rag, docs = self._chat_dock.get_context_selection()
         parts: list[str] = []
         if use_canvas and self._canvas.get_current_text().strip():

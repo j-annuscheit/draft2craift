@@ -39,6 +39,14 @@ class KnowledgeController:
         self._rag_system = rag_system
         self._parent = app_context.window
         self._loaded_menu = None
+        self._st_loaded_connected = False
+
+    def is_rag_busy(self) -> bool:
+        """Return True if the RAG worker thread is currently running."""
+        worker = getattr(self._knowledge_dock, "rag_worker", None)
+        if worker is None:
+            return False
+        return bool(worker.isRunning())
 
     def set_loaded_menu(self, menu) -> None:
         self._loaded_menu = menu
@@ -333,14 +341,11 @@ class KnowledgeController:
             not self._rag_system.st_model_loaded
             or new_cfg.backend.st_model_name != old_model
         ):
-            try:
+            if self._st_loaded_connected:
                 self._knowledge_dock.rag_worker.st_loaded.disconnect(self._on_st_loaded)
-            except RuntimeError as exc:
-                self._app_logger.debug(
-                    "SYS",
-                    f"RAG st_loaded disconnect skipped (settings dialog): {exc}",
-                )
+                self._st_loaded_connected = False
             self._knowledge_dock.rag_worker.st_loaded.connect(self._on_st_loaded)
+            self._st_loaded_connected = True
             self._knowledge_dock.rag_worker.enqueue_load_st(new_cfg.backend.st_model_name)
         self._knowledge_dock.reindex_rag()
         self._app_logger.info(
@@ -359,18 +364,16 @@ class KnowledgeController:
     def try_load_sentence_transformers(self) -> None:
         self._rag_system.config.backend.use_st = True
         worker = self._knowledge_dock.rag_worker
-        try:
+        if self._st_loaded_connected:
             worker.st_loaded.disconnect(self._on_st_loaded)
-        except RuntimeError as exc:
-            self._app_logger.debug(
-                "SYS",
-                f"RAG st_loaded disconnect skipped (manual ST load): {exc}",
-            )
+            self._st_loaded_connected = False
         worker.st_loaded.connect(self._on_st_loaded)
+        self._st_loaded_connected = True
         worker.enqueue_load_st(self._rag_system.config.backend.st_model_name)
         self._context.schedule_autosave(350)
 
     def _on_st_loaded(self, ok: bool) -> None:
+        self._st_loaded_connected = False
         if ok:
             QMessageBox.information(
                 self._parent, "RAG Backend",

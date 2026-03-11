@@ -7,10 +7,14 @@ from studio.app_context import AppContext
 from studio.controllers.autosave import AutosaveController
 from studio.controllers.canvas_controller import CanvasController
 from studio.controllers.chat_controller import ChatController
+from studio.controllers.find_replace_ctrl import FindReplaceController
 from studio.controllers.knowledge_controller import KnowledgeController
+from studio.controllers.llm_task_context import LLMTaskContext
+from studio.controllers.llm_tasks import LLMSideTaskController
 from studio.controllers.project_controller import ProjectController
 from studio.controllers.speech_ctrl import SpeechController
 from studio.controllers.zoom_ctrl import ZoomController
+
 
 @dataclass(slots=True)
 class ControllerBundle:
@@ -23,6 +27,8 @@ class ControllerBundle:
     chat_controller: ChatController
     speech_ctrl: SpeechController
     zoom_ctrl: ZoomController
+    llm_tasks_ctrl: LLMSideTaskController
+    find_replace_ctrl: FindReplaceController
 
 
 def init_controllers(ctx: AppContext) -> ControllerBundle:
@@ -88,6 +94,36 @@ def init_controllers(ctx: AppContext) -> ControllerBundle:
         canvas=canvas,
         show_status=ctx.show_status,
     )
+
+    theme_ctrl = ctx.theme_controller
+    if theme_ctrl is None:
+        raise RuntimeError("Controller setup requires theme_controller to be bound.")
+    glossary_bar = ctx.glossary_feedback_bar
+    if glossary_bar is None:
+        raise RuntimeError("Controller setup requires glossary_feedback_bar to be bound.")
+
+    llm_tasks_ctrl = LLMSideTaskController(
+        parent=window,
+        ctx=LLMTaskContext(
+            llm_manager=ctx.llm_manager,
+            rag_system=ctx.rag_system,
+            canvas=canvas,
+            chat_dock=chat_dock,
+            glossary_feedback_bar=glossary_bar,
+            app_logger=ctx.app_logger,
+            show_status=ctx.show_status,
+            resolve_imported_doc_content=ctx.resolve_imported_doc_content,
+            set_status_feedback_payload=ctx.set_status_feedback_payload,
+            refresh_preview_overlays=theme_ctrl.refresh_all_preview_overlays,
+            autosave_schedule_fn=ctx.schedule_autosave,
+        ),
+    )
+    find_replace_ctrl = FindReplaceController(
+        parent_window=window,
+        canvas=canvas,
+        knowledge_dock=knowledge_dock,
+        show_status=ctx.show_status,
+    )
     return ControllerBundle(
         autosave_ctrl=autosave_ctrl,
         canvas_controller=canvas_controller,
@@ -96,4 +132,6 @@ def init_controllers(ctx: AppContext) -> ControllerBundle:
         chat_controller=chat_controller,
         speech_ctrl=speech_ctrl,
         zoom_ctrl=zoom_ctrl,
+        llm_tasks_ctrl=llm_tasks_ctrl,
+        find_replace_ctrl=find_replace_ctrl,
     )

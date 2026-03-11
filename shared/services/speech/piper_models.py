@@ -11,6 +11,8 @@ from typing import Callable
 from urllib.error import URLError
 from urllib.request import urlopen
 
+from shared.config.paths import app_data_dir
+
 
 StatusFn = Callable[[str], None] | None
 
@@ -151,7 +153,7 @@ def default_download_dir() -> Path:
         first = env_raw.split(os.pathsep)[0].strip()
         if first:
             return Path(first).expanduser()
-    return (Path.cwd() / "models" / "piper").resolve()
+    return (app_data_dir() / "models" / "piper").resolve(strict=False)
 
 
 def refresh_local_piper_models_cache():

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from shared.config.paths import app_data_dir
 from shared.services.feedback.settings import FeedbackSettings
 
 
@@ -76,8 +77,8 @@ class FeedbackSettingsDialog(QDialog):
         form.addRow("Speicherort:", row)
 
         hint = QLabel(
-            "Hinweis: Relativer Pfad wird zum aktuellen Arbeitsverzeichnis "
-            "aufgelöst."
+            "Hinweis: Relativer Pfad wird unterhalb des "
+            "App-Datenordners aufgelöst."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #A6ADC8; font-size: 11px;")
@@ -106,11 +107,11 @@ class FeedbackSettingsDialog(QDialog):
 
     def _pick_storage_dir(self):
         current = str(self.storage_dir_edit.text() or "").strip()
-        start = current
+        start = str(app_data_dir())
         if current:
             p = Path(current).expanduser()
             if not p.is_absolute():
-                p = (Path.cwd() / p).resolve()
+                p = (app_data_dir() / p).resolve(strict=False)
             start = str(p)
         folder = QFileDialog.getExistingDirectory(
             self,

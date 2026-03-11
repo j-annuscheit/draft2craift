@@ -32,9 +32,6 @@ from shared.services.highlights.store import get_highlight_store
 from studio.canvas.preview.pane import CanvasPreviewPane
 from studio.canvas.tabs import CanvasTabWidget
 from studio.controllers.feedback_ctrl import FeedbackController
-from studio.controllers.find_replace_ctrl import FindReplaceController
-from studio.controllers.llm_task_context import LLMTaskContext
-from studio.controllers.llm_tasks import LLMSideTaskController
 from studio.controllers.theme_ctrl import ThemeController
 from studio.feedback.bar import FeedbackBar
 from studio.glossary.editor import GlossaryEditorDialog
@@ -82,22 +79,17 @@ class MainWindow(QMainWindow):
         self._init_early_controllers()
         self._init_window()
         self._init_central()
+        # Status bar first: binds _glossary_feedback_bar to ctx before controllers run.
+        self._init_statusbar()
         self._init_docks()
         self._init_controllers()
-        if __debug__:
-            self._context.validate()
+        self._context.validate()
         from studio.menubar import build_menubar
         self._knowledge_controller.set_loaded_menu(None)
         build_menubar(self)
         self._knowledge_controller.set_loaded_menu(self._loaded_menu)
-        self._init_statusbar()
         self._init_global_shortcuts()
         self._connect_global_signals()
-        self._find_replace_ctrl = FindReplaceController(
-            parent_window=self, canvas=self.canvas,
-            knowledge_dock=self.knowledge_dock,
-            show_status=self._context.show_status,
-        )
         self.set_user_mode(self._user_mode, notify=False)
         restored_from_tmp = self._autosave_ctrl.maybe_restore_from_tmp(self)
         if not restored_from_tmp:
@@ -110,9 +102,6 @@ class MainWindow(QMainWindow):
         log_path = str(getattr(self.app_logger, "log_file_path", lambda: "")() or "").strip()
         if log_path:
             self.app_logger.info("SYS", f"Debug log file: {log_path}")
-        self._ctx_timer = QTimer(self)
-        self._ctx_timer.timeout.connect(self._refresh_context_bar)
-        self._ctx_timer.start(1000)
 
     def _init_services(self):
         services = _setup_services(self)
@@ -156,6 +145,8 @@ class MainWindow(QMainWindow):
         self._chat_controller = controllers.chat_controller
         self._speech_ctrl = controllers.speech_ctrl
         self._zoom_ctrl = controllers.zoom_ctrl
+        self._llm_tasks = controllers.llm_tasks_ctrl
+        self._find_replace_ctrl = controllers.find_replace_ctrl
 
     # ── Initialisation helpers ────────────────────────────────────────
 
@@ -203,8 +194,7 @@ class MainWindow(QMainWindow):
 
         _bind("Ctrl+Tab", self._select_next_draft_tab)
         _bind("Ctrl+Shift+Tab", self._select_previous_draft_tab)
-        _bind("Ctrl+F", lambda: self._find_replace_ctrl.open_dialog()
-              if hasattr(self, "_find_replace_ctrl") else None)
+        _bind("Ctrl+F", lambda: self._find_replace_ctrl.open_dialog())
         _bind("Alt+1", lambda: self._set_canvas_view_mode_shortcut("markdown"))
         _bind("Alt+2", lambda: self._set_canvas_view_mode_shortcut("preview"))
         _bind("Alt+3", lambda: self._set_canvas_view_mode_shortcut("both"))
@@ -224,23 +214,8 @@ class MainWindow(QMainWindow):
         sb.addPermanentWidget(self._mode_lbl)
         self._apply_window_chrome_theme()
         sb.showMessage("Ready")
-
-        self._llm_tasks = LLMSideTaskController(
-            parent=self,
-            ctx=LLMTaskContext(
-                llm_manager=self.llm_manager,
-                rag_system=self.rag_system,
-                canvas=self.canvas,
-                chat_dock=self.chat_dock,
-                glossary_feedback_bar=self._glossary_feedback_bar,
-                app_logger=self.app_logger,
-                show_status=self._context.show_status,
-                resolve_imported_doc_content=self._context.resolve_imported_doc_content,
-                set_status_feedback_payload=self._context.set_status_feedback_payload,
-                refresh_preview_overlays=self._theme_ctrl.refresh_all_preview_overlays,
-                autosave_schedule_fn=self._context.schedule_autosave,
-            ),
-        )
+        # Bind early so controllers_setup can access it when creating LLMSideTaskController.
+        self._context.bind_glossary_feedback_bar(self._glossary_feedback_bar)
 
     def _connect_global_signals(self):
         self.llm_manager.model_loaded.connect(self._on_model_loaded)
@@ -262,6 +237,9 @@ class MainWindow(QMainWindow):
             )
         self._on_tts_speaking_changed(self._speech_ctrl.tts_manager.is_speaking())
         self._speech_ctrl._apply_runtime_settings()
+        self._ctx_timer = QTimer(self)
+        self._ctx_timer.timeout.connect(self._refresh_context_bar)
+        self._ctx_timer.start(1000)
 
     # ── Public delegations (theme, speech — called by ProjectManager) ──
 

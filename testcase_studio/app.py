@@ -341,7 +341,7 @@ class TestcaseStudio(QDialog):
     def _export_suites(self) -> None:
         output_dir = Path(self.cases_view.export_output_edit.text().strip() or str(self._controller.storage_dir / "generated")).expanduser()
         if not output_dir.is_absolute():
-            output_dir = (Path.cwd() / output_dir).resolve()
+            output_dir = (self._controller.storage_dir / output_dir).resolve(strict=False)
         try:
             summary, written = self._controller.export_suites(
                 output_dir=output_dir,
@@ -367,7 +367,14 @@ def main(argv: list[str] | None = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description="Testcase Studio")
-    parser.add_argument("--storage-dir", default="runs/feedback", help="Feedback/Testcase Speicherordner (default: runs/feedback)")
+    parser.add_argument(
+        "--storage-dir",
+        default="runs/feedback",
+        help=(
+            "Feedback/Testcase Speicherordner "
+            "(relativ zum App-Datenordner, default: runs/feedback)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     app = QApplication.instance() or QApplication(sys.argv)

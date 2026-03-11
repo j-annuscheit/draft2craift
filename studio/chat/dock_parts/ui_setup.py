@@ -3,6 +3,13 @@ from __future__ import annotations
 
 from .deps import *  # noqa: F403
 
+_MODEL_PANEL_MIN_HEIGHT = 72
+_CONTEXT_PANEL_MIN_HEIGHT = 52
+_CHAT_PANEL_MIN_HEIGHT = 96
+_CONTEXT_PANEL_MAX_HEIGHT = 220
+_CONTEXT_PANEL_MAX_SHARE = 0.33
+
+
 def _setup_dock(self):
     container = QWidget()
     container.setMinimumWidth(300)
@@ -71,7 +78,9 @@ def _setup_dock(self):
 
     inner.addWidget(history_widget)
     inner.addWidget(self._build_input_area())
-    inner.setSizes([340, 120])
+    inner.setStretchFactor(0, 1)
+    inner.setStretchFactor(1, 0)
+    inner.setSizes([520, 120])
     inner.setCollapsible(0, False)
     inner.setCollapsible(1, False)
 
@@ -80,7 +89,13 @@ def _setup_dock(self):
     splitter.setStretchFactor(0, 0)
     splitter.setStretchFactor(1, 0)
     splitter.setStretchFactor(2, 1)
-    splitter.setSizes([160, self.context_panel.preferred_height(), 380])
+    splitter.setSizes(
+        [
+            120,
+            min(self.context_panel.preferred_height(), _CONTEXT_PANEL_MAX_HEIGHT),
+            760,
+        ]
+    )
 
     outer.addWidget(splitter)
     self.setWidget(container)
@@ -105,25 +120,34 @@ def _apply_context_panel_height(self, height: int):
     if total <= 0:
         return
 
-    min_model = 72
-    min_chat = 96
-    max_ctx = max(52, total - (min_model + min_chat))
-    ctx_height = max(52, min(int(height), max_ctx))
+    model_visible = int(sizes[0]) > 8
+    min_model = _MODEL_PANEL_MIN_HEIGHT if model_visible else 0
+    min_chat = _CHAT_PANEL_MIN_HEIGHT
+    min_ctx = _CONTEXT_PANEL_MIN_HEIGHT
+    max_ctx = max(min_ctx, total - (min_model + min_chat))
+    soft_ctx_cap = max(
+        min_ctx,
+        min(_CONTEXT_PANEL_MAX_HEIGHT, int(total * _CONTEXT_PANEL_MAX_SHARE)),
+    )
+    ctx_height = max(min_ctx, min(int(height), max_ctx, soft_ctx_cap))
     remaining = max(min_model + min_chat, total - ctx_height)
 
-    model_target = sizes[0]
+    model_target = int(sizes[0]) if model_visible else 0
     chat_target = sizes[2]
     model_chat_total = model_target + chat_target
-    if model_chat_total <= 0:
-        model_target = max(min_model, remaining // 4)
-    else:
-        ratio = model_target / model_chat_total
-        model_target = int(round(remaining * ratio))
+    if model_visible:
+        if model_chat_total <= 0:
+            model_target = max(min_model, remaining // 4)
+        else:
+            ratio = model_target / model_chat_total
+            model_target = int(round(remaining * ratio))
 
-    model_target = max(
-        min_model,
-        min(model_target, max(min_model, remaining - min_chat)),
-    )
+        model_target = max(
+            min_model,
+            min(model_target, max(min_model, remaining - min_chat)),
+        )
+    else:
+        model_target = 0
     chat_target = max(min_chat, remaining - model_target)
     splitter.setSizes([model_target, ctx_height, chat_target])
 

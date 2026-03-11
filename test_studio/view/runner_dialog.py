@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from shared.config.paths import app_data_dir
 from test_studio.components.runner_fields import RunnerFields
 
 
@@ -309,10 +310,13 @@ class RunnerDialog(QDialog):
 
     @staticmethod
     def _browse_base_dir(current_text: str) -> str:
+        base = pathlib.Path(app_data_dir())
         raw = str(current_text or "").strip()
         if not raw:
-            return str(pathlib.Path.cwd())
+            return str(base)
         path = pathlib.Path(raw).expanduser()
+        if not path.is_absolute():
+            path = (base / path).resolve(strict=False)
         if path.exists():
             return str(path if path.is_dir() else path.parent)
         if path.suffix:

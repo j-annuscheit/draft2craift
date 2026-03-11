@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from shared.config.paths import app_data_dir
 from testcase_studio.storage import (
     case_id_from_no,
     now_iso,
@@ -20,8 +21,11 @@ from testcase_studio.text_utils import case_title, coerce_int_list, coerce_label
 class TestcaseStudioController:
     def __init__(self, storage_dir: str | Path | None = None) -> None:
         base = Path(storage_dir).expanduser() if storage_dir else Path("runs/feedback")
+        anchor = app_data_dir()
         if not base.is_absolute():
-            base = (Path.cwd() / base).resolve()
+            base = (anchor / base).resolve(strict=False)
+        else:
+            base = base.resolve(strict=False)
         self.storage_dir = base
         self.events: list[dict[str, Any]] = []
         self.cases: list[dict[str, Any]] = []

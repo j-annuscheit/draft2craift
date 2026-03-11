@@ -10,6 +10,8 @@ import socket
 import uuid
 from typing import Any
 
+from shared.config.paths import app_data_dir
+
 from .settings import FeedbackSettings, normalize_use_case
 
 
@@ -84,10 +86,12 @@ class FeedbackService:
 
     def storage_dir(self) -> Path:
         raw = str(self._settings.storage_dir or "").strip()
+        if not raw:
+            raw = FeedbackSettings().storage_dir
         path = Path(raw).expanduser()
         if not path.is_absolute():
-            path = (Path.cwd() / path).resolve()
-        return path
+            path = app_data_dir() / path
+        return path.resolve(strict=False)
 
     def events_path(self) -> Path:
         return self.storage_dir() / _EVENTS_FILE

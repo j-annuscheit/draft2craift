@@ -22,6 +22,8 @@ class RAGWorkerPort(Protocol):
 
     def enqueue_load_st(self, model_name: str | None = None) -> None: ...
 
+    def isRunning(self) -> bool: ...
+
 
 @runtime_checkable
 class KnowledgeDockPort(Protocol):

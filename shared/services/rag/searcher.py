@@ -12,6 +12,20 @@ from shared.services.rag.search_fusion import (
     rrf_merge,
 )
 
+# Retrieval oversampling for better recall before fusion and filtering.
+_RETRIEVAL_OVERSAMPLE_FACTOR = 4
+_RETRIEVAL_MIN_FETCH_K = 30
+
+# Candidate pool after fusion; kept larger than final top_k for selection/rerank.
+_CANDIDATE_OVERSAMPLE_FACTOR = 4
+_CANDIDATE_MIN_TOP_K = 20
+
+# Literal direct-match scoring heuristic.
+# Base boost for one literal hit plus capped bonus per additional matched term.
+_LITERAL_DIRECT_BASE_SCORE = 1.5
+_LITERAL_DIRECT_BONUS_CAP = 0.6
+_LITERAL_DIRECT_BONUS_PER_EXTRA_MATCH = 0.1
+
 
 class RAGSearcher:
     """Coordinates retrieval across TF-IDF/ST/literal and builds document hits."""
@@ -34,7 +48,10 @@ class RAGSearcher:
         t0 = time.perf_counter()
         cfg = self.config
         effective_top_k = top_k if top_k is not None else cfg.selection.top_k
-        fetch_k = max(effective_top_k * 4, 30)
+        fetch_k = max(
+            effective_top_k * _RETRIEVAL_OVERSAMPLE_FACTOR,
+            _RETRIEVAL_MIN_FETCH_K,
+        )
         trace_by_key: dict[str, dict[str, Any]] = {}
         span_cache: dict[str, tuple[int, int] | None] = {}
 
@@ -50,7 +67,7 @@ class RAGSearcher:
                 return None
             try:
                 return int(key.rsplit("\x00", 1)[1])
-            except Exception:
+            except (ValueError, IndexError):
                 return None
 
         def get_span(key: str) -> tuple[int, int] | None:
@@ -95,7 +112,10 @@ class RAGSearcher:
         else:
             raw = tfidf_raw
 
-        candidate_top_k = max(effective_top_k * 4, 20)
+        candidate_top_k = max(
+            effective_top_k * _CANDIDATE_OVERSAMPLE_FACTOR,
+            _CANDIDATE_MIN_TOP_K,
+        )
         raw = raw[:candidate_top_k]
 
         regex_hits: list[tuple[str, float, str]] = []
@@ -303,7 +323,10 @@ class RAGSearcher:
             if match_count <= 0:
                 continue
 
-            score = 1.5 + min(0.6, 0.1 * (match_count - 1))
+            score = _LITERAL_DIRECT_BASE_SCORE + min(
+                _LITERAL_DIRECT_BONUS_CAP,
+                _LITERAL_DIRECT_BONUS_PER_EXTRA_MATCH * (match_count - 1),
+            )
             scored.append((key, score, body, match_count, first_pos))
 
         scored.sort(key=lambda item: (-item[3], -item[1], item[4]))

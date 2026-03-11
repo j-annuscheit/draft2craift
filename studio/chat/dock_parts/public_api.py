@@ -3,6 +3,30 @@ from __future__ import annotations
 
 from .deps import *  # noqa: F403
 
+_MODEL_PANEL_MIN_HEIGHT = 72
+_CONTEXT_PANEL_MIN_HEIGHT = 52
+_CHAT_PANEL_MIN_HEIGHT = 96
+_CONTEXT_PANEL_MAX_HEIGHT = 220
+_CONTEXT_PANEL_MAX_SHARE = 0.33
+
+
+def _preferred_context_height(self, total: int) -> int:
+    min_ctx = _CONTEXT_PANEL_MIN_HEIGHT
+    preferred_fn = getattr(self, "context_panel", None)
+    if preferred_fn is None or not hasattr(preferred_fn, "preferred_height"):
+        preferred = min_ctx
+    else:
+        try:
+            preferred = int(preferred_fn.preferred_height())
+        except Exception:
+            preferred = min_ctx
+    soft_cap = max(
+        min_ctx,
+        min(_CONTEXT_PANEL_MAX_HEIGHT, int(total * _CONTEXT_PANEL_MAX_SHARE)),
+    )
+    return max(min_ctx, min(preferred, soft_cap))
+
+
 def set_feedback_service(self, service: FeedbackService):
     self._feedback_service = service
 
@@ -127,24 +151,31 @@ def set_model_panel_visible(self, visible: bool):
         total = 1
     model_size, ctx_size, chat_size = [int(s) for s in sizes]
 
-    min_model = 72
-    min_ctx = 52
-    min_chat = 96
+    min_model = _MODEL_PANEL_MIN_HEIGHT
+    min_ctx = _CONTEXT_PANEL_MIN_HEIGHT
+    min_chat = _CHAT_PANEL_MIN_HEIGHT
 
     if not bool(visible):
         if model_size > 8:
             self._model_panel_last_size = model_size
         remaining = total
-        ctx_chat_total = max(1, ctx_size + chat_size)
-        ctx_target = int(round(remaining * (ctx_size / ctx_chat_total)))
-        ctx_target = max(min_ctx, min(ctx_target, max(min_ctx, remaining - min_chat)))
+        ctx_target = _preferred_context_height(self, remaining)
+        ctx_target = max(
+            min_ctx,
+            min(ctx_target, max(min_ctx, remaining - min_chat)),
+        )
         chat_target = max(min_chat, remaining - ctx_target)
         splitter.setSizes([0, ctx_target, chat_target])
         return
 
     available_for_model = max(0, total - (min_ctx + min_chat))
     if available_for_model <= 0:
-        splitter.setSizes([0, max(min_ctx, total // 3), max(min_chat, total // 2)])
+        ctx_target = _preferred_context_height(self, total)
+        ctx_target = max(
+            min_ctx,
+            min(ctx_target, max(min_ctx, total - min_chat)),
+        )
+        splitter.setSizes([0, ctx_target, max(min_chat, total - ctx_target)])
         return
 
     desired = int(self._model_panel_last_size or min_model)
@@ -152,6 +183,8 @@ def set_model_panel_visible(self, visible: bool):
     remaining = max(0, total - model_target)
     ctx_chat_total = max(1, ctx_size + chat_size)
     ctx_target = int(round(remaining * (ctx_size / ctx_chat_total)))
+    ctx_cap = _preferred_context_height(self, total)
+    ctx_target = min(ctx_target, ctx_cap)
     ctx_target = max(min_ctx, min(ctx_target, max(min_ctx, remaining - min_chat)))
     chat_target = max(min_chat, remaining - ctx_target)
     splitter.setSizes([model_target, ctx_target, chat_target])
