@@ -284,6 +284,11 @@ class ProjectSaver:
         model_panel = mw.chat_dock.model_panel
         llm_data = {
             "model_path": model_panel.model_path.text(),
+            "model_backend": (
+                model_panel.get_model_backend()
+                if hasattr(model_panel, "get_model_backend")
+                else "auto"
+            ),
             "nli_model_id": model_panel.nli_model_id.text(),
             "ctx_size": model_panel.ctx_spin.value(),
             "gpu_layers": model_panel.gpu_spin.value(),

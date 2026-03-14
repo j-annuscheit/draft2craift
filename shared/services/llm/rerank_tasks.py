@@ -46,7 +46,6 @@ def rerank_rag_results_sync(
             "evaluated": len(candidates),
         }
 
-    model = self.worker._model
     limit = max(1, len(candidates))
     docs = candidates[:limit]
     score_threshold = max(0.0, min(1.0, float(min_score)))
@@ -101,16 +100,14 @@ def rerank_rag_results_sync(
         }
 
     try:
-        result = model(
+        raw_full = self._generate_backend_text(
             prompt,
             max_tokens=max_out_tokens,
             temperature=0.1,
             top_p=0.9,
             repeat_penalty=1.05,
-            stop=["<|"],
-            stream=False,
+            stop_tokens=["<|"],
         )
-        raw_full = result["choices"][0].get("text", "")
         self._log_llm_io("RAG-Rerank", prompt, raw_full)
         raw = raw_full.strip()
 

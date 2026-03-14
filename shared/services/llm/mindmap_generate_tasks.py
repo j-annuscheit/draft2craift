@@ -146,18 +146,15 @@ def generate_mindmap_sync(
             "error": window_err,
         }
 
-    model = self.worker._model
     try:
-        result = model(
+        raw_full = self._generate_backend_text(
             prompt,
             max_tokens=max_out_tokens,
             temperature=0.2,
             top_p=0.9,
             repeat_penalty=1.05,
-            stop=["<|"],
-            stream=False,
+            stop_tokens=["<|"],
         )
-        raw_full = result["choices"][0].get("text", "")
         self._log_llm_io("MindMap", prompt, raw_full)
         raw = str(raw_full or "").strip()
         if not raw:

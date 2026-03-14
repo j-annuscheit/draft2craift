@@ -210,15 +210,23 @@ def _on_chat_feedback_submitted(
     if self._feedback_service is None:
         return
     model_info = ""
+    model_backend = ""
     panel = getattr(self, "model_panel", None)
     if panel is not None:
         model_path_widget = getattr(panel, "model_path", None)
         if model_path_widget is not None:
             model_info = str(model_path_widget.text() or "")
+        backend_getter = getattr(panel, "get_model_backend", None)
+        if callable(backend_getter):
+            try:
+                model_backend = str(backend_getter() or "")
+            except Exception:
+                model_backend = ""
     payload = {
         "last_user_message": self._last_user_msg,
         "last_assistant_message": self._last_assistant_msg,
         "model": model_info,
+        "model_backend": model_backend,
     }
     self._feedback_service.submit_feedback(
         use_case=use_case or self._last_use_case,

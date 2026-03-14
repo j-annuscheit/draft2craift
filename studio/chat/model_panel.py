@@ -6,6 +6,7 @@ import os
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
+    QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -19,6 +20,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from shared.services.llm.backends import (
+    BACKEND_AUTO,
+    BACKEND_LLAMA_CPP,
+    BACKEND_TRANSFORMERS,
+)
 from shared.domain.user_mode import (
     USER_MODE_EXPERT,
     USER_MODE_PLUS,
@@ -37,7 +43,7 @@ def _set_form_row_visible(form: QFormLayout, field: QWidget, visible: bool):
 
 
 class ModelLoadPanel(QWidget):
-    """Panel for loading GGUF model and editing generation parameters."""
+    """Panel for loading text models and editing generation parameters."""
 
     load_requested = Signal(str, dict)
     nli_load_requested = Signal(str, dict)
@@ -45,6 +51,8 @@ class ModelLoadPanel(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._user_mode = USER_MODE_PLUS
+        self._plus_or_higher = True
+        self._expert_only = False
         self._setup_ui()
 
     def _setup_ui(self):
@@ -52,12 +60,12 @@ class ModelLoadPanel(QWidget):
             """
             QWidget  { background: palette(alternate-base); }
             QLabel   { color: palette(text); font-size: 10px; }
-            QLineEdit, QSpinBox, QDoubleSpinBox {
+            QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
                 background: palette(base); color: palette(text);
                 border: 1px solid palette(mid); border-radius: 3px;
                 padding: 3px 6px; font-size: 11px;
             }
-            QLineEdit:focus, QSpinBox:focus { border-color: palette(highlight); }
+            QLineEdit:focus, QSpinBox:focus, QComboBox:focus { border-color: palette(highlight); }
             """
         )
 
@@ -70,19 +78,33 @@ class ModelLoadPanel(QWidget):
             "color: palette(highlight); font-size: 10px; font-weight: bold;"
         )
         layout.addWidget(model_lbl)
-        model_hint = QLabel("Changes here require clicking 'Load Model'.")
-        model_hint.setStyleSheet("color: palette(placeholder-text); font-size: 9px;")
-        layout.addWidget(model_hint)
+        self.model_hint = QLabel("Changes here require clicking 'Load Model'.")
+        self.model_hint.setStyleSheet("color: palette(placeholder-text); font-size: 9px;")
+        layout.addWidget(self.model_hint)
+
+        self.backend_combo = QComboBox()
+        self.backend_combo.addItem("Auto", BACKEND_AUTO)
+        self.backend_combo.addItem("GGUF (llama.cpp)", BACKEND_LLAMA_CPP)
+        self.backend_combo.addItem("Transformers (HF)", BACKEND_TRANSFORMERS)
+        self.backend_combo.currentIndexChanged.connect(self._on_backend_changed)
+        backend_row = QHBoxLayout()
+        backend_row.setContentsMargins(0, 0, 0, 0)
+        backend_row.setSpacing(6)
+        backend_row.addWidget(QLabel("Backend:"))
+        backend_row.addWidget(self.backend_combo, 1)
+        layout.addLayout(backend_row)
 
         path_row = QHBoxLayout()
         self.model_path = QLineEdit()
-        self.model_path.setPlaceholderText("Path to .gguf model file…")
-        browse_btn = QPushButton("…")
-        browse_btn.setFixedWidth(28)
-        browse_btn.setStyleSheet(BTN_NEUTRAL)
-        browse_btn.clicked.connect(self._browse)
+        self.model_path.setPlaceholderText(
+            "Model path (.gguf) or Hugging Face model id / URL…"
+        )
+        self.browse_btn = QPushButton("…")
+        self.browse_btn.setFixedWidth(28)
+        self.browse_btn.setStyleSheet(BTN_NEUTRAL)
+        self.browse_btn.clicked.connect(self._browse)
         path_row.addWidget(self.model_path)
-        path_row.addWidget(browse_btn)
+        path_row.addWidget(self.browse_btn)
         layout.addLayout(path_row)
 
         self._model_form = QFormLayout()
@@ -201,11 +223,63 @@ class ModelLoadPanel(QWidget):
 
         layout.addLayout(self._gen_form)
         self.set_user_mode(self._user_mode)
+        self._apply_backend_ui()
+
+    def _on_backend_changed(self, _index: int):
+        self._apply_backend_ui()
+
+    def _apply_backend_ui(self):
+        backend = self.get_model_backend()
+        if backend == BACKEND_LLAMA_CPP:
+            self.model_hint.setText(
+                "Use local GGUF model files and click 'Load Model'."
+            )
+            self.model_path.setPlaceholderText("Path to local GGUF model (.gguf/.bin)…")
+            self.browse_btn.setToolTip("Choose a local GGUF model file.")
+        elif backend == BACKEND_TRANSFORMERS:
+            self.model_hint.setText(
+                "Use a Hugging Face model id/URL or a local model directory."
+            )
+            self.model_path.setPlaceholderText(
+                "Hugging Face model id / URL or local model directory…"
+            )
+            self.browse_btn.setToolTip("Choose a local transformers model directory.")
+        else:
+            self.model_hint.setText("Changes here require clicking 'Load Model'.")
+            self.model_path.setPlaceholderText(
+                "Model path (.gguf) or Hugging Face model id / URL…"
+            )
+            self.browse_btn.setToolTip(
+                "Choose a local GGUF file, or enter a transformers id/URL."
+            )
+        self._refresh_model_row_visibility()
+
+    def _refresh_model_row_visibility(self):
+        backend = self.get_model_backend()
+        show_ctx = bool(self._plus_or_higher)
+        show_gpu = bool(self._plus_or_higher) and backend in {
+            BACKEND_AUTO,
+            BACKEND_LLAMA_CPP,
+        }
+        show_threads = bool(self._expert_only)
+        _set_form_row_visible(self._model_form, self.ctx_spin, show_ctx)
+        _set_form_row_visible(self._model_form, self.gpu_spin, show_gpu)
+        _set_form_row_visible(self._model_form, self.threads_spin, show_threads)
 
     def _browse(self):
+        backend = self.get_model_backend()
+        if backend == BACKEND_TRANSFORMERS:
+            directory = QFileDialog.getExistingDirectory(
+                self,
+                "Select Transformers Model Directory",
+                "",
+            )
+            if directory:
+                self.model_path.setText(directory)
+            return
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select GGUF Model",
+            "Select GGUF Model File",
             "",
             "GGUF Models (*.gguf *.bin);;All Files (*)",
         )
@@ -220,6 +294,7 @@ class ModelLoadPanel(QWidget):
             "n_ctx": self.ctx_spin.value(),
             "n_gpu_layers": self.gpu_spin.value(),
             "n_threads": self.threads_spin.value(),
+            "backend": self.get_model_backend(),
         }
         self.load_btn.setEnabled(False)
         self.status_lbl.setText("⏳ Loading…")
@@ -279,6 +354,28 @@ class ModelLoadPanel(QWidget):
             "forbidden_chars": self.forbidden_chars_edit.text(),
         }
 
+    def get_model_backend(self) -> str:
+        combo = self.backend_combo
+        if combo is None:
+            return BACKEND_AUTO
+        value = str(combo.currentData() or BACKEND_AUTO).strip().casefold()
+        if value in {BACKEND_AUTO, BACKEND_LLAMA_CPP, BACKEND_TRANSFORMERS}:
+            return value
+        return BACKEND_AUTO
+
+    def set_model_backend(self, backend: str) -> None:
+        combo = self.backend_combo
+        if combo is None:
+            return
+        target = str(backend or BACKEND_AUTO).strip().casefold()
+        for idx in range(combo.count()):
+            if str(combo.itemData(idx) or "").strip().casefold() == target:
+                combo.setCurrentIndex(idx)
+                self._apply_backend_ui()
+                return
+        combo.setCurrentIndex(0)
+        self._apply_backend_ui()
+
     def set_user_mode(self, mode: str):
         self._user_mode = normalize_user_mode(mode)
         rank = mode_rank(self._user_mode)
@@ -287,6 +384,8 @@ class ModelLoadPanel(QWidget):
 
         plus_or_higher = rank >= plus_rank
         expert_only = rank >= expert_rank
+        self._plus_or_higher = bool(plus_or_higher)
+        self._expert_only = bool(expert_only)
 
         _set_form_row_visible(self._gen_form, self.top_p_spin, plus_or_higher)
         _set_form_row_visible(
@@ -295,7 +394,4 @@ class ModelLoadPanel(QWidget):
         _set_form_row_visible(
             self._gen_form, self.forbidden_chars_edit, expert_only
         )
-
-        _set_form_row_visible(self._model_form, self.ctx_spin, plus_or_higher)
-        _set_form_row_visible(self._model_form, self.gpu_spin, plus_or_higher)
-        _set_form_row_visible(self._model_form, self.threads_spin, expert_only)
+        self._refresh_model_row_visibility()

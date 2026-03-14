@@ -40,7 +40,6 @@ def generate_glossary_sync(
             "reason": "model_busy",
         }
 
-    model = self.worker._model
     limit = max(1, min(64, int(max_terms)))
 
     def _compact_context(text: str, max_chars: int) -> tuple[str, bool]:
@@ -211,12 +210,15 @@ def generate_glossary_sync(
             "temperature": float(temperature),
             "top_p": float(top_p),
             "repeat_penalty": float(repeat_penalty),
-            "stream": False,
         }
-        if isinstance(stop_tokens, list):
-            kwargs["stop"] = list(stop_tokens)
-        result = model(prompt, **kwargs)
-        raw_full = result["choices"][0].get("text", "")
+        raw_full = self._generate_backend_text(
+            prompt,
+            max_tokens=int(kwargs["max_tokens"]),
+            temperature=float(kwargs["temperature"]),
+            top_p=float(kwargs["top_p"]),
+            repeat_penalty=float(kwargs["repeat_penalty"]),
+            stop_tokens=list(stop_tokens or ["<|"]),
+        )
         self._log_llm_io(call_name, prompt, raw_full)
         return str(raw_full or "")
 

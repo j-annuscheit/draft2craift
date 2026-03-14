@@ -7,10 +7,6 @@ from studio.importer.workers import MarkdownLLMFixWorker
 
 
 class _FakeWorker:
-    def __init__(self, model):
-        self._model = model
-        self._model_thread_ident = 0
-
     def isRunning(self):
         return False
 
@@ -32,7 +28,8 @@ class _FakeModel:
 
 class _FakeManager:
     def __init__(self, model):
-        self.worker = _FakeWorker(model)
+        self.worker = _FakeWorker()
+        self._stream_model = model
         self._log = None
         self.logged_io: list[tuple[str, str | None]] = []
 
@@ -49,6 +46,26 @@ class _FakeManager:
     def _log_llm_io(self, call_name, prompt, output=None, error=None):
         _ = prompt
         self.logged_io.append((str(call_name), str(error) if error is not None else None))
+
+    def _stream_backend_text(
+        self,
+        prompt,
+        *,
+        max_tokens,
+        temperature,
+        top_p,
+        repeat_penalty,
+        stop_tokens,
+        stop_requested=None,
+    ):
+        _ = max_tokens, temperature, top_p, repeat_penalty, stop_tokens
+        result = self._stream_model(prompt, stream=True)
+        for event in result:
+            if callable(stop_requested) and bool(stop_requested()):
+                break
+            token = str(event["choices"][0].get("text", "") or "")
+            if token:
+                yield token
 
     @staticmethod
     def _extract_tagged_payload_with_flag(raw_text, tag):

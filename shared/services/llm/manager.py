@@ -3,7 +3,7 @@ LLM Manager
 ===========
 Two classes:
 
-  LLMWorker  – QThread that owns the llama_cpp.Llama instance.
+  LLMWorker  – QThread that owns the active backend instance.
                Emits streamed tokens via signals.
 
   LLMManager – High-level QObject that builds context-aware prompts,
@@ -21,6 +21,7 @@ import time
 from typing import Any
 
 from PySide6.QtCore import QObject, Signal
+from shared.services.llm.backends import BACKEND_AUTO
 from shared.services.llm.nli import NLIBackend
 from shared.services.llm.prompts import (
     DEFAULT_PROMPTS_FILE,
@@ -195,6 +196,7 @@ class LLMManager(QObject):
         n_gpu_layers: int = 0,
         n_threads: int = 0,
         flash_attn: bool = True,
+        backend: str = BACKEND_AUTO,
     ):
         self._clear_query_expansion_cache()
         if self._log:
@@ -204,7 +206,8 @@ class LLMManager(QObject):
                 "LLM",
                 f"Loading model: {basename}"
                 f"  |  n_ctx={n_ctx}  gpu_layers={n_gpu_layers}"
-                f"  threads={threads}  flash_attn={bool(flash_attn)}",
+                f"  threads={threads}  flash_attn={bool(flash_attn)}"
+                f"  backend={str(backend or BACKEND_AUTO)}",
             )
         self.worker.load_model(
             path,
@@ -212,10 +215,17 @@ class LLMManager(QObject):
             n_gpu_layers=n_gpu_layers,
             n_threads=n_threads,
             flash_attn=flash_attn,
+            backend=str(backend or BACKEND_AUTO),
         )
 
     def is_model_loaded(self) -> bool:
-        return self.worker._model is not None
+        return bool(self.worker.is_model_loaded())
+
+    def current_backend(self) -> str:
+        return str(self.worker.backend_name() or "")
+
+    def context_window(self) -> int:
+        return int(self.worker.context_window(4096))
 
     def load_nli_model(
         self,
@@ -233,71 +243,6 @@ class LLMManager(QObject):
 
     def verify_nli_sync(self, premise: str, hypothesis: str) -> dict[str, Any]:
         return self._nli_backend.verify_sync(premise, hypothesis)
-
-    # Legacy compatibility for tests/debug tooling that touches NLI internals.
-    @property
-    def _nli_model(self) -> Any:
-        return self._nli_backend.model
-
-    @_nli_model.setter
-    def _nli_model(self, value: Any):
-        self._nli_backend.model = value
-
-    @property
-    def _nli_tokenizer(self) -> Any:
-        return self._nli_backend.tokenizer
-
-    @_nli_tokenizer.setter
-    def _nli_tokenizer(self, value: Any):
-        self._nli_backend.tokenizer = value
-
-    @property
-    def _nli_torch(self) -> Any:
-        return self._nli_backend.torch_mod
-
-    @_nli_torch.setter
-    def _nli_torch(self, value: Any):
-        self._nli_backend.torch_mod = value
-
-    @property
-    def _nli_model_id(self) -> str:
-        return self._nli_backend.model_id
-
-    @_nli_model_id.setter
-    def _nli_model_id(self, value: str):
-        self._nli_backend.model_id = str(value or "")
-
-    @property
-    def _nli_device(self) -> str:
-        return self._nli_backend.device
-
-    @_nli_device.setter
-    def _nli_device(self, value: str):
-        self._nli_backend.device = str(value or "cpu")
-
-    @property
-    def _nli_label_lookup(self) -> dict[int, str]:
-        return self._nli_backend.label_lookup
-
-    @_nli_label_lookup.setter
-    def _nli_label_lookup(self, value: dict[int, str]):
-        self._nli_backend.label_lookup = dict(value or {})
-
-    @property
-    def _nli_loading(self) -> bool:
-        return bool(self._nli_backend.loading)
-
-    @_nli_loading.setter
-    def _nli_loading(self, value: bool):
-        self._nli_backend.loading = bool(value)
-
-    @property
-    def _nli_last_error(self) -> str:
-        return str(self._nli_backend.last_error or "")
-
-    @_nli_last_error.setter
-    def _nli_last_error(self, value: str):
-        self._nli_backend.last_error = str(value or "")
 
     def set_system_prompt(self, text: str):
         self._system_prompt = self._prompt_registry.set_system_prompt(text)
@@ -373,6 +318,48 @@ class LLMManager(QObject):
             self._log.debug("LLM", f"[{call_name}] OUTPUT:\n{output}")
         if error:
             self._log.error("LLM", f"[{call_name}] ERROR: {error}")
+
+    def _generate_backend_text(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int,
+        temperature: float,
+        top_p: float,
+        repeat_penalty: float,
+        stop_tokens: list[str] | None = None,
+    ) -> str:
+        return self.worker.run_completion_sync(
+            prompt,
+            max_tokens=int(max_tokens),
+            temperature=float(temperature),
+            top_p=float(top_p),
+            repeat_penalty=float(repeat_penalty),
+            stop=list(stop_tokens or ["<|"]),
+            forbidden_chars=tuple(self._forbidden_chars),
+        )
+
+    def _stream_backend_text(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int,
+        temperature: float,
+        top_p: float,
+        repeat_penalty: float,
+        stop_tokens: list[str] | None = None,
+        stop_requested=None,
+    ):
+        return self.worker.iter_completion_sync(
+            prompt,
+            max_tokens=int(max_tokens),
+            temperature=float(temperature),
+            top_p=float(top_p),
+            repeat_penalty=float(repeat_penalty),
+            stop=list(stop_tokens or ["<|"]),
+            forbidden_chars=tuple(self._forbidden_chars),
+            stop_requested=stop_requested,
+        )
 
     @staticmethod
     def _extract_tagged_payload(raw_text: str, tag: str) -> str:

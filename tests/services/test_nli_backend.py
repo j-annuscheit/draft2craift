@@ -87,12 +87,12 @@ class _FakeModel:
 class NliTransformersBackendTests(unittest.TestCase):
     def test_verify_nli_sync_uses_softmax_confidence_and_mapped_label(self):
         manager = LLMManager()
-        manager._nli_model = _FakeModel([0.2, 2.0, -0.1])
-        manager._nli_tokenizer = _FakeTokenizer()
-        manager._nli_torch = _FakeTorch()
-        manager._nli_model_id = "cross-encoder/nli-deberta-v3-xsmall"
-        manager._nli_device = "cpu"
-        manager._nli_label_lookup = {}
+        manager._nli_backend.model = _FakeModel([0.2, 2.0, -0.1])
+        manager._nli_backend.tokenizer = _FakeTokenizer()
+        manager._nli_backend.torch_mod = _FakeTorch()
+        manager._nli_backend.model_id = "cross-encoder/nli-deberta-v3-xsmall"
+        manager._nli_backend.device = "cpu"
+        manager._nli_backend.label_lookup = {}
 
         result = manager.verify_nli_sync(
             "Der Vertrag gilt ab 2025.",
@@ -112,7 +112,7 @@ class NliTransformersBackendTests(unittest.TestCase):
         manager = LLMManager()
         manager.load_nli_model("/tmp/nli-model.gguf")
         self.assertFalse(manager.is_nli_model_loaded())
-        self.assertIn("Transformers only", manager._nli_last_error)
+        self.assertIn("Transformers only", manager._nli_backend.last_error)
 
 
 if __name__ == "__main__":

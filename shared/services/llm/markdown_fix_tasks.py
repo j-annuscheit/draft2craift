@@ -1,7 +1,6 @@
 """Markdown repair task methods for ``LLMManager``."""
 from __future__ import annotations
 
-import threading
 from typing import Any, Callable
 
 
@@ -33,22 +32,19 @@ def fix_markdown_chunk_sync(
             "reason": "model_busy",
         }
 
-    model = self.worker._model
-    if model is None:
-        return source, {
-            "applied": False,
-            "reason": "model_missing",
-        }
     if self._log:
-        caller_tid = int(threading.get_ident())
-        model_tid = int(getattr(self.worker, "_model_thread_ident", 0) or 0)
+        backend_name = ""
+        backend_getter = getattr(self, "current_backend", None)
+        if callable(backend_getter):
+            try:
+                backend_name = str(backend_getter() or "")
+            except Exception:
+                backend_name = ""
         self._log.debug(
             "LLM",
             (
                 "[Import-Markdown-Fix] call context"
-                f"  |  caller_tid={caller_tid}"
-                f"  model_tid={model_tid}"
-                f"  same_thread={int(caller_tid == model_tid and model_tid != 0)}"
+                f"  |  backend={backend_name or 'unknown'}"
                 f"  worker_running={int(bool(self.worker.isRunning()))}"
             ),
         )
@@ -146,24 +142,20 @@ def fix_markdown_chunk_sync(
             # ``stream=False`` can monopolize the interpreter for large chunks and
             # make the GUI appear frozen. Stream incrementally so the event loop
             # keeps getting scheduling opportunities between token fetches.
-            result = model(
+            parts: list[str] = []
+            stopped = False
+            for token in self._stream_backend_text(
                 prompt,
                 max_tokens=max_out_tokens,
                 temperature=0.05,
                 top_p=0.9,
                 repeat_penalty=1.0,
-                stop=["<|"],
-                stream=True,
-            )
-            parts: list[str] = []
-            stopped = False
-            for event in result:
-                if _stop_requested():
-                    stopped = True
-                    break
-                token = str(event["choices"][0].get("text", "") or "")
-                if token:
-                    parts.append(token)
+                stop_tokens=["<|"],
+                stop_requested=_stop_requested,
+            ):
+                parts.append(str(token or ""))
+            if _stop_requested():
+                stopped = True
             raw_full = "".join(parts)
             last_raw_full = raw_full
             if stopped:

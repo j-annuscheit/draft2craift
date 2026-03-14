@@ -401,11 +401,10 @@ class ProjectLoader:
 
         if "model_path" in llm_data:
             model_panel.model_path.setText(llm_data["model_path"])
+        if "model_backend" in llm_data and hasattr(model_panel, "set_model_backend"):
+            model_panel.set_model_backend(str(llm_data["model_backend"] or "auto"))
         if "nli_model_id" in llm_data:
             model_panel.nli_model_id.setText(llm_data["nli_model_id"])
-        elif "nli_model_path" in llm_data:
-            # Backward compatibility (older GGUF-era field name).
-            model_panel.nli_model_id.setText(llm_data["nli_model_path"])
         if "ctx_size" in llm_data:
             model_panel.ctx_spin.setValue(llm_data["ctx_size"])
         if "gpu_layers" in llm_data:
@@ -424,16 +423,6 @@ class ProjectLoader:
             model_panel.forbidden_chars_edit.setText(llm_data["forbidden_chars"])
         if "apply_selection_direct" in llm_data:
             mw.chat_dock.apply_selection_cb.setChecked(llm_data["apply_selection_direct"])
-
-        # Backward compatibility for projects without dedicated settings.prompts.
-        if (
-            "settings" not in data
-            and "system_prompts" in llm_data
-            and isinstance(llm_data["system_prompts"], dict)
-        ):
-            mw.llm_manager.set_prompt_set(llm_data["system_prompts"])
-        elif "settings" not in data and "system_prompt" in llm_data:
-            mw.llm_manager.set_system_prompt(llm_data["system_prompt"])
 
     @staticmethod
     def _restore_ui_state(mw: Any, data: dict) -> None:

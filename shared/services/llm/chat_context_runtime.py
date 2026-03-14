@@ -10,17 +10,23 @@ _COMMA_NEWLINE_SPLIT_RE = re.compile(r"[,\n]+")
 
 def _n_ctx(self) -> int:
     """Return the model's configured context window size."""
-    return self.worker._load_params.get("n_ctx", 4096)
+    worker = getattr(self, "worker", None)
+    if worker is None:
+        return 4096
+    try:
+        return int(worker.context_window(4096))
+    except Exception:
+        return 4096
 
 def _count_tokens(self, text: str) -> int:
     """Count tokens via the model's tokenizer; falls back to len/4."""
-    model = self.worker._model
-    if model is None:
-        return len(text) // 4
+    worker = getattr(self, "worker", None)
+    if worker is None:
+        return max(1, len(str(text or "")) // 4)
     try:
-        return len(model.tokenize(text.encode("utf-8", errors="replace")))
+        return max(1, int(worker.count_tokens(str(text or ""))))
     except Exception:
-        return len(text) // 4
+        return max(1, len(str(text or "")) // 4)
 
 def _check_context(
     self,
@@ -227,7 +233,9 @@ def _on_model_loaded(self, success: bool, message: str):
     self.model_loaded.emit(success, message)
 
 def _on_nli_model_loaded(self, success: bool, message: str):
-    self._nli_last_error = "" if success else str(message or "")
+    backend = getattr(self, "_nli_backend", None)
+    if backend is not None:
+        backend.last_error = "" if success else str(message or "")
     if self._log:
         if success:
             self._log.info("NLI", f"Model ready: {message}")

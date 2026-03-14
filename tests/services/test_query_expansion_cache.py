@@ -11,25 +11,25 @@ class _DummyModel:
         self._outputs = list(outputs)
         self.calls: list[dict[str, object]] = []
 
-    def __call__(self, prompt: str, **kwargs):
+    def complete(self, prompt: str, **kwargs) -> str:
         self.calls.append(
             {
                 "prompt": str(prompt or ""),
                 "kwargs": dict(kwargs or {}),
             }
         )
-        text = self._outputs.pop(0) if self._outputs else ""
-        return {
-            "choices": [{"text": text}],
-        }
+        return self._outputs.pop(0) if self._outputs else ""
 
 
 class QueryExpansionCacheTests(unittest.TestCase):
     def _build_manager(self, *, outputs: list[str]) -> tuple[LLMManager, _DummyModel]:
         manager = LLMManager()
         model = _DummyModel(outputs)
-        manager.worker._model = model
+        manager.worker.is_model_loaded = Mock(return_value=True)
         manager.worker.isRunning = Mock(return_value=False)
+        manager._generate_backend_text = Mock(
+            side_effect=lambda prompt, **kwargs: model.complete(prompt, **kwargs)
+        )
         return manager, model
 
     def test_tfidf_expansion_reuses_cached_value(self):

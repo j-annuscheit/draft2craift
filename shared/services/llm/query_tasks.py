@@ -32,7 +32,6 @@ def expand_query_tfidf_sync(self, query: str) -> str:
     cached = self._query_cache_get("tfidf", cache_key)
     if cached is not self._QUERY_CACHE_MISS:
         return str(cached or query)
-    model = self.worker._model
     user_block = self._render_prompt_template(
         "hyde_tfidf_user",
         {"query": query},
@@ -45,9 +44,14 @@ def expand_query_tfidf_sync(self, query: str) -> str:
         "<|assistant|>\n"
     )
     try:
-        result   = model(prompt, max_tokens=80, temperature=0.2,
-                         stop=["<|"], stream=False)
-        raw_text = result["choices"][0].get("text", "")
+        raw_text = self._generate_backend_text(
+            prompt,
+            max_tokens=80,
+            temperature=0.2,
+            top_p=0.9,
+            repeat_penalty=1.0,
+            stop_tokens=["<|"],
+        )
         self._log_llm_io("HyDE-TFIDF", prompt, raw_text)
         keywords = raw_text.strip()
         if self._log:
@@ -86,8 +90,6 @@ def expand_query_st_sync(self, query: str, n_hypotheses: int = 1) -> list[str]:
     cached = self._query_cache_get("st", cache_key)
     if cached is not self._QUERY_CACHE_MISS:
         return list(cached or [query])
-    model = self.worker._model
-
     if n_hypotheses <= 1:
         user_block = self._render_prompt_template(
             "hyde_st_single_user",
@@ -101,9 +103,14 @@ def expand_query_st_sync(self, query: str, n_hypotheses: int = 1) -> list[str]:
             "<|assistant|>\n"
         )
         try:
-            result  = model(prompt, max_tokens=120, temperature=0.3,
-                            stop=["<|"], stream=False)
-            raw_text = result["choices"][0].get("text", "")
+            raw_text = self._generate_backend_text(
+                prompt,
+                max_tokens=120,
+                temperature=0.3,
+                top_p=0.9,
+                repeat_penalty=1.0,
+                stop_tokens=["<|"],
+            )
             self._log_llm_io("HyDE-ST-single", prompt, raw_text)
             passage = raw_text.strip()
             if self._log and passage and passage != query:
@@ -132,14 +139,14 @@ def expand_query_st_sync(self, query: str, n_hypotheses: int = 1) -> list[str]:
             "<|assistant|>\n"
         )
         try:
-            result   = model(
+            raw_text = self._generate_backend_text(
                 prompt,
                 max_tokens=120 * n_hypotheses,
                 temperature=0.5,
-                stop=["<|"],
-                stream=False,
+                top_p=0.9,
+                repeat_penalty=1.0,
+                stop_tokens=["<|"],
             )
-            raw_text = result["choices"][0].get("text", "")
             self._log_llm_io("HyDE-ST-multi", prompt, raw_text)
             text     = raw_text.strip()
             passages = [p.strip() for p in text.split("---") if p.strip()]
@@ -185,7 +192,6 @@ def expand_query_literal_terms_sync(
     if cached is not self._QUERY_CACHE_MISS:
         terms_cached, meta_cached = cached
         return list(terms_cached or []), dict(meta_cached or {})
-    model = self.worker._model
     user_block = self._render_prompt_template(
         "literal_terms_user",
         {"query": query, "max_terms": str(limit)},
@@ -198,15 +204,14 @@ def expand_query_literal_terms_sync(
         "<|assistant|>\n"
     )
     try:
-        result = model(
+        raw_full = self._generate_backend_text(
             prompt,
             max_tokens=max(40, limit * 12),
             temperature=0.2,
             top_p=0.9,
-            stop=["<|"],
-            stream=False,
+            repeat_penalty=1.0,
+            stop_tokens=["<|"],
         )
-        raw_full = result["choices"][0].get("text", "")
         self._log_llm_io("Literal-Terms", prompt, raw_full)
         raw = raw_full.strip()
         if not raw:
