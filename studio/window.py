@@ -418,7 +418,9 @@ class MainWindow(QMainWindow):
     # ── Project, import, user mode ────────────────────────────────────
 
     def _save_project(self) -> bool: return self._project_controller.save_project()
-    def _load_project(self): self._project_controller.load_project()
+    def _load_project(self) -> bool: return self._project_controller.load_project()
+    def _export_project_archive(self) -> bool: return self._project_controller.export_project_archive()
+    def _import_project_archive(self) -> bool: return self._project_controller.import_project_archive()
     def _open_import_dialog(self):
         def _create() -> FileImportDialog:
             dlg = FileImportDialog(

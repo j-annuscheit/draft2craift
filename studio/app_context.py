@@ -182,8 +182,25 @@ class AppContext:
             )
         )
 
+    def export_project_archive(
+        self,
+        path: Path | str,
+        *,
+        include_st_embeddings: bool = True,
+    ) -> bool:
+        return bool(
+            self.project_manager.export_project_archive(
+                self._window,
+                str(path),
+                include_st_embeddings=bool(include_st_embeddings),
+            )
+        )
+
     def load_project(self, path: Path | str) -> bool:
         return bool(self.project_manager.load_project(self._window, str(path)))
+
+    def import_project_archive(self, path: Path | str) -> bool:
+        return bool(self.project_manager.import_project_archive(self._window, str(path)))
 
     # ── Cross-controller queries ──────────────────────────────────────
 

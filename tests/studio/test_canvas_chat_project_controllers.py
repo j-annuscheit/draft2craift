@@ -207,6 +207,28 @@ class ChatControllerIntegrationTests(unittest.TestCase):
 
 
 class ProjectControllerIntegrationTests(unittest.TestCase):
+    def test_export_project_archive_success_flushes_and_schedules_autosave(self):
+        window = QWidget()
+        context = Mock()
+        context.export_project_archive.return_value = True
+        context.project_manager = Mock(last_error="")
+        controller = ProjectController(window=window, app_context=context)
+
+        with patch(
+            "studio.controllers.project_controller.QFileDialog.getSaveFileName",
+            return_value=("/tmp/project-out.d2c", "draft2craift Project (*.d2c)"),
+        ):
+            ok = controller.export_project_archive()
+
+        self.assertTrue(ok)
+        context.flush_autosave_pending_preview_edits.assert_called_once_with()
+        context.export_project_archive.assert_called_once_with("/tmp/project-out.d2c")
+        context.schedule_autosave.assert_called_once_with(250)
+        context.show_status.assert_called_once_with(
+            "Project exported to: /tmp/project-out.d2c",
+            5000,
+        )
+
     def test_load_project_failure_reports_error_and_restores_autosave_state(self):
         window = QWidget()
         context = Mock()
@@ -256,7 +278,55 @@ class ProjectControllerIntegrationTests(unittest.TestCase):
             5000,
         )
 
+    def test_import_project_archive_failure_reports_error_and_restores_autosave_state(self):
+        window = QWidget()
+        context = Mock()
+        context.get_autosave_suspended.return_value = False
+        context.import_project_archive.return_value = False
+        context.project_manager = Mock(last_error="invalid archive")
+        controller = ProjectController(window=window, app_context=context)
+
+        with (
+            patch(
+                "studio.controllers.project_controller.QFileDialog.getOpenFileName",
+                return_value=("/tmp/project-bad.d2c", "draft2craift Project (*.d2c)"),
+            ),
+            patch("studio.controllers.project_controller.QMessageBox.warning") as warning,
+        ):
+            ok = controller.import_project_archive()
+
+        self.assertFalse(ok)
+        self.assertEqual(
+            context.set_autosave_suspended.call_args_list,
+            [call(True), call(False)],
+        )
+        context.rewire_autosave_editors.assert_not_called()
+        context.schedule_autosave.assert_not_called()
+        context.show_status.assert_called_with("Project import failed.", 6000)
+        warning.assert_called_once()
+
+    def test_import_project_archive_success_rewires_editors_and_schedules_autosave(self):
+        window = QWidget()
+        context = Mock()
+        context.get_autosave_suspended.return_value = False
+        context.import_project_archive.return_value = True
+        context.project_manager = Mock(last_error="")
+        controller = ProjectController(window=window, app_context=context)
+
+        with patch(
+            "studio.controllers.project_controller.QFileDialog.getOpenFileName",
+            return_value=("/tmp/project-in.d2c", "draft2craift Project (*.d2c)"),
+        ):
+            ok = controller.import_project_archive()
+
+        self.assertTrue(ok)
+        context.rewire_autosave_editors.assert_called_once_with()
+        context.schedule_autosave.assert_called_once_with(250)
+        context.show_status.assert_called_once_with(
+            "Project imported from: /tmp/project-in.d2c",
+            5000,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
-
