@@ -6,6 +6,8 @@ from collections.abc import Callable
 from PySide6.QtCore import QObject, Qt
 from PySide6.QtWidgets import QDialog, QWidget
 
+from studio.profile_text_overrides import apply_profile_text_overrides
+
 
 class DialogWindowManager(QObject):
     """Keeps long-lived dialogs singleton and non-modal across the app."""
@@ -16,6 +18,10 @@ class DialogWindowManager(QObject):
 
     def get(self, key: str) -> QDialog | None:
         return self._dialogs.get(str(key or "").strip())
+
+    def dialogs(self) -> tuple[QDialog, ...]:
+        """Return currently managed dialogs."""
+        return tuple(self._dialogs.values())
 
     def show_dialog(
         self,
@@ -33,6 +39,10 @@ class DialogWindowManager(QObject):
         if existing is not None:
             if callable(on_reopen):
                 on_reopen(existing)
+            apply_profile_text_overrides(
+                existing,
+                str(getattr(self.parent(), "user_mode", "") or ""),
+            )
             self._focus(existing)
             return existing
 
@@ -42,6 +52,10 @@ class DialogWindowManager(QObject):
 
         self._prepare(dialog)
         self._dialogs[dialog_key] = dialog
+        apply_profile_text_overrides(
+            dialog,
+            str(getattr(self.parent(), "user_mode", "") or ""),
+        )
         dialog.destroyed.connect(
             lambda *_args, dlg_key=dialog_key: self._dialogs.pop(dlg_key, None)
         )

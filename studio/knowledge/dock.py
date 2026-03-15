@@ -11,6 +11,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import QDockWidget, QSplitter, QTabWidget, QVBoxLayout, QWidget
 
+from shared.domain.user_mode import normalize_user_mode, resolve_feature_label
 from shared.services.rag.orchestrator import RAGSystem
 from shared.services.rag.worker import RAGWorker
 
@@ -49,6 +50,7 @@ class KnowledgeDock(QDockWidget):
 
     def __init__(self, rag_system: RAGSystem, parent=None):
         super().__init__("Knowledge Base", parent)
+        self._user_mode = ""
         self.rag_system = rag_system
         self.rag_worker = RAGWorker(rag_system, parent=self)
         self._pending_reindex_entries: list[tuple[str, str]] = []
@@ -97,6 +99,7 @@ class KnowledgeDock(QDockWidget):
 
         self.tab_widget.addTab(self.doc_viewer, "📄 Viewer")
         self.tab_widget.addTab(self.rag_tab, "🔍 RAG")
+        self._apply_tab_labels()
 
         layout.addWidget(self.tab_widget)
         self.setWidget(container)
@@ -240,6 +243,31 @@ class KnowledgeDock(QDockWidget):
 
     def set_feedback_service(self, service) -> None:
         self.rag_panel.set_feedback_service(service)
+
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+        self._apply_tab_labels()
+        self.doc_viewer.set_user_mode(self._user_mode)
+        self.imported_files.set_user_mode(self._user_mode)
+        self.rag_panel.set_user_mode(self._user_mode)
+
+    def _apply_tab_labels(self) -> None:
+        self.tab_widget.setTabText(
+            0,
+            resolve_feature_label(
+                self._user_mode,
+                "knowledge.tab.viewer",
+                "📄 Viewer",
+            ),
+        )
+        self.tab_widget.setTabText(
+            1,
+            resolve_feature_label(
+                self._user_mode,
+                "knowledge.tab.rag",
+                "🔍 RAG",
+            ),
+        )
 
     def get_rag_results_text(self) -> str:
         return self.rag_panel.get_current_text()

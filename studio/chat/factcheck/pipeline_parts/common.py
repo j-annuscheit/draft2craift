@@ -2,6 +2,11 @@
 from __future__ import annotations
 
 from .deps import *  # noqa: F403
+from shared.domain.user_mode import (
+    default_user_mode,
+    normalize_user_mode,
+    resolve_feature_label,
+)
 
 @classmethod
 def _collapse_ws(cls, value: object) -> str:
@@ -121,33 +126,60 @@ def _select_factcheck_modes(self) -> list[str] | None:
         return default_modes
 
     checkboxes: dict[str, QCheckBox] = {}
+
+    current_mode = normalize_user_mode(
+        str(getattr(self, "_user_mode", "") or "")
+        or str(getattr(getattr(self, "parent", lambda: None)(), "user_mode", "") or "")
+        or default_user_mode()
+    )
+
+    def _label(key: str, default: str) -> str:
+        return resolve_feature_label(current_mode, key, default)
+
     try:
         dialog = QDialog(self)
-        dialog.setWindowTitle("Faktencheck-Methoden")
+        dialog.setWindowTitle(
+            _label("factcheck.methods.dialog.title", "Faktencheck-Methoden")
+        )
 
         layout = QVBoxLayout(dialog)
-        header = QLabel("Wähle eine oder mehrere Faktencheck-Methoden:")
+        header = QLabel(
+            _label(
+                "factcheck.methods.dialog.header",
+                "Wähle eine oder mehrere Faktencheck-Methoden:",
+            )
+        )
         header.setWordWrap(True)
         layout.addWidget(header)
 
         warning = QLabel(
-            "⚠ Hinweis: LLM (Chunk-weise) ist sehr langsam, weil jeder Fakt "
-            "gegen jeden Chunk geprüft wird."
+            _label(
+                "factcheck.methods.dialog.warning",
+                "⚠ Hinweis: LLM (Chunk-weise) ist sehr langsam, weil jeder Fakt "
+                "gegen jeden Chunk geprüft wird.",
+            )
         )
         warning.setWordWrap(True)
         layout.addWidget(warning)
 
         for mode in self._FACTCHECK_METHOD_ORDER:
             label = self._FACTCHECK_MODE_LABELS.get(mode, mode)
+            label = _label(f"factcheck.methods.option.{mode}", label)
             cb = QCheckBox(label)
             cb.setChecked(mode in default_modes)
             if mode == "llm_chunk":
                 cb.setToolTip(
-                    "Sehr langsam: pro Fakt werden alle Chunks einzeln vom LLM geprüft."
+                    _label(
+                        "factcheck.methods.dialog.tooltip.llm_chunk",
+                        "Sehr langsam: pro Fakt werden alle Chunks einzeln vom LLM geprüft.",
+                    )
                 )
             elif mode == "llm_claim_nli":
                 cb.setToolTip(
-                    "Zweistufig: zuerst Claim-Extraktion pro Chunk (mit Cache), danach NLI-Abgleich."
+                    _label(
+                        "factcheck.methods.dialog.tooltip.llm_claim_nli",
+                        "Zweistufig: zuerst Claim-Extraktion pro Chunk (mit Cache), danach NLI-Abgleich.",
+                    )
                 )
             checkboxes[mode] = cb
             layout.addWidget(cb)
@@ -156,6 +188,14 @@ def _select_factcheck_modes(self) -> list[str] | None:
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel
         )
+        ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_btn is not None:
+            ok_btn.setText(_label("factcheck.methods.dialog.button.ok", "OK"))
+        cancel_btn = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_btn is not None:
+            cancel_btn.setText(
+                _label("factcheck.methods.dialog.button.cancel", "Cancel")
+            )
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)

@@ -10,6 +10,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shared.domain.user_mode import (
+    default_user_mode,
+    normalize_user_mode,
+    resolve_feature_label,
+)
 
 _FILES_STYLE = """
 QListWidget {
@@ -58,7 +63,9 @@ class ImportedFilesPanel(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._entries: dict[str, str] = {}   # name → markdown content
+        self._user_mode = default_user_mode()
         self._setup_ui()
+        self.set_user_mode(self._user_mode)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -72,19 +79,19 @@ class ImportedFilesPanel(QWidget):
         hbox.setContentsMargins(6, 4, 6, 4)
         hbox.setSpacing(4)
 
-        lbl = QLabel("Select files for RAG")
-        lbl.setStyleSheet(
+        self._title_lbl = QLabel("Select files for RAG")
+        self._title_lbl.setStyleSheet(
             "color: palette(placeholder-text); font-size: 10px; background: transparent;"
         )
-        hbox.addWidget(lbl)
+        hbox.addWidget(self._title_lbl)
         hbox.addStretch()
 
-        btn_all = QPushButton("All")
-        btn_none = QPushButton("None")
-        btn_all.clicked.connect(self._select_all)
-        btn_none.clicked.connect(self._select_none)
-        hbox.addWidget(btn_all)
-        hbox.addWidget(btn_none)
+        self._btn_all = QPushButton("All")
+        self._btn_none = QPushButton("None")
+        self._btn_all.clicked.connect(self._select_all)
+        self._btn_none.clicked.connect(self._select_none)
+        hbox.addWidget(self._btn_all)
+        hbox.addWidget(self._btn_none)
         layout.addWidget(bar)
 
         self._list = QListWidget()
@@ -98,6 +105,28 @@ class ImportedFilesPanel(QWidget):
             "background: palette(base); border-top: 1px solid palette(mid);"
         )
         layout.addWidget(self._status_lbl)
+
+    def _label(self, key: str, default: str) -> str:
+        return resolve_feature_label(self._user_mode, key, default)
+
+    @staticmethod
+    def _format_text(template: str, **kwargs: object) -> str:
+        raw = str(template or "")
+        if not raw:
+            return ""
+        try:
+            return raw.format(**kwargs)
+        except Exception:
+            return raw
+
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+        self._title_lbl.setText(
+            self._label("knowledge.files.label.select_for_rag", "Select files for RAG")
+        )
+        self._btn_all.setText(self._label("knowledge.files.button.all", "All"))
+        self._btn_none.setText(self._label("knowledge.files.button.none", "None"))
+        self._update_status()
 
     def add_file(self, name: str, content: str):
         """Register a new imported file (checked by default)."""
@@ -264,10 +293,24 @@ class ImportedFilesPanel(QWidget):
     def _update_status(self):
         total = self._list.count()
         if total == 0:
-            self._status_lbl.setText("No files imported yet")
+            self._status_lbl.setText(
+                self._label(
+                    "knowledge.files.status.empty",
+                    "No files imported yet",
+                )
+            )
             return
         checked = sum(
             1 for i in range(total)
             if self._list.item(i).checkState() == Qt.CheckState.Checked
         )
-        self._status_lbl.setText(f"{checked} / {total} selected for RAG")
+        self._status_lbl.setText(
+            self._format_text(
+                self._label(
+                    "knowledge.files.status.selected.template",
+                    "{checked} / {total} selected for RAG",
+                ),
+                checked=checked,
+                total=total,
+            )
+        )

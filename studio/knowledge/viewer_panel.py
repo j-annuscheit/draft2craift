@@ -3,6 +3,11 @@ from __future__ import annotations
 from PySide6.QtWidgets import QMessageBox, QVBoxLayout, QWidget
 from PySide6.QtCore import Signal
 
+from shared.domain.user_mode import (
+    default_user_mode,
+    normalize_user_mode,
+    resolve_feature_label,
+)
 from shared.services.highlights.store import get_highlight_store
 from studio.canvas.tabbed_editor_widget import TabbedEditorWidget
 from studio.canvas.split_view import MarkdownSplitPanel
@@ -16,6 +21,9 @@ class DocumentViewerPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self._user_mode = normalize_user_mode(
+            str(getattr(parent, "user_mode", "") or "") or default_user_mode()
+        )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -46,6 +54,16 @@ class DocumentViewerPanel(QWidget):
         except Exception:
             pass
         self.tabs.tab_widget.tabCloseRequested.connect(self._on_tab_close_requested)
+        self.set_user_mode(self._user_mode)
+
+    def _label(self, key: str, default: str) -> str:
+        return resolve_feature_label(self._user_mode, key, default)
+
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+        tab_widget = self.tabs.tab_widget
+        for idx in range(tab_widget.count()):
+            self._apply_panel_user_mode(tab_widget.widget(idx))
 
     def open_file(self, path: str):
         """Open file in a new tab, or switch to existing tab."""
@@ -54,7 +72,8 @@ class DocumentViewerPanel(QWidget):
             if str(getattr(panel, "file_path", "")) == str(path):
                 self.tabs.tab_widget.setCurrentIndex(i)
                 return
-        self.tabs.add_file_tab(path)
+        panel = self.tabs.add_file_tab(path)
+        self._apply_panel_user_mode(panel)
 
     def open_content(
         self,
@@ -66,6 +85,7 @@ class DocumentViewerPanel(QWidget):
     ):
         """Open pre-converted markdown content in a new viewer tab."""
         panel = self.tabs.add_tab(title=title, content="", activate=activate)
+        self._apply_panel_user_mode(panel)
         setattr(panel, "_doc_key", str(doc_key or "").strip())
         setattr(panel, "_lazy_markdown_content", str(content or ""))
         if activate:
@@ -132,7 +152,11 @@ class DocumentViewerPanel(QWidget):
             return
 
         panel = tab_widget.widget(index)
-        full_title = self.tabs.get_tab_full_title(index) or tab_widget.tabText(index) or "Dokument"
+        full_title = (
+            self.tabs.get_tab_full_title(index)
+            or tab_widget.tabText(index)
+            or self._label("knowledge.viewer.document.fallback_title", "Dokument")
+        )
         doc_key = str(getattr(panel, "_doc_key", "") or "").strip()
 
         if not doc_key:
@@ -141,17 +165,35 @@ class DocumentViewerPanel(QWidget):
 
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Icon.Warning)
-        msg.setWindowTitle("Dokument löschen")
-        msg.setText(f"'{full_title}' wirklich löschen?")
-        msg.setInformativeText(
-            "Das Dokument wird vollständig entfernt aus:\n"
-            "• Viewer\n"
-            "• Imported Documents / Selected Files for RAG\n"
-            "• Chat-Kontext (Imported Documents)\n\n"
-            "Für erneute Nutzung muss es erneut importiert werden."
+        msg.setWindowTitle(
+            self._label("knowledge.viewer.delete_dialog.title", "Dokument löschen")
         )
-        btn_cancel = msg.addButton("Abbrechen", QMessageBox.ButtonRole.RejectRole)
-        btn_delete = msg.addButton("Löschen", QMessageBox.ButtonRole.DestructiveRole)
+        delete_prompt = self._label(
+            "knowledge.viewer.delete_dialog.prompt.template",
+            "'{title}' wirklich löschen?",
+        )
+        try:
+            msg.setText(delete_prompt.format(title=full_title))
+        except Exception:
+            msg.setText(f"'{full_title}' wirklich löschen?")
+        msg.setInformativeText(
+            self._label(
+                "knowledge.viewer.delete_dialog.info",
+                "Das Dokument wird vollständig entfernt aus:\n"
+                "• Viewer\n"
+                "• Imported Documents / Selected Files for RAG\n"
+                "• Chat-Kontext (Imported Documents)\n\n"
+                "Für erneute Nutzung muss es erneut importiert werden.",
+            )
+        )
+        btn_cancel = msg.addButton(
+            self._label("knowledge.viewer.delete_dialog.button.cancel", "Abbrechen"),
+            QMessageBox.ButtonRole.RejectRole,
+        )
+        btn_delete = msg.addButton(
+            self._label("knowledge.viewer.delete_dialog.button.delete", "Löschen"),
+            QMessageBox.ButtonRole.DestructiveRole,
+        )
         msg.setDefaultButton(btn_cancel)
         msg.exec()
         if msg.clickedButton() is not btn_delete:
@@ -184,6 +226,11 @@ class DocumentViewerPanel(QWidget):
                 refresh()
             except Exception:
                 pass
+
+    def _apply_panel_user_mode(self, panel: QWidget | None) -> None:
+        setter = getattr(panel, "set_user_mode", None)
+        if callable(setter):
+            setter(self._user_mode)
 
     @staticmethod
     def _materialize_panel_content(panel: QWidget):

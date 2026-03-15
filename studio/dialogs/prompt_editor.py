@@ -13,29 +13,49 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from shared.domain.user_mode import USER_MODE_PLUS
+from shared.domain.user_mode import (
+    default_user_mode,
+    is_feature_visible,
+    normalize_user_mode,
+    resolve_feature_label,
+)
 
 
 class PromptEditorDialog(QDialog):
     """Tabbed editor for all system/user/structure prompts."""
 
-    def __init__(self, llm_manager, user_mode: str, parent=None):
+    def __init__(self, llm_manager, user_mode: str | None, parent=None):
         super().__init__(parent)
         self._llm_manager = llm_manager
-        self._user_mode = user_mode
+        self._user_mode = normalize_user_mode(default_user_mode() if user_mode is None else user_mode)
         self._editors: dict[str, QTextEdit] = {}
         self._setup_ui()
 
+    def _label(self, key: str, default: str) -> str:
+        return resolve_feature_label(self._user_mode, key, default)
+
+    def _format_label(self, key: str, default: str, **kwargs: object) -> str:
+        value = self._label(key, default)
+        try:
+            return str(value).format(**kwargs)
+        except Exception:
+            return str(value)
+
     def _setup_ui(self):
-        self.setWindowTitle("Edit Prompts")
+        self.setWindowTitle(
+            self._label("prompt_editor.window_title", "Edit Prompts")
+        )
         self.resize(980, 700)
         self.setStyleSheet("background: palette(window); color: palette(window-text);")
 
         layout = QVBoxLayout(self)
         lbl = QLabel(
-            "Prompt-Editor: System/User/Struktur-Prompts sind hier getrennt organisiert.\n"
-            "System = Rollenregeln, User = Aufgabenblock, Struktur = Aufbau-/Titeltexte.\n"
-            "Ablauf pro LLM-Aufruf: <|system|> + (optional Strukturblöcke) + <|user|>."
+            self._label(
+                "prompt_editor.intro",
+                "Prompt-Editor: System/User/Struktur-Prompts sind hier getrennt organisiert.\n"
+                "System = Rollenregeln, User = Aufgabenblock, Struktur = Aufbau-/Titeltexte.\n"
+                "Ablauf pro LLM-Aufruf: <|system|> + (optional Strukturblöcke) + <|user|>.",
+            )
         )
         lbl.setStyleSheet("color: palette(placeholder-text); font-size: 11px;")
         lbl.setWordWrap(True)
@@ -294,11 +314,33 @@ class PromptEditorDialog(QDialog):
                 "desc": "Derzeit nicht aktiv im Codepfad. Nur für Rückwärtskompatibilität alter Projekte.",
             },
         }
-        group_order = (
-            ["Chat", "Faktencheck", "Glossar", "MindMap"]
-            if self._user_mode == USER_MODE_PLUS
-            else ["Chat", "Faktencheck", "Glossar", "MindMap", "RAG", "Erweitert", "Legacy"]
+        show_advanced_groups = bool(
+            is_feature_visible(
+                self._user_mode,
+                "prompt_editor.advanced_groups",
+                default=True,
+            )
         )
+        group_order = ["Chat", "Faktencheck", "Glossar", "MindMap"]
+        if show_advanced_groups:
+            group_order.extend(["RAG", "Erweitert", "Legacy"])
+
+        group_label_keys = {
+            "Chat": "prompt_editor.group.chat",
+            "Faktencheck": "prompt_editor.group.fact_check",
+            "Glossar": "prompt_editor.group.glossary",
+            "MindMap": "prompt_editor.group.mindmap",
+            "RAG": "prompt_editor.group.rag",
+            "Erweitert": "prompt_editor.group.advanced",
+            "Legacy": "prompt_editor.group.legacy",
+        }
+
+        def _group_label(group_name: str) -> str:
+            key = str(group_label_keys.get(group_name, "") or "").strip()
+            if not key:
+                return str(group_name)
+            return self._label(key, str(group_name))
+
         grouped: dict[str, list[str]] = {g: [] for g in group_order}
         for key in self._llm_manager.PROMPT_KEYS:
             spec = prompt_specs.get(key, {})
@@ -323,52 +365,75 @@ class PromptEditorDialog(QDialog):
                 "chat_section_context_end", "chat_section_files_title",
                 "chat_section_rag_title", "chat_section_selected_title",
             }:
-                return "\n".join([
-                    "Beispiel-Flow (Chat):",
-                    "<|system|>",
-                    "{chat_system}",
-                    "{chat_section_grounding_title}        # optional bei dokumentgebundenem Modus",
-                    "{chat_grounding_rules}",
-                    "{chat_section_rewrite_title}          # optional bei Draft-Rewrite",
-                    "{chat_canvas_rewrite_rules}",
-                    "{chat_section_context_title}          # optional wenn Kontext vorhanden",
-                    "{chat_section_files_title}",
-                    "{chat_section_rag_title}",
-                    "{chat_section_selected_title}",
-                    "{chat_section_context_end}",
-                    "<|user|>",
-                    "[Nutzeranfrage]",
-                    "<|assistant|>",
-                ])
+                return self._label(
+                    "prompt_editor.flow.chat",
+                    "\n".join([
+                        "Beispiel-Flow (Chat):",
+                        "<|system|>",
+                        "{chat_system}",
+                        "{chat_section_grounding_title}        # optional bei dokumentgebundenem Modus",
+                        "{chat_grounding_rules}",
+                        "{chat_section_rewrite_title}          # optional bei Draft-Rewrite",
+                        "{chat_canvas_rewrite_rules}",
+                        "{chat_section_context_title}          # optional wenn Kontext vorhanden",
+                        "{chat_section_files_title}",
+                        "{chat_section_rag_title}",
+                        "{chat_section_selected_title}",
+                        "{chat_section_context_end}",
+                        "<|user|>",
+                        "[Nutzeranfrage]",
+                        "<|assistant|>",
+                    ]),
+                )
             if key.startswith("claim_extract_"):
-                return "\n".join([
-                    "Beispiel-Flow (Faktencheck: Claim-Extraktion):",
-                    "<|system|>", "{claim_extract_system}", "<|user|>",
-                    "{claim_extract_user}   # mit {input_label}, {fact_limit}", "<|assistant|>",
-                ])
+                return self._label(
+                    "prompt_editor.flow.claim_extract",
+                    "\n".join([
+                        "Beispiel-Flow (Faktencheck: Claim-Extraktion):",
+                        "<|system|>",
+                        "{claim_extract_system}",
+                        "<|user|>",
+                        "{claim_extract_user}   # mit {input_label}, {fact_limit}",
+                        "<|assistant|>",
+                    ]),
+                )
             if key.startswith("fact_verify_"):
-                return "\n".join([
-                    "Beispiel-Flow (Faktencheck: Verifikation):",
-                    "<|system|>", "{fact_verify_system}", "<|user|>",
-                    "{fact_verify_user}    # mit {allowed_sources}, {fact}", "<|assistant|>",
-                ])
+                return self._label(
+                    "prompt_editor.flow.fact_verify",
+                    "\n".join([
+                        "Beispiel-Flow (Faktencheck: Verifikation):",
+                        "<|system|>",
+                        "{fact_verify_system}",
+                        "<|user|>",
+                        "{fact_verify_user}    # mit {allowed_sources}, {fact}",
+                        "<|assistant|>",
+                    ]),
+                )
             if key.startswith("nli_verify_"):
-                return "\n".join([
-                    "Beispiel-Flow (Faktencheck: NLI via Transformers):",
-                    "Wird pro Fakt über alle Quell-Chunks iteriert.",
-                    "[backend=transformers-cross-encoder]",
-                    "<|workflow|>", "{nli_verify_system}", "<|input|>",
-                    "{nli_verify_user}     # mit {premise}, {hypothesis}",
-                ])
+                return self._label(
+                    "prompt_editor.flow.nli_verify",
+                    "\n".join([
+                        "Beispiel-Flow (Faktencheck: NLI via Transformers):",
+                        "Wird pro Fakt über alle Quell-Chunks iteriert.",
+                        "[backend=transformers-cross-encoder]",
+                        "<|workflow|>",
+                        "{nli_verify_system}",
+                        "<|input|>",
+                        "{nli_verify_user}     # mit {premise}, {hypothesis}",
+                    ]),
+                )
             if key == "fact_check_system":
-                return "\n".join([
-                    "Legacy-Hinweis:",
-                    "Dieser Prompt ist aktuell nicht im aktiven Ablauf verdrahtet.",
-                    "Aktiv genutzt werden stattdessen:",
-                    "- claim_extract_system + claim_extract_user",
-                    "- fact_verify_system + fact_verify_user",
-                    "- nli_verify_system + nli_verify_user (wenn NLI aktiv)",
-                ])
+                return self._label(
+                    "prompt_editor.flow.legacy_fact_check",
+                    "\n".join([
+                        "Legacy-Hinweis:",
+                        "Dieser Prompt ist aktuell nicht im aktiven Ablauf verdrahtet.",
+                        "Aktiv genutzt werden stattdessen:",
+                        "- claim_extract_system + claim_extract_user",
+                        "- fact_verify_system + fact_verify_user",
+                        "- nli_verify_system + nli_verify_user (wenn NLI aktiv)",
+                    ]),
+                )
             if key.startswith("hyde_tfidf_"):
                 return _simple_flow("hyde_tfidf_system", "hyde_tfidf_user")
             if key.startswith("hyde_st_single_"):
@@ -385,13 +450,21 @@ class PromptEditorDialog(QDialog):
                 return _simple_flow("graph_system", "graph_user")
             if key.startswith("glossary_"):
                 return _simple_flow("glossary_system", "glossary_user")
-            return "\n".join([
-                "Beispiel-Flow:", "<|system|>", "{system_prompt}",
-                "<|user|>", "{user_prompt}", "<|assistant|>",
-            ])
+            return self._label(
+                "prompt_editor.flow.default",
+                "\n".join([
+                    "Beispiel-Flow:",
+                    "<|system|>",
+                    "{system_prompt}",
+                    "<|user|>",
+                    "{user_prompt}",
+                    "<|assistant|>",
+                ]),
+            )
 
         group_tabs: dict[str, QTabWidget] = {}
         group_keys: dict[str, list[str]] = {}
+        shown_groups: list[str] = []
         tab_style_inner = """
             QTabWidget::pane {
                 border: 1px solid palette(mid);
@@ -429,9 +502,15 @@ class PromptEditorDialog(QDialog):
             group_layout.setSpacing(8)
 
             info = QLabel(
-                "Nur diese Prompts werden direkt in die jeweiligen LLM-Aufrufe übernommen."
+                self._label(
+                    "prompt_editor.group.info.default",
+                    "Nur diese Prompts werden direkt in die jeweiligen LLM-Aufrufe übernommen.",
+                )
                 if group != "Legacy"
-                else "Legacy-Prompts sind nur für alte Projekte vorhanden und aktuell nicht aktiv verdrahtet."
+                else self._label(
+                    "prompt_editor.group.info.legacy",
+                    "Legacy-Prompts sind nur für alte Projekte vorhanden und aktuell nicht aktiv verdrahtet.",
+                )
             )
             info.setWordWrap(True)
             info.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
@@ -443,37 +522,62 @@ class PromptEditorDialog(QDialog):
             group_keys[group] = []
             for key in keys:
                 spec = prompt_specs.get(key, {})
-                title = str(spec.get("title", key))
-                kind = str(spec.get("kind", "Prompt"))
-                desc = str(spec.get("desc", "")).strip()
-                placeholders = str(spec.get("placeholders", "")).strip()
+                title_default = str(spec.get("title", key))
+                kind_default = str(spec.get("kind", "Prompt"))
+                desc_default = str(spec.get("desc", "")).strip()
+                placeholders_default = str(spec.get("placeholders", "")).strip()
+
+                title = self._label(
+                    f"prompt_editor.prompt.{key}.title",
+                    title_default,
+                )
+                kind = self._label(
+                    f"prompt_editor.prompt.{key}.kind",
+                    kind_default,
+                )
+                desc = self._label(
+                    f"prompt_editor.prompt.{key}.desc",
+                    desc_default,
+                ).strip()
+                placeholders = self._label(
+                    f"prompt_editor.prompt.{key}.placeholders",
+                    placeholders_default,
+                ).strip()
 
                 tab = QWidget()
                 tab_layout = QVBoxLayout(tab)
                 tab_layout.setContentsMargins(8, 8, 8, 8)
                 tab_layout.setSpacing(6)
 
-                meta_lines = [f"Typ: {kind}"]
+                meta_lines = [
+                    f"{self._label('prompt_editor.meta.type', 'Typ')}: {kind}"
+                ]
                 if desc:
-                    meta_lines.append(f"Verwendung: {desc}")
+                    meta_lines.append(
+                        f"{self._label('prompt_editor.meta.usage', 'Verwendung')}: {desc}"
+                    )
                 if placeholders:
-                    meta_lines.append(f"Platzhalter: {placeholders}")
+                    meta_lines.append(
+                        f"{self._label('prompt_editor.meta.placeholders', 'Platzhalter')}: {placeholders}"
+                    )
                 pair_hint = ""
                 if key.endswith("_system"):
                     partner = key[:-7] + "_user"
                     if partner in prompt_values:
-                        pair_hint = (
-                            f"Zusammenhang: Wird zusammen mit '{partner}' "
-                            "im selben LLM-Aufruf verwendet "
-                            "(Regeln im System-Block, Auftrag im User-Block)."
+                        pair_hint = self._format_label(
+                            "prompt_editor.meta.relation.system",
+                            "Zusammenhang: Wird zusammen mit '{partner}' im selben LLM-Aufruf verwendet "
+                            "(Regeln im System-Block, Auftrag im User-Block).",
+                            partner=partner,
                         )
                 elif key.endswith("_user"):
                     partner = key[:-5] + "_system"
                     if partner in prompt_values:
-                        pair_hint = (
-                            f"Zusammenhang: Nutzt die Leitplanken aus '{partner}' "
-                            "im selben LLM-Aufruf "
-                            "(dieser Prompt liefert den konkreten Auftrag)."
+                        pair_hint = self._format_label(
+                            "prompt_editor.meta.relation.user",
+                            "Zusammenhang: Nutzt die Leitplanken aus '{partner}' im selben LLM-Aufruf "
+                            "(dieser Prompt liefert den konkreten Auftrag).",
+                            partner=partner,
                         )
                 if pair_hint:
                     meta_lines.append(pair_hint)
@@ -482,7 +586,12 @@ class PromptEditorDialog(QDialog):
                 meta.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
                 tab_layout.addWidget(meta)
 
-                flow_lbl = QLabel("Prompt-Flow-Vorschau")
+                flow_lbl = QLabel(
+                    self._label(
+                        "prompt_editor.flow.label",
+                        "Prompt-Flow-Vorschau",
+                    )
+                )
                 flow_lbl.setStyleSheet("color: palette(highlight); font-size: 10px; font-weight: bold;")
                 tab_layout.addWidget(flow_lbl)
 
@@ -509,14 +618,30 @@ class PromptEditorDialog(QDialog):
                 group_keys[group].append(key)
 
             group_layout.addWidget(inner_tabs, 1)
-            top_tabs.addTab(group_page, group)
+            top_tabs.addTab(group_page, _group_label(group))
             group_tabs[group] = inner_tabs
+            shown_groups.append(group)
 
         layout.addWidget(top_tabs, 1)
 
-        reset_btn = QPushButton("Reset Current To Default")
-        reset_group_btn = QPushButton("Reset Group To Default")
-        reset_all_btn = QPushButton("Reset All To Default")
+        reset_btn = QPushButton(
+            self._label(
+                "prompt_editor.button.reset_current",
+                "Reset current to default",
+            )
+        )
+        reset_group_btn = QPushButton(
+            self._label(
+                "prompt_editor.button.reset_group",
+                "Reset group to default",
+            )
+        )
+        reset_all_btn = QPushButton(
+            self._label(
+                "prompt_editor.button.reset_all",
+                "Reset all to default",
+            )
+        )
         btn_style = (
             "QPushButton{background:palette(alternate-base);color:palette(text);"
             "border:none;border-radius:4px;padding:6px 10px;}"
@@ -530,7 +655,9 @@ class PromptEditorDialog(QDialog):
             gidx = top_tabs.currentIndex()
             if gidx < 0:
                 return None
-            group = top_tabs.tabText(gidx)
+            if gidx >= len(shown_groups):
+                return None
+            group = shown_groups[gidx]
             inner = group_tabs.get(group)
             keys = group_keys.get(group, [])
             if inner is None:
@@ -552,7 +679,9 @@ class PromptEditorDialog(QDialog):
             gidx = top_tabs.currentIndex()
             if gidx < 0:
                 return
-            group = top_tabs.tabText(gidx)
+            if gidx >= len(shown_groups):
+                return
+            group = shown_groups[gidx]
             for key in group_keys.get(group, []):
                 ed = self._editors.get(key)
                 if ed is not None:
@@ -576,6 +705,22 @@ class PromptEditorDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_btn is not None:
+            ok_btn.setText(
+                self._label(
+                    "prompt_editor.button.ok",
+                    "OK",
+                )
+            )
+        cancel_btn = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_btn is not None:
+            cancel_btn.setText(
+                self._label(
+                    "prompt_editor.button.cancel",
+                    "Cancel",
+                )
+            )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

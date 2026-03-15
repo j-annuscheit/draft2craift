@@ -219,20 +219,20 @@ def _build_input_area(self) -> QWidget:
 
     btn_row = QHBoxLayout()
 
-    new_tab_btn = QPushButton("+ Tab")
-    new_tab_btn.setToolTip("Neue Unterhaltung starten")
-    new_tab_btn.setStyleSheet(BTN_NEUTRAL)
-    new_tab_btn.clicked.connect(lambda: self.history.add_tab())
+    self.new_tab_btn = QPushButton("+ Tab")
+    self.new_tab_btn.setToolTip("Neue Unterhaltung starten")
+    self.new_tab_btn.setStyleSheet(BTN_NEUTRAL)
+    self.new_tab_btn.clicked.connect(lambda: self.history.add_tab())
 
-    clear_btn = QPushButton("🗑")
-    clear_btn.setToolTip("Clear chat")
-    clear_btn.setFixedWidth(32)
-    clear_btn.setStyleSheet(BTN_NEUTRAL)
-    clear_btn.clicked.connect(self.history.clear_history)
+    self.clear_btn = QPushButton("🗑")
+    self.clear_btn.setToolTip("Clear chat")
+    self.clear_btn.setMinimumWidth(32)
+    self.clear_btn.setStyleSheet(BTN_NEUTRAL)
+    self.clear_btn.clicked.connect(self.history.clear_history)
 
     self.play_last_btn = QPushButton("🔊")
     self.play_last_btn.setToolTip("Letzte Modellantwort vorlesen")
-    self.play_last_btn.setFixedWidth(32)
+    self.play_last_btn.setMinimumWidth(32)
     self.play_last_btn.setStyleSheet(BTN_NEUTRAL)
     self.play_last_btn.clicked.connect(self._play_last_answer)
 
@@ -250,8 +250,8 @@ def _build_input_area(self) -> QWidget:
         self._on_chat_tts_combo_changed
     )
 
-    btn_row.addWidget(new_tab_btn)
-    btn_row.addWidget(clear_btn)
+    btn_row.addWidget(self.new_tab_btn)
+    btn_row.addWidget(self.clear_btn)
     btn_row.addWidget(self.play_last_btn)
     btn_row.addWidget(self.chat_tts_combo)
     btn_row.addStretch()

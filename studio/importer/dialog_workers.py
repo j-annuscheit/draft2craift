@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 
+from shared.domain.user_mode import resolve_feature_label
 from shared.services.importer.entry import copy_runtime_state, is_pdf_path
 from shared.services.importer.models import PDFImportSettings
 from .ui_constants import _STATUS_DONE, _STATUS_ERROR, _STATUS_PENDING
@@ -25,6 +26,14 @@ from .workers import (
     FontAnalysisWorker,
     SingleConversionWorker,
 )
+
+
+def _label(self, key: str, default: str) -> str:
+    return resolve_feature_label(
+        str(getattr(self, "_user_mode", "") or ""),
+        key,
+        default,
+    )
 
 
 class FileImportWorkersMixin:
@@ -56,11 +65,29 @@ class FileImportWorkersMixin:
         can_open = self._has_converted() and not busy
         btn.setEnabled(bool(can_open))
         if busy:
-            btn.setToolTip("Bitte warten: Import/Analyse laeuft noch.")
+            btn.setToolTip(
+                _label(
+                    self,
+                    "importer.dialog.button.open.tooltip.busy",
+                    "Please wait: import/analysis is still running.",
+                )
+            )
         elif self._has_converted():
-            btn.setToolTip("Konvertierte Dateien importieren und Dialog schliessen")
+            btn.setToolTip(
+                _label(
+                    self,
+                    "importer.dialog.button.open.tooltip.ready",
+                    "Import converted files and close dialog",
+                )
+            )
         else:
-            btn.setToolTip("Noch keine konvertierten Dateien vorhanden")
+            btn.setToolTip(
+                _label(
+                    self,
+                    "importer.dialog.button.open.tooltip.empty",
+                    "No converted files available yet",
+                )
+            )
 
     _llm_fix_label_prefix = _llm_fix_label_prefix_fn
     _set_llm_fix_status_for_path = _set_llm_fix_status_for_path_fn
@@ -85,7 +112,13 @@ class FileImportWorkersMixin:
         copy_runtime_state(entry.pdf_settings, settings, keep_detection=True)
         entry.pdf_settings = settings
         self._pdf_viewer.refresh_settings(settings, entry.body_size)
-        self._preview_status.setText("Converting…")
+        self._preview_status.setText(
+            _label(
+                self,
+                "importer.dialog.preview_status.converting",
+                "Converting…",
+            )
+        )
         self._preview_status.setVisible(True)
         self._pdf_panel.widget().setEnabled(False)
         self._preview_worker = SingleConversionWorker(self._current_path, settings, self)
@@ -100,8 +133,17 @@ class FileImportWorkersMixin:
         self._pdf_panel.set_enabled_for_pdf(is_pdf)
 
         if error:
+            template = _label(
+                self,
+                "importer.dialog.preview_status.error_markdown.template",
+                "# Conversion Error\n\n```\n{error}\n```\n",
+            )
+            try:
+                rendered = template.format(error=error)
+            except Exception:
+                rendered = f"# Conversion Error\n\n```\n{error}\n```\n"
             self._preview.set_markdown_text(
-                f"# Conversion Error\n\n```\n{error}\n```\n"
+                rendered
             )
             self._tabs.setCurrentIndex(1)
             self._refresh_llm_fix_button()
@@ -134,11 +176,23 @@ class FileImportWorkersMixin:
         if entry is None:
             return
         if not settings.auto_hf_detect:
-            self._pdf_panel.set_detect_info("Manual mode active. Switch to Auto-Detect mode first.")
+            self._pdf_panel.set_detect_info(
+                _label(
+                    self,
+                    "importer.dialog.detect.manual_mode_active",
+                    "Manual mode active. Switch to Auto-Detect mode first.",
+                )
+            )
             return
         copy_runtime_state(entry.pdf_settings, settings, keep_detection=False)
         entry.pdf_settings = settings
-        self._pdf_panel.set_detect_info("Analysing PDF, please wait…")
+        self._pdf_panel.set_detect_info(
+            _label(
+                self,
+                "importer.dialog.detect.running",
+                "Analysing PDF, please wait…",
+            )
+        )
         self._btn_add.setEnabled(False)
         self._detect_worker = DetectWorker(self._current_path, settings, self)
         self._detect_worker.done.connect(self._on_detect_done)
@@ -188,7 +242,15 @@ class FileImportWorkersMixin:
         if entry is None:
             return
         copy_runtime_state(entry.pdf_settings, settings, keep_detection=True)
-        self._pdf_panel.set_font_info({"info": "Analysing font sizes, please wait…"})
+        self._pdf_panel.set_font_info(
+            {
+                "info": _label(
+                    self,
+                    "importer.dialog.font_analysis.running",
+                    "Analysing font sizes, please wait…",
+                )
+            }
+        )
         self._btn_add.setEnabled(False)
         self._font_worker = FontAnalysisWorker(self._current_path, settings, self)
         self._font_worker.done.connect(self._on_font_analysis_done)

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from shared.domain.user_mode import normalize_user_mode, resolve_feature_label
 from studio.feedback.bar import FeedbackBar
 from shared.services.highlights.store import get_highlight_store
 from studio.canvas.tabbed_editor_widget import TabbedEditorWidget
@@ -44,11 +45,17 @@ class RAGResultsPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self._user_mode = ""
         self._debug_history: list[dict] = []
         self._feedback_service = None
         self._last_rag_data: dict = {}
         self._feedback_bar: FeedbackBar | None = None
+        self._search_btn: QPushButton | None = None
+        self._new_tab_btn: QPushButton | None = None
+        self._debug_btn: QPushButton | None = None
+        self._settings_btn: QPushButton | None = None
         self._setup_ui()
+        self.set_user_mode("")
 
     def set_feedback_service(self, service) -> None:
         self._feedback_service = service
@@ -101,33 +108,33 @@ class RAGResultsPanel(QWidget):
         self.search_input.setStyleSheet(RAG_SEARCH_INPUT_STYLE)
         self.search_input.returnPressed.connect(self._do_search)
 
-        search_btn = QPushButton("🔍 Search")
-        search_btn.setStyleSheet(RAG_SEARCH_BUTTON_STYLE)
-        search_btn.clicked.connect(self._do_search)
+        self._search_btn = QPushButton("🔍 Search")
+        self._search_btn.setStyleSheet(RAG_SEARCH_BUTTON_STYLE)
+        self._search_btn.clicked.connect(self._do_search)
 
-        new_tab_btn = self._create_icon_button(
+        self._new_tab_btn = self._create_icon_button(
             text="+",
             tooltip="Neuen leeren Ergebnis-Tab hinzufügen",
         )
-        new_tab_btn.clicked.connect(self._add_results_tab)
+        self._new_tab_btn.clicked.connect(self._add_results_tab)
 
-        debug_btn = self._create_icon_button(
+        self._debug_btn = self._create_icon_button(
             text="🧪",
             tooltip="Show debug details for the last search",
         )
-        debug_btn.clicked.connect(self._show_debug)
+        self._debug_btn.clicked.connect(self._show_debug)
 
-        settings_btn = self._create_icon_button(
+        self._settings_btn = self._create_icon_button(
             text="⚙",
             tooltip="RAG Settings",
         )
-        settings_btn.clicked.connect(self.settings_requested)
+        self._settings_btn.clicked.connect(self.settings_requested)
 
         hbox.addWidget(self.search_input)
-        hbox.addWidget(search_btn)
-        hbox.addWidget(new_tab_btn)
-        hbox.addWidget(debug_btn)
-        hbox.addWidget(settings_btn)
+        hbox.addWidget(self._search_btn)
+        hbox.addWidget(self._new_tab_btn)
+        hbox.addWidget(self._debug_btn)
+        hbox.addWidget(self._settings_btn)
         return bar
 
     @staticmethod
@@ -138,9 +145,87 @@ class RAGResultsPanel(QWidget):
         button.setStyleSheet(RAG_ICON_BUTTON_STYLE)
         return button
 
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+        self.search_input.setPlaceholderText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.results.search.placeholder",
+                "Search knowledge base…",
+            )
+        )
+        if self._search_btn is not None:
+            self._search_btn.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "rag.results.button.search",
+                    "🔍 Search",
+                )
+            )
+            self._search_btn.setToolTip(
+                resolve_feature_label(
+                    self._user_mode,
+                    "rag.results.button.search.tooltip",
+                    "Run search against the indexed knowledge base",
+                )
+            )
+        if self._new_tab_btn is not None:
+            self._new_tab_btn.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "rag.results.button.new_tab",
+                    "+",
+                )
+            )
+            self._new_tab_btn.setToolTip(
+                resolve_feature_label(
+                    self._user_mode,
+                    "rag.results.button.new_tab.tooltip",
+                    "Add an empty results tab",
+                )
+            )
+        if self._debug_btn is not None:
+            self._debug_btn.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "rag.results.button.debug",
+                    "🧪",
+                )
+            )
+            self._debug_btn.setToolTip(
+                resolve_feature_label(
+                    self._user_mode,
+                    "rag.results.button.debug.tooltip",
+                    "Show debug details for the last search",
+                )
+            )
+        if self._settings_btn is not None:
+            self._settings_btn.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "rag.results.button.settings",
+                    "⚙",
+                )
+            )
+            self._settings_btn.setToolTip(
+                resolve_feature_label(
+                    self._user_mode,
+                    "rag.results.button.settings.tooltip",
+                    "Open RAG settings",
+                )
+            )
+        if self._feedback_bar is not None:
+            self._feedback_bar.set_user_mode(self._user_mode)
+
     def _add_results_tab(self) -> None:
         """Add a new empty results tab and make it active."""
-        self.tabs.add_tab(title="🔍 RAG")
+        self.tabs.add_tab(
+            title=resolve_feature_label(
+                self._user_mode,
+                "rag.results.tab.default.title",
+                "🔍 RAG",
+            )
+        )
 
     def set_status(self, message: str) -> None:
         if message:
@@ -157,7 +242,14 @@ class RAGResultsPanel(QWidget):
     def _append_result_block(self, block: str) -> None:
         panel = self.tabs.current_panel()
         if panel is None:
-            self.tabs.add_tab(title="🔍 RAG", content=block)
+            self.tabs.add_tab(
+                title=resolve_feature_label(
+                    self._user_mode,
+                    "rag.results.tab.default.title",
+                    "🔍 RAG",
+                ),
+                content=block,
+            )
             return
 
         existing = panel.editor.get_full_text().rstrip()
@@ -169,7 +261,15 @@ class RAGResultsPanel(QWidget):
     def _record_debug(self, query: str, debug_info: object, result_count: int) -> None:
         tab_widget = self.tabs.tab_widget
         tab_idx = tab_widget.currentIndex()
-        tab_title = self.tabs.get_tab_full_title(tab_idx) if tab_idx >= 0 else "🔍 RAG"
+        tab_title = (
+            self.tabs.get_tab_full_title(tab_idx)
+            if tab_idx >= 0
+            else resolve_feature_label(
+                self._user_mode,
+                "rag.results.tab.default.title",
+                "🔍 RAG",
+            )
+        )
         entry = build_debug_entry(
             query=query,
             debug_payload=debug_info,

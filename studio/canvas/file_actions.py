@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox, QWidget
 
+from shared.domain.user_mode import normalize_user_mode, resolve_feature_label
 from .exporting import ExportOptions, ExportOptionsDialog, write_docx, write_pdf
 
 if TYPE_CHECKING:
@@ -20,10 +21,16 @@ class CanvasFileActions:
         self._parent = parent
         self._tabs = tabs
 
+    def _user_mode(self) -> str:
+        return normalize_user_mode(str(getattr(self._parent, "user_mode", "") or ""))
+
+    def _label(self, key: str, default: str) -> str:
+        return resolve_feature_label(self._user_mode(), key, default)
+
     def open_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self._parent,
-            "Open File",
+            self._label("canvas.file_dialog.open.title", "Open File"),
             "",
             "Markdown (*.md *.markdown);;Text (*.txt);;All Files (*)",
         )
@@ -39,7 +46,7 @@ class CanvasFileActions:
         if not path:
             path, _ = QFileDialog.getSaveFileName(
                 self._parent,
-                "Save As",
+                self._label("canvas.file_dialog.save_as.title", "Save As"),
                 "untitled.md",
                 "Markdown (*.md);;Text (*.txt);;All Files (*)",
             )
@@ -88,7 +95,11 @@ class CanvasFileActions:
         is_word = str(options.output_format).strip().lower() == "word"
         suffix = ".docx" if is_word else ".pdf"
         file_filter = "Word Document (*.docx)" if is_word else "PDF (*.pdf)"
-        title = "Export as Word" if is_word else "Export as PDF"
+        title = (
+            self._label("canvas.export.dialog.title.word", "Export as Word")
+            if is_word
+            else self._label("canvas.export.dialog.title.pdf", "Export as PDF")
+        )
         stem_source = str(getattr(panel, "file_path", "") or "").strip()
         if not stem_source:
             stem_source = str(tab_name or self._tab_name_for_panel(panel) or "untitled")
@@ -129,19 +140,39 @@ class CanvasFileActions:
             if is_word:
                 QMessageBox.warning(
                     self._parent,
-                    "Missing Dependency",
-                    "python-docx ist nicht installiert. Bitte ausfuehren: pip install python-docx",
+                    self._label(
+                        "canvas.export.error.missing_dependency.title",
+                        "Missing Dependency",
+                    ),
+                    self._label(
+                        "canvas.export.error.missing_dependency.word",
+                        "python-docx is not installed. Please run: pip install python-docx",
+                    ),
                 )
             else:
                 QMessageBox.warning(
                     self._parent,
-                    "Missing Dependency",
-                    "Eine benoetigte Export-Abhaengigkeit ist nicht installiert.",
+                    self._label(
+                        "canvas.export.error.missing_dependency.title",
+                        "Missing Dependency",
+                    ),
+                    self._label(
+                        "canvas.export.error.missing_dependency.pdf",
+                        "A required export dependency is not installed.",
+                    ),
                 )
             return False
         except Exception as exc:
             kind = "Word" if is_word else "PDF"
-            QMessageBox.warning(self._parent, f"{kind} Export Failed", str(exc))
+            title_template = self._label(
+                "canvas.export.error.failed.title.template",
+                "{kind} Export Failed",
+            )
+            try:
+                title = title_template.format(kind=kind)
+            except Exception:
+                title = f"{kind} Export Failed"
+            QMessageBox.warning(self._parent, title, str(exc))
             return False
 
     def _current_panel(self) -> "EditorPanel | None":
@@ -163,7 +194,11 @@ class CanvasFileActions:
         return ""
 
     def _ask_export_options(self, default_format: str) -> ExportOptions | None:
-        dialog = ExportOptionsDialog(self._parent, default_format=default_format)
+        dialog = ExportOptionsDialog(
+            self._parent,
+            default_format=default_format,
+            user_mode=str(getattr(self._parent, "user_mode", "") or ""),
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         return dialog.options()

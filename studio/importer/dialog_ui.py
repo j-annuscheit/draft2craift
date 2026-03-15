@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from shared.domain.user_mode import normalize_user_mode
+from shared.domain.user_mode import normalize_user_mode, resolve_feature_label
 from shared.services.importer.entry import converted_results
 from studio.canvas.split_view import MarkdownSplitPanel
 from studio.feedback.bar import FeedbackBar
@@ -46,8 +46,6 @@ class FileImportDialogUIMixin:
         self._btn_toggle_settings = QPushButton("◀ Settings")
         self._btn_toggle_settings.setToolTip("Show / hide PDF settings panel")
         self._btn_toggle_settings.clicked.connect(self._toggle_settings)
-        if not bool(getattr(self, "_settings_visible", True)):
-            self._btn_toggle_settings.setText("▶ Settings")
         toolbar.addWidget(self._btn_toggle_settings)
 
         toolbar.addStretch()
@@ -59,9 +57,9 @@ class FileImportDialogUIMixin:
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(4)
-        lbl_files = QLabel("Files")
-        lbl_files.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
-        left_layout.addWidget(lbl_files)
+        self._lbl_files = QLabel("Files")
+        self._lbl_files.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
+        left_layout.addWidget(self._lbl_files)
         self._list = QListWidget()
         self._list.currentItemChanged.connect(self._on_item_selected)
         self._list.itemDoubleClicked.connect(self._rename_list_item)
@@ -72,9 +70,9 @@ class FileImportDialogUIMixin:
         mid_layout = QVBoxLayout(mid_wrap)
         mid_layout.setContentsMargins(0, 0, 0, 0)
         mid_layout.setSpacing(4)
-        lbl_settings = QLabel("PDF Settings")
-        lbl_settings.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
-        mid_layout.addWidget(lbl_settings)
+        self._lbl_settings = QLabel("PDF Settings")
+        self._lbl_settings.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
+        mid_layout.addWidget(self._lbl_settings)
         self._pdf_panel = PDFSettingsPanel()
         self._pdf_panel.set_user_mode(self._user_mode)
         self._pdf_panel.preview_requested.connect(self._run_preview)
@@ -96,7 +94,7 @@ class FileImportDialogUIMixin:
 
         self._pdf_viewer = PDFViewerPanel()
         self._pdf_viewer.zone_changed.connect(self._on_zone_changed)
-        self._tabs.addTab(self._pdf_viewer, "PDF View")
+        self._pdf_tab_index = self._tabs.addTab(self._pdf_viewer, "PDF View")
 
         md_widget = QWidget()
         md_layout = QVBoxLayout(md_widget)
@@ -186,10 +184,132 @@ class FileImportDialogUIMixin:
         refresh = getattr(self, "_refresh_llm_fix_button", None)
         if callable(refresh):
             refresh()
+        self.set_user_mode(self._user_mode)
 
     def set_user_mode(self, mode: str):
         self._user_mode = normalize_user_mode(mode)
+        self.setWindowTitle(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.window_title",
+                "Import Files",
+            )
+        )
+        self._btn_add.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.button.add",
+                "Add Files…",
+            )
+        )
+        self._btn_remove.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.button.remove",
+                "Remove",
+            )
+        )
+        self._btn_toggle_settings.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.button.toggle_settings.tooltip",
+                "Show / hide PDF settings panel",
+            )
+        )
+        self._update_toggle_settings_button_text()
+        self._lbl_files.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.label.files",
+                "Files",
+            )
+        )
+        self._lbl_settings.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.label.pdf_settings",
+                "PDF Settings",
+            )
+        )
+        if getattr(self, "_pdf_tab_index", -1) >= 0:
+            self._tabs.setTabText(
+                self._pdf_tab_index,
+                resolve_feature_label(
+                    self._user_mode,
+                    "importer.dialog.tab.pdf_view",
+                    "PDF View",
+                ),
+            )
+        self._preview_status.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.preview_status.tooltip",
+                "Shows the current preview/worker status.",
+            )
+        )
+        self._preview.editor.setPlaceholderText(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.preview.placeholder",
+                "Select a file to see its preview…\n\n"
+                "For PDFs: adjust settings, then click  ▶ Preview.",
+            )
+        )
+        self._btn_llm_fix.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.button.llm_fix",
+                "Use LLM to optimize",
+            )
+        )
+        self._btn_llm_fix.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.button.llm_fix.tooltip",
+                "Cleans markdown structure for all loaded files sequentially via LLM.",
+            )
+        )
+        self._btn_import.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.button.import",
+                "Convert to MarkDown",
+            )
+        )
+        self._btn_open.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.button.open",
+                "Import and Close",
+            )
+        )
+        self._btn_cancel.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.button.cancel",
+                "Cancel",
+            )
+        )
+        self._refresh_markdown_tab_title()
         self._pdf_panel.set_user_mode(self._user_mode)
+        self._pdf_viewer.set_user_mode(self._user_mode)
+        self._preview.set_user_mode(self._user_mode)
+        self._feedback_bar.set_user_mode(self._user_mode)
+
+    def _update_toggle_settings_button_text(self):
+        key = (
+            "importer.dialog.button.toggle_settings.hide"
+            if bool(getattr(self, "_settings_visible", False))
+            else "importer.dialog.button.toggle_settings.show"
+        )
+        fallback = "◀ Settings" if bool(getattr(self, "_settings_visible", False)) else "▶ Settings"
+        self._btn_toggle_settings.setText(
+            resolve_feature_label(
+                self._user_mode,
+                key,
+                fallback,
+            )
+        )
 
     def _update_list_item(self, path: str, status: str):
         entry = self._entries.get(path)
@@ -229,9 +349,19 @@ class FileImportDialogUIMixin:
                 pass
         busy_check = getattr(self, "_has_running_background_worker", None)
         if callable(busy_check) and bool(busy_check()):
-            self._preview_status.setText("Bitte warten: Import/Analyse laeuft noch…")
+            self._preview_status.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "importer.dialog.status.busy",
+                    "Bitte warten: Import/Analyse laeuft noch…",
+                )
+            )
             self._preview_status.setToolTip(
-                "Import and Close ist erst moeglich, wenn alle Hintergrundjobs fertig sind."
+                resolve_feature_label(
+                    self._user_mode,
+                    "importer.dialog.status.busy.tooltip",
+                    "Import and Close ist erst moeglich, wenn alle Hintergrundjobs fertig sind.",
+                )
             )
             self._preview_status.setVisible(True)
             if logger is not None:
@@ -295,16 +425,40 @@ class FileImportDialogUIMixin:
             return
 
         menu = QMenu(self)
-        read_only_action = menu.addAction("🔒 Read-Only")
+        read_only_action = menu.addAction(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.context.read_only",
+                "🔒 Read-Only",
+            )
+        )
         read_only_action.setCheckable(True)
         read_only_action.setChecked(self._preview.editor.isReadOnly())
 
         menu.addSeparator()
-        preview_action = menu.addAction("Zeige HTML-View")
+        preview_action = menu.addAction(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.context.show_preview",
+                "Show HTML view",
+            )
+        )
         preview_action.setCheckable(True)
-        markdown_action = menu.addAction("Zeige Markdown")
+        markdown_action = menu.addAction(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.context.show_markdown",
+                "Show markdown",
+            )
+        )
         markdown_action.setCheckable(True)
-        both_action = menu.addAction("Zeige beides")
+        both_action = menu.addAction(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.context.show_both",
+                "Show both",
+            )
+        )
         both_action.setCheckable(True)
 
         mode = self._preview.view_mode()
@@ -333,7 +487,12 @@ class FileImportDialogUIMixin:
         if getattr(self, "_markdown_tab_index", -1) < 0:
             return
         prefix = "🔒" if self._preview.editor.isReadOnly() else "✏"
-        self._tabs.setTabText(self._markdown_tab_index, f"{prefix} Markdown")
+        title = resolve_feature_label(
+            self._user_mode,
+            "importer.dialog.tab.markdown",
+            "Markdown",
+        )
+        self._tabs.setTabText(self._markdown_tab_index, f"{prefix} {title}")
 
     def _on_import_feedback(self, sentiment: str, tags: list[str], note: str):
         service = getattr(self, "_feedback_service", None)

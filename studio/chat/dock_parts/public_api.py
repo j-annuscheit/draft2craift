@@ -2,12 +2,27 @@
 from __future__ import annotations
 
 from .deps import *  # noqa: F403
+from studio.user_mode_bindings import (
+    apply_combo_item_labels,
+    apply_widget_placeholders,
+    apply_widget_texts,
+    apply_widget_tooltips,
+    apply_widget_visibility,
+)
 
 _MODEL_PANEL_MIN_HEIGHT = 72
 _CONTEXT_PANEL_MIN_HEIGHT = 52
 _CHAT_PANEL_MIN_HEIGHT = 96
 _CONTEXT_PANEL_MAX_HEIGHT = 220
 _CONTEXT_PANEL_MAX_SHARE = 0.33
+
+
+def _format_label(mode: str, key: str, default: str, **kwargs: object) -> str:
+    template = resolve_feature_label(mode, key, default)
+    try:
+        return template.format(**kwargs)
+    except Exception:
+        return template
 
 
 def _preferred_context_height(self, total: int) -> int:
@@ -87,18 +102,187 @@ def get_context_documents(self) -> dict[str, str]:
 
 def update_context_bar(self, parts: list[str]):
     """Update the context indicator bar with part labels."""
-    if parts:
-        self._ctx_bar.setText("Context: " + " | ".join(parts))
+    values = [str(part or "").strip() for part in list(parts or []) if str(part or "").strip()]
+    self._context_bar_parts = list(values)
+    if values:
+        self._ctx_bar.setText(
+            _format_label(
+                self._user_mode,
+                "chat.context_bar.template",
+                "Context: {parts}",
+                parts=" | ".join(values),
+            )
+        )
         return
-    self._ctx_bar.setText("Context: —")
+    self._ctx_bar.setText(
+        resolve_feature_label(
+            self._user_mode,
+            "chat.context_bar.empty",
+            "Context: —",
+        )
+    )
 
 def set_user_mode(self, mode: str):
     self._user_mode = normalize_user_mode(mode)
     self.model_panel.set_user_mode(self._user_mode)
-    show_apply = mode_rank(self._user_mode) >= mode_rank(USER_MODE_PLUS)
-    if not show_apply:
+    panel_setter = getattr(self.context_panel, "set_user_mode", None)
+    if callable(panel_setter):
+        panel_setter(self._user_mode)
+
+    visibility = apply_widget_visibility(
+        self._user_mode,
+        (
+            (self.model_panel, "chat.model_panel", True),
+            (self.input_box, "chat.input_box", True),
+            (
+                self.apply_selection_cb,
+                "chat.apply_selection_checkbox",
+                True,
+            ),
+            (self.fact_btn, "chat.fact_button", True),
+            (
+                self.claim_precompute_btn,
+                "chat.claim_precompute_button",
+                True,
+            ),
+            (self.glossary_btn, "chat.glossary_button", True),
+            (self.mindmap_btn, "chat.mindmap_button", True),
+            (self.new_tab_btn, "chat.new_tab_button", True),
+            (self.clear_btn, "chat.clear_history_button", True),
+            (self.play_last_btn, "chat.play_last_button", True),
+            (self.chat_tts_combo, "chat.tts_mode_combo", True),
+            (self.send_btn, "chat.send_button", True),
+            (self.stop_btn, "chat.stop_button", True),
+        ),
+    )
+    self._send_feature_visible = bool(visibility.get("chat.send_button", True))
+    self._stop_feature_visible = bool(visibility.get("chat.stop_button", True))
+    if not bool(visibility.get("chat.apply_selection_checkbox", True)):
         self.apply_selection_cb.setChecked(False)
-    self.apply_selection_cb.setVisible(show_apply)
+
+    apply_widget_placeholders(
+        self._user_mode,
+        (
+            (
+                self.input_box,
+                "chat.input_box.placeholder",
+                "Ask the AI… (Ctrl+Enter to send)",
+            ),
+        ),
+    )
+    apply_widget_texts(
+        self._user_mode,
+        (
+            (
+                self.apply_selection_cb,
+                "chat.apply_selection_checkbox",
+                "Apply rewrite directly to selected Draft text",
+            ),
+            (self.fact_btn, "chat.fact_button", "Faktencheck"),
+            (
+                self.claim_precompute_btn,
+                "chat.claim_precompute_button",
+                "Claims vorkalk.",
+            ),
+            (self.glossary_btn, "chat.glossary_button", "Glossar"),
+            (
+                self.mindmap_btn,
+                "chat.mindmap_button",
+                "MindMap/Graph/Chunk",
+            ),
+            (self.new_tab_btn, "chat.new_tab_button", "+ Tab"),
+            (self.clear_btn, "chat.clear_history_button", "🗑"),
+            (self.play_last_btn, "chat.play_last_button", "🔊"),
+            (self.stop_btn, "chat.stop_button", "⬛ Stop"),
+            (self.send_btn, "chat.send_button", "Send ↵"),
+        ),
+    )
+    apply_widget_tooltips(
+        self._user_mode,
+        (
+            (
+                self.apply_selection_cb,
+                "chat.apply_selection_checkbox.tooltip",
+                "If enabled and a draft selection exists, the model must return\n"
+                "a structured rewrite block and the selected text is replaced directly.",
+            ),
+            (
+                self.fact_btn,
+                "chat.fact_button.tooltip",
+                "Prüft den markierten Text (oder den aktuellen Draft-Text) "
+                "gegen ausgewählte Dokumente/RAG-Quellen.\n"
+                "Beim Start wählst du per Checkliste eine oder mehrere Methoden.\n"
+                "Hinweis: LLM (Chunk-weise) ist sehr langsam.",
+            ),
+            (
+                self.claim_precompute_btn,
+                "chat.claim_precompute_button.tooltip",
+                "Extrahiert atomare Claims pro ausgewähltem Quell-Chunk und speichert sie im Cache.\n"
+                "Kann unabhängig vom Faktencheck laufen und wird für weitere Features wiederverwendet.",
+            ),
+            (
+                self.glossary_btn,
+                "chat.glossary_button.tooltip",
+                "Erstellt ein Glossar nur aus den aktuell ausgewählten Kontextquellen.",
+            ),
+            (
+                self.mindmap_btn,
+                "chat.mindmap_button.tooltip",
+                "Erstellt MindMap/Graph/Chunk-MindMap nur aus den aktuell ausgewählten Kontextquellen.\n"
+                "Modus wird nach Klick im Popup gewählt.",
+            ),
+            (
+                self.new_tab_btn,
+                "chat.new_tab_button.tooltip",
+                "Neue Unterhaltung starten",
+            ),
+            (
+                self.clear_btn,
+                "chat.clear_history_button.tooltip",
+                "Clear chat",
+            ),
+            (
+                self.stop_btn,
+                "chat.stop_button.tooltip",
+                "Stop current generation",
+            ),
+            (
+                self.send_btn,
+                "chat.send_button.tooltip",
+                "Send request",
+            ),
+        ),
+    )
+
+    combo = self.chat_tts_combo
+    apply_combo_item_labels(
+        self._user_mode,
+        combo,
+        (
+            (
+                0,
+                "chat.tts_mode_combo.option.off",
+                "TTS: aus",
+            ),
+            (
+                1,
+                "chat.tts_mode_combo.option.once",
+                "TTS: einmal",
+            ),
+            (
+                2,
+                "chat.tts_mode_combo.option.always",
+                "TTS: an",
+            ),
+        ),
+    )
+
+    update_context_bar(
+        self,
+        list(getattr(self, "_context_bar_parts", []) or []),
+    )
+
+    self._apply_busy_state()
 
 def set_chat_tts_mode(self, mode: str):
     normalized = self._normalize_tts_mode(mode)
@@ -123,11 +307,35 @@ def set_read_aloud_active(self, active: bool):
     if btn is None:
         return
     if self._read_aloud_active:
-        btn.setText("⏹")
-        btn.setToolTip("Vorlesen stoppen")
+        btn.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "chat.play_last_button.active",
+                "⏹",
+            )
+        )
+        btn.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "chat.play_last_button.active.tooltip",
+                "Vorlesen stoppen",
+            )
+        )
         return
-    btn.setText("🔊")
-    btn.setToolTip("Letzte Modellantwort vorlesen")
+    btn.setText(
+        resolve_feature_label(
+            self._user_mode,
+            "chat.play_last_button",
+            "🔊",
+        )
+    )
+    btn.setToolTip(
+        resolve_feature_label(
+            self._user_mode,
+            "chat.play_last_button.tooltip",
+            "Letzte Modellantwort vorlesen",
+        )
+    )
 
 def is_model_panel_visible(self) -> bool:
     splitter = getattr(self, "_main_splitter", None)

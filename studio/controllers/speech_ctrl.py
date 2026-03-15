@@ -82,15 +82,24 @@ class SpeechController(QObject):
 
     def open_speech_settings_dialog(self, parent_widget: QWidget):
         from studio.speech.settings_dialog import SpeechSettingsDialog  # local import
+        current_mode = str(getattr(parent_widget, "user_mode", "") or "")
         manager = find_dialog_manager(parent_widget)
         if manager is not None:
             manager.show_dialog(
                 "speech-settings",
-                lambda: SpeechSettingsDialog(self._speech_settings, parent_widget),
+                lambda: SpeechSettingsDialog(
+                    self._speech_settings,
+                    parent_widget,
+                    user_mode=current_mode,
+                ),
                 on_accept=lambda dialog: self._apply_speech_settings_dialog(dialog),
             )
             return
-        dialog = SpeechSettingsDialog(self._speech_settings, parent_widget)
+        dialog = SpeechSettingsDialog(
+            self._speech_settings,
+            parent_widget,
+            user_mode=current_mode,
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         self._apply_speech_settings_dialog(dialog)

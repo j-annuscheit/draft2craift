@@ -11,6 +11,7 @@ def __init__(
     sync_cursor_with_editor: bool = True,
 ):
     QWidget.__init__(self, parent)
+    self._user_mode = ""
     self._editor: Any | None = None
     self._zoom_percent = 100
     self._allow_editing = bool(allow_editing)
@@ -55,10 +56,12 @@ def __init__(
     self._pending_wheel_scroll_delta_px = 0
     self._render_cycle_id = 0
     self._table_insert_btn: QPushButton | None = None
+    self._format_buttons: dict[str, QPushButton] = {}
     self._table_insert_menu: QMenu | None = None
     self._INSTANCES.add(self)
     self._setup_ui()
     self._setup_timers()
+    self.set_user_mode("")
 def _palette_hex(
     self,
     role: QPalette.ColorRole,
@@ -183,19 +186,19 @@ def _build_format_bar(self) -> QWidget:
     row.setContentsMargins(0, 0, 0, 0)
     row.setSpacing(4)
     button_specs = (
-        ("H1", "Überschrift 1", lambda: self._set_heading_level(1)),
-        ("H2", "Überschrift 2", lambda: self._set_heading_level(2)),
-        ("H3", "Überschrift 3", lambda: self._set_heading_level(3)),
-        ("Absatz", "Absatz (entfernt Überschrift)", self._clear_heading),
-        ("B", "Fett", self._toggle_bold),
-        ("I", "Kursiv", self._toggle_italic),
-        ('"', "Zitat", self._toggle_block_quote),
-        ("•", "Aufzählung", self._toggle_bullet_list),
-        ("1.", "Nummerierte Liste", self._toggle_numbered_list),
-        ("Tab", "Tabelle einfügen", self._show_table_insert_menu),
-        ("HR", "Waagerechter Strich", self._insert_horizontal_rule),
-        ("→", "Einrücken (Tab)", self._indent_list_item),
-        ("←", "Ausrücken (Shift+Tab)", self._outdent_list_item),
+        ("h1", "H1", "Überschrift 1", lambda: self._set_heading_level(1)),
+        ("h2", "H2", "Überschrift 2", lambda: self._set_heading_level(2)),
+        ("h3", "H3", "Überschrift 3", lambda: self._set_heading_level(3)),
+        ("paragraph", "Absatz", "Absatz (entfernt Überschrift)", self._clear_heading),
+        ("bold", "B", "Fett", self._toggle_bold),
+        ("italic", "I", "Kursiv", self._toggle_italic),
+        ("quote", '"', "Zitat", self._toggle_block_quote),
+        ("bullet_list", "•", "Aufzählung", self._toggle_bullet_list),
+        ("numbered_list", "1.", "Nummerierte Liste", self._toggle_numbered_list),
+        ("table", "Tab", "Tabelle einfügen", self._show_table_insert_menu),
+        ("horizontal_rule", "HR", "Waagerechter Strich", self._insert_horizontal_rule),
+        ("indent", "→", "Einrücken (Tab)", self._indent_list_item),
+        ("outdent", "←", "Ausrücken (Shift+Tab)", self._outdent_list_item),
     )
     button_style = (
         "QPushButton {"
@@ -215,14 +218,15 @@ def _build_format_bar(self) -> QWidget:
         "border: 1px solid palette(highlight);"
         "}"
     )
-    for label, tooltip, slot in button_specs:
+    for key, label, tooltip, slot in button_specs:
         btn = QPushButton(label)
         btn.setToolTip(tooltip)
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setStyleSheet(button_style)
         btn.clicked.connect(slot)
-        if label == "Tab":
+        self._format_buttons[key] = btn
+        if key == "table":
             self._table_insert_btn = btn
         row.addWidget(btn)
     row.addStretch()
@@ -320,6 +324,50 @@ def _setup_timers(self):
         self._flush_pending_wheel_scroll
     )
 
+
+def set_user_mode(self, mode: str):
+    self._user_mode = normalize_user_mode(mode)
+    if self._title is not None:
+        self._title.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "canvas.preview.title",
+                "HTML-Vorschau",
+            )
+        )
+
+    defaults = {
+        "h1": ("H1", "Überschrift 1"),
+        "h2": ("H2", "Überschrift 2"),
+        "h3": ("H3", "Überschrift 3"),
+        "paragraph": ("Absatz", "Absatz (entfernt Überschrift)"),
+        "bold": ("B", "Fett"),
+        "italic": ("I", "Kursiv"),
+        "quote": ('"', "Zitat"),
+        "bullet_list": ("•", "Aufzählung"),
+        "numbered_list": ("1.", "Nummerierte Liste"),
+        "table": ("Tab", "Tabelle einfügen"),
+        "horizontal_rule": ("HR", "Waagerechter Strich"),
+        "indent": ("→", "Einrücken (Tab)"),
+        "outdent": ("←", "Ausrücken (Shift+Tab)"),
+    }
+    for key, btn in self._format_buttons.items():
+        default_text, default_tip = defaults.get(key, (btn.text(), btn.toolTip()))
+        btn.setText(
+            resolve_feature_label(
+                self._user_mode,
+                f"canvas.preview.button.{key}",
+                default_text,
+            )
+        )
+        btn.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                f"canvas.preview.button.{key}.tooltip",
+                default_tip,
+            )
+        )
+
 __all__ = [
     "__init__",
     "_palette_hex",
@@ -334,4 +382,5 @@ __all__ = [
     "_build_format_bar",
     "_build_graph_bar",
     "_setup_timers",
+    "set_user_mode",
 ]

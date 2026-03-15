@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from shared.domain.user_mode import normalize_user_mode, resolve_feature_label
 from .dialog import FeedbackNegativeDialog
 from studio.dialogs.window_manager import find_dialog_manager
 from studio.theme import theme_tokens
@@ -59,10 +60,12 @@ class FeedbackBar(QWidget):
             self.setFixedHeight(28)
             self.setStyleSheet(_BAR_STYLE)
         self._use_case = ""
+        self._user_mode = ""
         self._hide_timer = QTimer(self)
         self._hide_timer.setSingleShot(True)
         self._hide_timer.timeout.connect(self.hide)
         self._setup_ui()
+        self.set_user_mode("")
         self.hide()
 
     def _setup_ui(self):
@@ -104,6 +107,23 @@ class FeedbackBar(QWidget):
         )
         self.show()
 
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+        self._like_btn.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "feedback.bar.like.tooltip",
+                "Gut – Feedback senden",
+            )
+        )
+        self._dislike_btn.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "feedback.bar.dislike.tooltip",
+                "Schlecht – Feedback senden",
+            )
+        )
+
     def reset(self):
         """Hide bar immediately and reset state."""
         self._hide_timer.stop()
@@ -125,18 +145,33 @@ class FeedbackBar(QWidget):
 
     def _on_like(self):
         self.feedback_submitted.emit("positive", [], "")
-        self._confirm_and_hide("👍 Gespeichert", theme_tokens()["success"])
+        self._confirm_and_hide(
+            resolve_feature_label(
+                self._user_mode,
+                "feedback.bar.like.saved_text",
+                "👍 Gespeichert",
+            ),
+            theme_tokens()["success"],
+        )
 
     def _on_dislike(self):
         manager = find_dialog_manager(self)
         if manager is not None:
             manager.show_dialog(
                 f"feedback-negative:{id(self)}",
-                lambda: FeedbackNegativeDialog(self._use_case, parent=self),
+                lambda: FeedbackNegativeDialog(
+                    self._use_case,
+                    user_mode=self._user_mode,
+                    parent=self,
+                ),
                 on_accept=lambda dlg: self._submit_negative_feedback(dlg),
             )
             return
-        dlg = FeedbackNegativeDialog(self._use_case, parent=self)
+        dlg = FeedbackNegativeDialog(
+            self._use_case,
+            user_mode=self._user_mode,
+            parent=self,
+        )
         if dlg.exec() != FeedbackNegativeDialog.DialogCode.Accepted:
             return
         self._submit_negative_feedback(dlg)
@@ -145,4 +180,11 @@ class FeedbackBar(QWidget):
         tags = dialog.get_error_tags()
         note = dialog.get_note()
         self.feedback_submitted.emit("negative", tags, note)
-        self._confirm_and_hide("👎 Danke", theme_tokens()["danger"])
+        self._confirm_and_hide(
+            resolve_feature_label(
+                self._user_mode,
+                "feedback.bar.dislike.saved_text",
+                "👎 Danke",
+            ),
+            theme_tokens()["danger"],
+        )

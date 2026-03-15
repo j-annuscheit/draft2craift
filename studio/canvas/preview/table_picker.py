@@ -4,6 +4,11 @@ from __future__ import annotations
 from PySide6.QtCore import QPoint, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPalette
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from shared.domain.user_mode import (
+    default_user_mode,
+    normalize_user_mode,
+    resolve_feature_label,
+)
 
 
 class TableSizeGrid(QWidget):
@@ -110,14 +115,18 @@ class TableInsertPicker(QWidget):
         *,
         max_rows: int = 10,
         max_cols: int = 10,
+        user_mode: str | None = None,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
+        self._user_mode = normalize_user_mode(
+            default_user_mode() if user_mode is None else user_mode
+        )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(6)
 
-        self._label = QLabel("Tabelle einfügen: 0 x 0")
+        self._label = QLabel("")
         self._label.setStyleSheet("font-size: 11px; color: palette(text);")
         layout.addWidget(self._label)
 
@@ -129,9 +138,26 @@ class TableInsertPicker(QWidget):
         self._grid.hovered_size_changed.connect(self._on_hovered_size_changed)
         self._grid.size_chosen.connect(self.size_chosen.emit)
         layout.addWidget(self._grid)
+        self.set_user_mode(self._user_mode)
 
     def _on_hovered_size_changed(self, rows: int, cols: int):
-        if rows <= 0 or cols <= 0:
-            self._label.setText("Tabelle einfügen: 0 x 0")
-            return
-        self._label.setText(f"Tabelle einfügen: {rows} x {cols}")
+        self._set_size_label(rows=rows, cols=cols)
+
+    def _set_size_label(self, *, rows: int, cols: int) -> None:
+        safe_rows = max(0, int(rows))
+        safe_cols = max(0, int(cols))
+        template = resolve_feature_label(
+            self._user_mode,
+            "canvas.preview.table_insert.label.template",
+            "Tabelle einfügen: {rows} x {cols}",
+        )
+        try:
+            self._label.setText(
+                template.format(rows=safe_rows, cols=safe_cols)
+            )
+        except Exception:
+            self._label.setText(f"Tabelle einfügen: {safe_rows} x {safe_cols}")
+
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+        self._set_size_label(rows=0, cols=0)

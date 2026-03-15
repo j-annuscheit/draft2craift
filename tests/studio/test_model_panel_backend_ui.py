@@ -21,19 +21,25 @@ def test_backend_switch_updates_hint_placeholder_and_gpu_visibility(qt_app):
 
     panel.set_model_backend(BACKEND_TRANSFORMERS)
     assert panel.get_model_backend() == BACKEND_TRANSFORMERS
-    assert "Hugging Face model id / URL" in panel.model_path.placeholderText()
-    assert "Hugging Face model id/URL" in panel.model_hint.text()
+    assert any(
+        token in panel.model_path.placeholderText()
+        for token in ("Hugging Face", "HF", "model id", "Modell-ID")
+    )
+    assert any(
+        token in panel.model_hint.text()
+        for token in ("Hugging Face", "HF")
+    )
     assert _row_hidden(panel, panel.gpu_spin) is True
 
     panel.set_model_backend(BACKEND_LLAMA_CPP)
     assert panel.get_model_backend() == BACKEND_LLAMA_CPP
-    assert "local GGUF model" in panel.model_path.placeholderText()
-    assert "local GGUF model files" in panel.model_hint.text()
+    assert "GGUF" in panel.model_path.placeholderText()
+    assert "GGUF" in panel.model_hint.text()
     assert _row_hidden(panel, panel.gpu_spin) is False
 
     panel.set_model_backend(BACKEND_AUTO)
     assert panel.get_model_backend() == BACKEND_AUTO
-    assert "Model path (.gguf)" in panel.model_path.placeholderText()
+    assert ".gguf" in panel.model_path.placeholderText().lower()
     assert _row_hidden(panel, panel.gpu_spin) is False
 
 

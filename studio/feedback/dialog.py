@@ -10,6 +10,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from shared.domain.user_mode import normalize_user_mode, resolve_feature_label
+
 _DIALOG_STYLE = """
 QDialog {
     background: palette(window);
@@ -126,9 +128,20 @@ _DEFAULT_CATEGORIES: list[str] = [
 class FeedbackNegativeDialog(QDialog):
     """Dialog for negative feedback with category checkboxes and free text."""
 
-    def __init__(self, use_case: str, parent=None):
+    def __init__(self, use_case: str, user_mode: str | None = None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Feedback: Was war das Problem?")
+        self._user_mode = normalize_user_mode("" if user_mode is None else user_mode)
+        self._group_problem: QGroupBox | None = None
+        self._send_btn = None
+        self._cancel_btn = None
+        self._note_edit: QPlainTextEdit | None = None
+        self.setWindowTitle(
+            resolve_feature_label(
+                self._user_mode,
+                "feedback.negative.window_title",
+                "Feedback: Was war das Problem?",
+            )
+        )
         self.resize(400, 320)
         self.setStyleSheet(_DIALOG_STYLE)
         self._use_case = str(use_case or "").strip()
@@ -142,7 +155,14 @@ class FeedbackNegativeDialog(QDialog):
 
         categories = _CATEGORIES.get(self._use_case, _DEFAULT_CATEGORIES)
 
-        group = QGroupBox("Was war das Problem?")
+        group = QGroupBox(
+            resolve_feature_label(
+                self._user_mode,
+                "feedback.negative.group.problem",
+                "Was war das Problem?",
+            )
+        )
+        self._group_problem = group
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(4)
         group_layout.setContentsMargins(8, 12, 8, 8)
@@ -155,7 +175,13 @@ class FeedbackNegativeDialog(QDialog):
         root.addWidget(group)
 
         self._note_edit = QPlainTextEdit()
-        self._note_edit.setPlaceholderText("Weitere Anmerkungen (optional)…")
+        self._note_edit.setPlaceholderText(
+            resolve_feature_label(
+                self._user_mode,
+                "feedback.negative.note.placeholder",
+                "Weitere Anmerkungen (optional)…",
+            )
+        )
         self._note_edit.setMaximumHeight(64)
         root.addWidget(self._note_edit)
 
@@ -163,12 +189,70 @@ class FeedbackNegativeDialog(QDialog):
             QDialogButtonBox.StandardButton.Cancel
         )
         send_btn = buttons.addButton(
-            "Feedback senden", QDialogButtonBox.ButtonRole.AcceptRole
+            resolve_feature_label(
+                self._user_mode,
+                "feedback.negative.button.send",
+                "Feedback senden",
+            ),
+            QDialogButtonBox.ButtonRole.AcceptRole,
         )
+        self._send_btn = send_btn
         send_btn.setDefault(True)
+        cancel_btn = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        self._cancel_btn = cancel_btn
+        if cancel_btn is not None:
+            cancel_btn.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "feedback.negative.button.cancel",
+                    "Abbrechen",
+                )
+            )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
+
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+        self.setWindowTitle(
+            resolve_feature_label(
+                self._user_mode,
+                "feedback.negative.window_title",
+                "Feedback: Was war das Problem?",
+            )
+        )
+        if self._group_problem is not None:
+            self._group_problem.setTitle(
+                resolve_feature_label(
+                    self._user_mode,
+                    "feedback.negative.group.problem",
+                    "Was war das Problem?",
+                )
+            )
+        if self._note_edit is not None:
+            self._note_edit.setPlaceholderText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "feedback.negative.note.placeholder",
+                    "Weitere Anmerkungen (optional)…",
+                )
+            )
+        if self._send_btn is not None:
+            self._send_btn.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "feedback.negative.button.send",
+                    "Feedback senden",
+                )
+            )
+        if self._cancel_btn is not None:
+            self._cancel_btn.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "feedback.negative.button.cancel",
+                    "Abbrechen",
+                )
+            )
 
     def get_error_tags(self) -> list[str]:
         return [cb.text() for cb in self._checkboxes if cb.isChecked()]

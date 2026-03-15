@@ -5,7 +5,11 @@ from typing import Optional
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QDialog
 
-from shared.domain.user_mode import USER_MODE_PLUS, normalize_user_mode
+from shared.domain.user_mode import (
+    default_user_mode,
+    normalize_user_mode,
+    resolve_feature_label,
+)
 
 from .dialog_selection import FileImportSelectionMixin
 from .dialog_ui import FileImportDialogUIMixin
@@ -37,12 +41,12 @@ class FileImportDialog(
 
     files_imported = Signal(list)
 
-    def __init__(self, parent=None, user_mode: str = USER_MODE_PLUS, feedback_service=None):
+    def __init__(self, parent=None, user_mode: str | None = None, feedback_service=None):
         super().__init__(parent)
         self.setWindowTitle("Import Files")
         self.resize(1180, 660)
         self.setStyleSheet(_DIALOG_STYLE)
-        self._user_mode = normalize_user_mode(user_mode)
+        self._user_mode = normalize_user_mode(default_user_mode() if user_mode is None else user_mode)
         self._feedback_service = feedback_service
 
         self._entries: dict[str, ImportEntry] = {}
@@ -92,9 +96,19 @@ class FileImportDialog(
         if callable(busy_check) and bool(busy_check()):
             status = getattr(self, "_preview_status", None)
             if status is not None:
-                status.setText("Bitte warten: Hintergrundjob laeuft noch…")
+                status.setText(
+                    resolve_feature_label(
+                        self._user_mode,
+                        "importer.dialog.status.close_blocked",
+                        "Bitte warten: Hintergrundjob laeuft noch…",
+                    )
+                )
                 status.setToolTip(
-                    "Schliessen ist blockiert, bis Import/Analyse abgeschlossen ist."
+                    resolve_feature_label(
+                        self._user_mode,
+                        "importer.dialog.status.close_blocked.tooltip",
+                        "Schliessen ist blockiert, bis Import/Analyse abgeschlossen ist.",
+                    )
                 )
                 status.setVisible(True)
             return

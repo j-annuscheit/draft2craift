@@ -20,7 +20,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from shared.domain.user_mode import USER_MODE_PLUS, mode_rank, normalize_user_mode
+from shared.domain.user_mode import (
+    is_feature_visible,
+    normalize_user_mode,
+    resolve_feature_label,
+)
 from shared.services.llm.manager import (
     CANVAS_REWRITE_CLOSE,
     CANVAS_REWRITE_OPEN,
@@ -33,4 +37,3 @@ from ..history import ChatHistoryWidget
 from ..model_panel import ModelLoadPanel
 from ..rewrite import extract_canvas_rewrite
 from ..styles import BTN_DANGER, BTN_NEUTRAL, BTN_PRIMARY, CTX_CB_STYLE
-

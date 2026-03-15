@@ -26,21 +26,20 @@ from shared.services.llm.backends import (
     BACKEND_TRANSFORMERS,
 )
 from shared.domain.user_mode import (
-    USER_MODE_EXPERT,
-    USER_MODE_PLUS,
-    mode_rank,
+    default_user_mode,
     normalize_user_mode,
+    resolve_feature_label,
+)
+from studio.user_mode_bindings import (
+    apply_form_row_labels,
+    apply_form_row_visibility,
+    apply_widget_texts,
+    apply_widget_tooltips,
+    feature_visible,
+    set_form_row_visible,
 )
 
 from .styles import BTN_NEUTRAL, BTN_PRIMARY
-
-
-def _set_form_row_visible(form: QFormLayout, field: QWidget, visible: bool):
-    label = form.labelForField(field)
-    if label is not None:
-        label.setVisible(visible)
-    field.setVisible(visible)
-
 
 class ModelLoadPanel(QWidget):
     """Panel for loading text models and editing generation parameters."""
@@ -50,9 +49,10 @@ class ModelLoadPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self._user_mode = USER_MODE_PLUS
-        self._plus_or_higher = True
-        self._expert_only = False
+        self._user_mode = default_user_mode()
+        self._show_ctx_tokens = True
+        self._show_gpu_layers = True
+        self._show_threads = False
         self._setup_ui()
 
     def _setup_ui(self):
@@ -73,11 +73,11 @@ class ModelLoadPanel(QWidget):
         layout.setContentsMargins(8, 8, 8, 6)
         layout.setSpacing(5)
 
-        model_lbl = QLabel("Model Load")
-        model_lbl.setStyleSheet(
+        self.model_section_lbl = QLabel("Model Load")
+        self.model_section_lbl.setStyleSheet(
             "color: palette(highlight); font-size: 10px; font-weight: bold;"
         )
-        layout.addWidget(model_lbl)
+        layout.addWidget(self.model_section_lbl)
         self.model_hint = QLabel("Changes here require clicking 'Load Model'.")
         self.model_hint.setStyleSheet("color: palette(placeholder-text); font-size: 9px;")
         layout.addWidget(self.model_hint)
@@ -90,7 +90,8 @@ class ModelLoadPanel(QWidget):
         backend_row = QHBoxLayout()
         backend_row.setContentsMargins(0, 0, 0, 0)
         backend_row.setSpacing(6)
-        backend_row.addWidget(QLabel("Backend:"))
+        self.backend_label = QLabel("Backend:")
+        backend_row.addWidget(self.backend_label)
         backend_row.addWidget(self.backend_combo, 1)
         layout.addLayout(backend_row)
 
@@ -139,11 +140,11 @@ class ModelLoadPanel(QWidget):
         self.status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status_lbl)
 
-        nli_lbl = QLabel("NLI Model (Fact-Check)")
-        nli_lbl.setStyleSheet(
+        self.nli_section_lbl = QLabel("NLI Model (Fact-Check)")
+        self.nli_section_lbl.setStyleSheet(
             "color: palette(highlight); font-size: 10px; font-weight: bold;"
         )
-        layout.addWidget(nli_lbl)
+        layout.addWidget(self.nli_section_lbl)
         nli_hint = QLabel(
             "Optional: separates Transformers-NLI-Modell fuer "
             "Claim-vs-Chunk-Faktencheck."
@@ -170,11 +171,11 @@ class ModelLoadPanel(QWidget):
         sep.setStyleSheet("color: palette(mid); margin: 4px 0;")
         layout.addWidget(sep)
 
-        gen_lbl = QLabel("Generation")
-        gen_lbl.setStyleSheet(
+        self.generation_section_lbl = QLabel("Generation")
+        self.generation_section_lbl.setStyleSheet(
             "color: palette(highlight); font-size: 10px; font-weight: bold;"
         )
-        layout.addWidget(gen_lbl)
+        layout.addWidget(self.generation_section_lbl)
         gen_hint = QLabel("Applied immediately for next message (no model reload).")
         gen_hint.setStyleSheet("color: palette(placeholder-text); font-size: 9px;")
         layout.addWidget(gen_hint)
@@ -223,48 +224,137 @@ class ModelLoadPanel(QWidget):
 
         layout.addLayout(self._gen_form)
         self.set_user_mode(self._user_mode)
-        self._apply_backend_ui()
+        self._refresh_model_row_visibility()
 
     def _on_backend_changed(self, _index: int):
-        self._apply_backend_ui()
+        self._refresh_model_row_visibility()
 
     def _apply_backend_ui(self):
         backend = self.get_model_backend()
         if backend == BACKEND_LLAMA_CPP:
-            self.model_hint.setText(
-                "Use local GGUF model files and click 'Load Model'."
+            default_hint = resolve_feature_label(
+                self._user_mode,
+                "chat.model.hint",
+                "Use local GGUF model files and click 'Load Model'.",
             )
-            self.model_path.setPlaceholderText("Path to local GGUF model (.gguf/.bin)…")
-            self.browse_btn.setToolTip("Choose a local GGUF model file.")
-        elif backend == BACKEND_TRANSFORMERS:
+            default_placeholder = resolve_feature_label(
+                self._user_mode,
+                "chat.model.path.placeholder",
+                "Path to local GGUF model (.gguf/.bin)…",
+            )
+            default_browse_tip = resolve_feature_label(
+                self._user_mode,
+                "chat.model.button.browse.tooltip",
+                "Choose a local GGUF model file.",
+            )
             self.model_hint.setText(
-                "Use a Hugging Face model id/URL or a local model directory."
+                resolve_feature_label(
+                    self._user_mode,
+                    "chat.model.hint.llama_cpp",
+                    default_hint,
+                )
             )
             self.model_path.setPlaceholderText(
-                "Hugging Face model id / URL or local model directory…"
-            )
-            self.browse_btn.setToolTip("Choose a local transformers model directory.")
-        else:
-            self.model_hint.setText("Changes here require clicking 'Load Model'.")
-            self.model_path.setPlaceholderText(
-                "Model path (.gguf) or Hugging Face model id / URL…"
+                resolve_feature_label(
+                    self._user_mode,
+                    "chat.model.path.placeholder.llama_cpp",
+                    default_placeholder,
+                )
             )
             self.browse_btn.setToolTip(
-                "Choose a local GGUF file, or enter a transformers id/URL."
+                resolve_feature_label(
+                    self._user_mode,
+                    "chat.model.button.browse.tooltip.llama_cpp",
+                    default_browse_tip,
+                )
+            )
+        elif backend == BACKEND_TRANSFORMERS:
+            default_hint = resolve_feature_label(
+                self._user_mode,
+                "chat.model.hint",
+                "Use a Hugging Face model id/URL or a local model directory.",
+            )
+            default_placeholder = resolve_feature_label(
+                self._user_mode,
+                "chat.model.path.placeholder",
+                "Hugging Face model id / URL or local model directory…",
+            )
+            default_browse_tip = resolve_feature_label(
+                self._user_mode,
+                "chat.model.button.browse.tooltip",
+                "Choose a local transformers model directory.",
+            )
+            self.model_hint.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "chat.model.hint.transformers",
+                    default_hint,
+                )
+            )
+            self.model_path.setPlaceholderText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "chat.model.path.placeholder.transformers",
+                    default_placeholder,
+                )
+            )
+            self.browse_btn.setToolTip(
+                resolve_feature_label(
+                    self._user_mode,
+                    "chat.model.button.browse.tooltip.transformers",
+                    default_browse_tip,
+                )
+            )
+        else:
+            default_hint = resolve_feature_label(
+                self._user_mode,
+                "chat.model.hint",
+                "Changes here require clicking 'Load Model'.",
+            )
+            default_placeholder = resolve_feature_label(
+                self._user_mode,
+                "chat.model.path.placeholder",
+                "Model path (.gguf) or Hugging Face model id / URL…",
+            )
+            default_browse_tip = resolve_feature_label(
+                self._user_mode,
+                "chat.model.button.browse.tooltip",
+                "Choose a local GGUF file, or enter a transformers id/URL.",
+            )
+            self.model_hint.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "chat.model.hint.auto",
+                    default_hint,
+                )
+            )
+            self.model_path.setPlaceholderText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "chat.model.path.placeholder.auto",
+                    default_placeholder,
+                )
+            )
+            self.browse_btn.setToolTip(
+                resolve_feature_label(
+                    self._user_mode,
+                    "chat.model.button.browse.tooltip.auto",
+                    default_browse_tip,
+                )
             )
         self._refresh_model_row_visibility()
 
     def _refresh_model_row_visibility(self):
         backend = self.get_model_backend()
-        show_ctx = bool(self._plus_or_higher)
-        show_gpu = bool(self._plus_or_higher) and backend in {
+        show_ctx = bool(self._show_ctx_tokens)
+        show_gpu = bool(self._show_gpu_layers) and backend in {
             BACKEND_AUTO,
             BACKEND_LLAMA_CPP,
         }
-        show_threads = bool(self._expert_only)
-        _set_form_row_visible(self._model_form, self.ctx_spin, show_ctx)
-        _set_form_row_visible(self._model_form, self.gpu_spin, show_gpu)
-        _set_form_row_visible(self._model_form, self.threads_spin, show_threads)
+        show_threads = bool(self._show_threads)
+        set_form_row_visible(self._model_form, self.ctx_spin, show_ctx)
+        set_form_row_visible(self._model_form, self.gpu_spin, show_gpu)
+        set_form_row_visible(self._model_form, self.threads_spin, show_threads)
 
     def _browse(self):
         backend = self.get_model_backend()
@@ -378,20 +468,141 @@ class ModelLoadPanel(QWidget):
 
     def set_user_mode(self, mode: str):
         self._user_mode = normalize_user_mode(mode)
-        rank = mode_rank(self._user_mode)
-        plus_rank = mode_rank(USER_MODE_PLUS)
-        expert_rank = mode_rank(USER_MODE_EXPERT)
-
-        plus_or_higher = rank >= plus_rank
-        expert_only = rank >= expert_rank
-        self._plus_or_higher = bool(plus_or_higher)
-        self._expert_only = bool(expert_only)
-
-        _set_form_row_visible(self._gen_form, self.top_p_spin, plus_or_higher)
-        _set_form_row_visible(
-            self._gen_form, self.repeat_penalty_spin, plus_or_higher
+        self._show_ctx_tokens = feature_visible(
+            self._user_mode,
+            "chat.model.load.context_tokens",
+            default=True,
         )
-        _set_form_row_visible(
-            self._gen_form, self.forbidden_chars_edit, expert_only
+        self._show_gpu_layers = feature_visible(
+            self._user_mode,
+            "chat.model.load.gpu_layers",
+            default=True,
         )
-        self._refresh_model_row_visibility()
+        self._show_threads = feature_visible(
+            self._user_mode,
+            "chat.model.load.threads",
+            default=False,
+        )
+
+        apply_form_row_visibility(
+            self._user_mode,
+            self._gen_form,
+            (
+                (
+                    self.top_p_spin,
+                    "chat.model.generation.top_p",
+                    True,
+                ),
+                (
+                    self.repeat_penalty_spin,
+                    "chat.model.generation.repeat_penalty",
+                    True,
+                ),
+                (
+                    self.forbidden_chars_edit,
+                    "chat.model.generation.forbidden_chars",
+                    False,
+                ),
+            ),
+        )
+
+        apply_widget_texts(
+            self._user_mode,
+            (
+                (self.model_section_lbl, "chat.model.section.load", "Model Load"),
+                (self.backend_label, "chat.model.backend_label", "Backend:"),
+                (
+                    self.load_btn,
+                    "chat.model.button.load_model",
+                    "⚡ Load Model",
+                ),
+                (
+                    self.nli_section_lbl,
+                    "chat.model.section.nli",
+                    "NLI Model (Fact-Check)",
+                ),
+                (
+                    self.nli_load_btn,
+                    "chat.model.button.load_nli",
+                    "Load NLI",
+                ),
+                (
+                    self.generation_section_lbl,
+                    "chat.model.section.generation",
+                    "Generation",
+                ),
+            ),
+        )
+        apply_widget_tooltips(
+            self._user_mode,
+            (
+                (
+                    self.browse_btn,
+                    "chat.model.button.browse.tooltip",
+                    "Choose model path",
+                ),
+                (
+                    self.load_btn,
+                    "chat.model.button.load_model.tooltip",
+                    "Load model with current backend and settings.",
+                ),
+                (
+                    self.nli_load_btn,
+                    "chat.model.button.load_nli.tooltip",
+                    "Load NLI model for fact-check classification.",
+                ),
+            ),
+        )
+        apply_form_row_labels(
+            self._user_mode,
+            self._model_form,
+            (
+                (
+                    self.ctx_spin,
+                    "chat.model.load.context_tokens",
+                    "Context (tokens):",
+                ),
+                (
+                    self.gpu_spin,
+                    "chat.model.load.gpu_layers",
+                    "GPU Layers:",
+                ),
+                (
+                    self.threads_spin,
+                    "chat.model.load.threads",
+                    "Threads:",
+                ),
+            ),
+        )
+        apply_form_row_labels(
+            self._user_mode,
+            self._gen_form,
+            (
+                (
+                    self.max_tokens_spin,
+                    "chat.model.generation.max_tokens",
+                    "Max tokens:",
+                ),
+                (
+                    self.temp_spin,
+                    "chat.model.generation.temperature",
+                    "Temperature:",
+                ),
+                (
+                    self.top_p_spin,
+                    "chat.model.generation.top_p",
+                    "Top p:",
+                ),
+                (
+                    self.repeat_penalty_spin,
+                    "chat.model.generation.repeat_penalty",
+                    "Repeat penalty:",
+                ),
+                (
+                    self.forbidden_chars_edit,
+                    "chat.model.generation.forbidden_chars",
+                    "Forbidden chars:",
+                ),
+            ),
+        )
+        self._apply_backend_ui()

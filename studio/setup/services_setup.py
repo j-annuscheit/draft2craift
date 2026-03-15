@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import QSettings
 
-from shared.domain.user_mode import USER_MODE_PLUS
+from shared.domain.user_mode import default_user_mode
 from shared.services.llm.manager import LLMManager
 from shared.services.project.manager import ProjectManager
 from shared.services.rag.orchestrator import RAGSystem
@@ -33,7 +33,7 @@ def init_services(window) -> ServiceBundle:
     llm_manager = LLMManager(logger=app_logger)
     file_registry: dict[str, tuple[str, str]] = {}
     project_manager = ProjectManager()
-    user_mode = USER_MODE_PLUS
+    user_mode = default_user_mode()
     app_settings = QSettings("draft2craift", "draft2craift")
     context = AppContext(
         window=window,

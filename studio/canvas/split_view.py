@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from shared.domain.user_mode import normalize_user_mode
 from studio.canvas.preview.pane import CanvasPreviewPane
 
 from .editor_panel import EditorPanel
@@ -64,12 +65,22 @@ class MarkdownSplitPanel(QWidget):
             tab_switcher=self._switch_host_tab,
         )
         self._preview.bind_editor(self.editor)
+        self._user_mode = ""
         self._setup_ui(lock_toggle_enabled=lock_toggle_enabled)
         self.editor.read_only_changed.connect(
             self._on_editor_read_only_changed
         )
         self._apply_pane_visibility()
         self.set_editable_mode(not bool(read_only))
+
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+        editor_setter = getattr(self._editor_panel, "set_user_mode", None)
+        if callable(editor_setter):
+            editor_setter(self._user_mode)
+        setter = getattr(self._preview, "set_user_mode", None)
+        if callable(setter):
+            setter(self._user_mode)
 
     def _setup_ui(self, lock_toggle_enabled: bool):
         layout = QVBoxLayout(self)

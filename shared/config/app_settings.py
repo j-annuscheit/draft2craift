@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import os
 
+from shared.domain.user_mode import default_user_mode
 from shared.config.setting_keys import SpeechSettingsKeys
 
 
@@ -182,7 +183,7 @@ class AppSettings:
 
     theme_id: str = "dark"
     autosave_enabled: bool = True
-    user_mode: str = "plus"
+    user_mode: str = default_user_mode()
 
 
 def _int_in_range(

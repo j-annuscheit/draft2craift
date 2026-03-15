@@ -19,11 +19,10 @@ from PySide6.QtWidgets import (
 )
 
 from shared.domain.user_mode import (
-    USER_MODE_EXPERT,
-    USER_MODE_PLUS,
-    USER_MODE_SIMPLE,
-    mode_rank,
+    default_user_mode,
+    is_feature_visible,
     normalize_user_mode,
+    resolve_feature_label,
 )
 from shared.services.rag.config import RAGConfig
 
@@ -45,15 +44,23 @@ def _set_form_row_visible(form: QFormLayout, field: QWidget, visible: bool) -> N
     field.setVisible(visible)
 
 
+_MODE_HINT_DEFAULTS = {
+    "simple": "Einfach-Modus: nur Kernoptionen. Erweiterte Werte bleiben gespeichert.",
+    "plus": "Plus-Modus: zusätzliche, aber überschaubare Einstellungen.",
+    "expert": "Experte-Modus: vollständige Kontrolle über alle RAG-Parameter.",
+}
+
+
 class RAGSettingsDialog(QDialog):
     """Dialog for editing all parameters of a RAGConfig."""
 
-    def __init__(self, config: RAGConfig, parent=None, user_mode: str = USER_MODE_PLUS):
+    def __init__(self, config: RAGConfig, parent=None, user_mode: str | None = None):
         super().__init__(parent)
-        self.setWindowTitle("RAG Settings")
         self.setStyleSheet(RAG_SETTINGS_STYLE)
         self.setMinimumWidth(440)
-        self._user_mode = normalize_user_mode(user_mode)
+        self._user_mode = normalize_user_mode(default_user_mode() if user_mode is None else user_mode)
+        self._show_hyde_hypotheses = False
+        self._show_rerank_min_score = False
         self._controls = self._build_ui()
         self._connect_signals()
         self._load(config)
@@ -283,7 +290,7 @@ class RAGSettingsDialog(QDialog):
     def _update_hyde_visibility(self) -> None:
         w = self._controls.widgets
         visible = (
-            mode_rank(self._user_mode) >= mode_rank(USER_MODE_EXPERT)
+            bool(self._show_hyde_hypotheses)
             and w["hyde_st_mode"].currentText() == "multi_passage"  # type: ignore[attr-defined]
         )
         w["hyde_hypotheses_label"].setVisible(visible)
@@ -300,76 +307,536 @@ class RAGSettingsDialog(QDialog):
 
     def _update_rerank_visibility(self) -> None:
         w = self._controls.widgets
-        expert = mode_rank(self._user_mode) >= mode_rank(USER_MODE_EXPERT)
         enabled = w["llm_rerank_enabled"].isChecked()  # type: ignore[attr-defined]
-        w["llm_rerank_min_score"].setEnabled(enabled and expert)
+        w["llm_rerank_min_score"].setEnabled(enabled and bool(self._show_rerank_min_score))
         w["llm_rerank_max_candidates"].setEnabled(False)
 
     def _load(self, cfg: RAGConfig) -> None:
         load_config_into_controls(self._controls, cfg)
         self._sync_dynamic_state()
 
+    def _set_form_row_label(
+        self,
+        form_key: str,
+        field_key: str,
+        label_key: str,
+        fallback: str,
+    ) -> None:
+        form = self._controls.forms.get(form_key)
+        field = self._controls.widgets.get(field_key)
+        if form is None or field is None:
+            return
+        label = form.labelForField(field)
+        if label is None:
+            return
+        label.setText(
+            resolve_feature_label(
+                self._user_mode,
+                label_key,
+                fallback,
+            )
+        )
+
     def set_user_mode(self, mode: str) -> None:
         self._user_mode = normalize_user_mode(mode)
-        rank = mode_rank(self._user_mode)
-        plus_or_higher = rank >= mode_rank(USER_MODE_PLUS)
-        expert_only = rank >= mode_rank(USER_MODE_EXPERT)
+        self.setWindowTitle(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.window_title",
+                "RAG Settings",
+            )
+        )
         w = self._controls.widgets
         f = self._controls.forms
         g = self._controls.groups
 
-        if self._user_mode == USER_MODE_SIMPLE:
-            self._controls.mode_hint.setText(
-                "Einfach-Modus: nur Kernoptionen. Erweiterte Werte bleiben gespeichert."
+        g["backends"].setTitle(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.group.backends.title",
+                "Backends",
             )
-        elif self._user_mode == USER_MODE_PLUS:
-            self._controls.mode_hint.setText(
-                "Plus-Modus: zusätzliche, aber überschaubare Einstellungen."
+        )
+        g["hyde"].setTitle(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.group.hyde.title",
+                "HyDE (Query Expansion)",
             )
+        )
+        g["chunking"].setTitle(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.group.chunking.title",
+                "Chunking",
+            )
+        )
+        g["extended"].setTitle(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.group.extended.title",
+                "Erweiterter Kontext",
+            )
+        )
+        g["selection"].setTitle(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.group.selection.title",
+                "Result Selection",
+            )
+        )
+        g["literal"].setTitle(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.group.literal.title",
+                "Direct Match (Literal Search)",
+            )
+        )
+
+        w["use_tfidf"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.backends.use_tfidf.label",
+                "TF-IDF  (always available)",
+            )
+        )
+        w["use_st"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.backends.use_st.label",
+                "Sentence-Transformers",
+            )
+        )
+        w["use_regex"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.backends.use_regex.label",
+                "Literal Search (Regex/Substrings)",
+            )
+        )
+        self._set_form_row_label(
+            "backends",
+            "st_model",
+            "rag.settings.backends.st_model.label",
+            "  Model name:",
+        )
+        self._set_form_row_label(
+            "backends",
+            "st_n_threads",
+            "rag.settings.backends.st_n_threads.label",
+            "  CPU threads (ST):",
+        )
+        w["st_n_threads"].setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.backends.st_n_threads.tooltip",
+                "CPU threads used by PyTorch/sentence-transformers.\n"
+                "0 = use all available cores (recommended).",
+            )
+        )
+        w["backends_hint"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.backends.hint.text",
+                "At least one backend must be active (TF-IDF, ST or Literal).",
+            )
+        )
+
+        w["use_hyde"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.hyde.use_hyde.label",
+                "HyDE aktivieren",
+            )
+        )
+        self._set_form_row_label(
+            "hyde",
+            "hyde_min_words",
+            "rag.settings.hyde.min_words.label",
+            "Expand wenn ≤ N Wörter:",
+        )
+        self._set_form_row_label(
+            "hyde",
+            "hyde_tfidf_mode",
+            "rag.settings.hyde.tfidf_mode.label",
+            "TF-IDF-Modus:",
+        )
+        self._set_form_row_label(
+            "hyde",
+            "hyde_st_mode",
+            "rag.settings.hyde.st_mode.label",
+            "ST-Modus:",
+        )
+        w["hyde_hypotheses_label"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.hyde.hypotheses.label",
+                "Hypothesen:",
+            )
+        )
+        w["hyde_use_doc_context"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.hyde.use_doc_context.label",
+                "Dokumentstruktur als HyDE-Kontext (TOC)",
+            )
+        )
+
+        self._set_form_row_label(
+            "chunking",
+            "chunk_size",
+            "rag.settings.chunking.chunk_size.label",
+            "Chunk-Größe:",
+        )
+        self._set_form_row_label(
+            "chunking",
+            "chunk_overlap",
+            "rag.settings.chunking.overlap.label",
+            "Sliding-Window-Overlap:",
+        )
+        self._set_form_row_label(
+            "chunking",
+            "chunking_strategy",
+            "rag.settings.chunking.strategy.label",
+            "Strategie:",
+        )
+        w["include_headings"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.chunking.include_headings.label",
+                "Heading-Breadcrumb einbetten",
+            )
+        )
+        w["include_filename"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.chunking.include_filename.label",
+                "Dateiname einbetten",
+            )
+        )
+
+        w["extended_context"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.extended.enabled.label",
+                "Erweitertes Kontext-Fenster aktivieren",
+            )
+        )
+        w["extended_hint"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.extended.hint.text",
+                "Expandiert jeden Treffer um ±N Zeichen im Originaldokument.",
+            )
+        )
+        self._set_form_row_label(
+            "extended",
+            "ext_before",
+            "rag.settings.extended.before.label",
+            "Vor dem Chunk:",
+        )
+        self._set_form_row_label(
+            "extended",
+            "ext_after",
+            "rag.settings.extended.after.label",
+            "Nach dem Chunk:",
+        )
+
+        self._set_form_row_label(
+            "selection",
+            "selection_mode",
+            "rag.settings.selection.mode.label",
+            "Mode:",
+        )
+        w["selection_hint"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.selection.hint.text",
+                "top_k: return best N results\n"
+                "threshold: return all above score\n"
+                "top_k_threshold: best N above score\n"
+                "Applied to all backends (TF-IDF, ST, Literal).",
+            )
+        )
+        self._set_form_row_label(
+            "selection",
+            "top_k",
+            "rag.settings.selection.top_k.label",
+            "Top-K (N):",
+        )
+        self._set_form_row_label(
+            "selection",
+            "threshold",
+            "rag.settings.selection.threshold.label",
+            "Score threshold:",
+        )
+        w["llm_rerank_enabled"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.selection.llm_rerank_enabled.label",
+                "LLM rerank + filter before display",
+            )
+        )
+        self._set_form_row_label(
+            "selection",
+            "llm_rerank_min_score",
+            "rag.settings.selection.llm_rerank_min_score.label",
+            "LLM min relevance (fallback):",
+        )
+        w["llm_rerank_min_score"].setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.selection.llm_rerank_min_score.tooltip",
+                "Used only as fallback when a reranker output does not contain class labels.",
+            )
+        )
+        self._set_form_row_label(
+            "selection",
+            "llm_rerank_max_candidates",
+            "rag.settings.selection.llm_rerank_max_candidates.label",
+            "LLM max candidates (legacy):",
+        )
+        w["llm_rerank_max_candidates"].setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.selection.llm_rerank_max_candidates.tooltip",
+                "Legacy compatibility value. Per-hit reranking currently evaluates all hits.",
+            )
+        )
+        w["rerank_hint"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.selection.rerank_hint.text",
+                "Requires a loaded LLM. Hits are classified as 'sinnvoll' or 'nicht_sinnvoll'.",
+            )
+        )
+
+        w["literal_hint"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.literal.hint.text",
+                "Details for the Literal backend (configured above).",
+            )
+        )
+        self._set_form_row_label(
+            "literal",
+            "regex_max",
+            "rag.settings.literal.max_results.label",
+            "Max literal results:",
+        )
+        w["literal_use_llm_terms"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.literal.use_llm_terms.label",
+                "Ask LLM for literal terms:",
+            )
+        )
+        self._set_form_row_label(
+            "literal",
+            "literal_llm_max_terms",
+            "rag.settings.literal.max_llm_terms.label",
+            "Max LLM terms:",
+        )
+
+        self._controls.ok_button.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.button.ok",
+                "OK",
+            )
+        )
+        cancel_button = self._controls.button_box.button(
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        if cancel_button is not None:
+            cancel_button.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "rag.settings.button.cancel",
+                    "Cancel",
+                )
+            )
+        self._controls.reset_button.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.button.restore_defaults",
+                "Restore Defaults",
+            )
+        )
+
+        mode_hint_simple = bool(
+            is_feature_visible(self._user_mode, "rag.settings.mode_hint.simple", default=False)
+        )
+        mode_hint_plus = bool(
+            is_feature_visible(self._user_mode, "rag.settings.mode_hint.plus", default=False)
+        )
+        mode_hint_expert = bool(
+            is_feature_visible(self._user_mode, "rag.settings.mode_hint.expert", default=False)
+        )
+        if mode_hint_simple:
+            hint_key = "simple"
+        elif mode_hint_plus:
+            hint_key = "plus"
+        elif mode_hint_expert:
+            hint_key = "expert"
         else:
-            self._controls.mode_hint.setText(
-                "Experte-Modus: vollständige Kontrolle über alle RAG-Parameter."
+            hint_key = "plus"
+        self._controls.mode_hint.setText(
+            resolve_feature_label(
+                self._user_mode,
+                f"rag.settings.mode_hint.{hint_key}.text",
+                _MODE_HINT_DEFAULTS[hint_key],
             )
+        )
+        self._controls.mode_hint.setVisible(bool(mode_hint_simple or mode_hint_plus or mode_hint_expert))
 
-        g["backends"].setVisible(plus_or_higher)
-        g["hyde"].setVisible(plus_or_higher)
-        g["chunking"].setVisible(plus_or_higher)
-        g["extended"].setVisible(plus_or_higher)
-        g["selection"].setVisible(True)
-        g["literal"].setVisible(expert_only)
+        show_group_backends = bool(
+            is_feature_visible(self._user_mode, "rag.settings.group.backends", default=True)
+        )
+        show_group_hyde = bool(
+            is_feature_visible(self._user_mode, "rag.settings.group.hyde", default=True)
+        )
+        show_group_chunking = bool(
+            is_feature_visible(self._user_mode, "rag.settings.group.chunking", default=True)
+        )
+        show_group_extended = bool(
+            is_feature_visible(self._user_mode, "rag.settings.group.extended", default=True)
+        )
+        show_group_selection = bool(
+            is_feature_visible(self._user_mode, "rag.settings.group.selection", default=True)
+        )
+        show_group_literal = bool(
+            is_feature_visible(self._user_mode, "rag.settings.group.literal", default=True)
+        )
 
-        if not expert_only:
+        g["backends"].setVisible(show_group_backends)
+        g["hyde"].setVisible(show_group_hyde)
+        g["chunking"].setVisible(show_group_chunking)
+        g["extended"].setVisible(show_group_extended)
+        g["selection"].setVisible(show_group_selection)
+        g["literal"].setVisible(show_group_literal)
+
+        show_use_tfidf = bool(
+            is_feature_visible(self._user_mode, "rag.settings.backends.use_tfidf", default=True)
+        )
+        show_st_model = bool(
+            is_feature_visible(self._user_mode, "rag.settings.backends.st_model", default=True)
+        )
+        show_st_n_threads = bool(
+            is_feature_visible(self._user_mode, "rag.settings.backends.st_n_threads", default=True)
+        )
+        show_backends_hint = bool(
+            is_feature_visible(self._user_mode, "rag.settings.backends.hint", default=True)
+        )
+
+        if not show_use_tfidf:
             w["use_tfidf"].setChecked(True)  # type: ignore[attr-defined]
 
-        _set_form_row_visible(f["backends"], w["use_tfidf"], expert_only)
-        _set_form_row_visible(f["backends"], w["st_model"], expert_only)
-        _set_form_row_visible(f["backends"], w["st_n_threads"], expert_only)
-        w["backends_hint"].setVisible(plus_or_higher)
+        _set_form_row_visible(f["backends"], w["use_tfidf"], show_use_tfidf)
+        _set_form_row_visible(f["backends"], w["st_model"], show_st_model)
+        _set_form_row_visible(f["backends"], w["st_n_threads"], show_st_n_threads)
+        w["backends_hint"].setVisible(show_backends_hint)
 
-        _set_form_row_visible(f["hyde"], w["hyde_tfidf_mode"], expert_only)
-        _set_form_row_visible(f["hyde"], w["hyde_st_mode"], expert_only)
-        _set_form_row_visible(f["hyde"], w["hyde_use_doc_context"], expert_only)
+        _set_form_row_visible(
+            f["hyde"],
+            w["hyde_tfidf_mode"],
+            is_feature_visible(self._user_mode, "rag.settings.hyde.tfidf_mode", default=True),
+        )
+        _set_form_row_visible(
+            f["hyde"],
+            w["hyde_st_mode"],
+            is_feature_visible(self._user_mode, "rag.settings.hyde.st_mode", default=True),
+        )
+        _set_form_row_visible(
+            f["hyde"],
+            w["hyde_use_doc_context"],
+            is_feature_visible(self._user_mode, "rag.settings.hyde.use_doc_context", default=True),
+        )
+        self._show_hyde_hypotheses = bool(
+            is_feature_visible(self._user_mode, "rag.settings.hyde.hypotheses", default=False)
+        )
 
-        _set_form_row_visible(f["chunking"], w["chunk_overlap"], expert_only)
-        _set_form_row_visible(f["chunking"], w["chunking_strategy"], expert_only)
-        _set_form_row_visible(f["chunking"], w["include_headings"], expert_only)
-        _set_form_row_visible(f["chunking"], w["include_filename"], expert_only)
+        _set_form_row_visible(
+            f["chunking"],
+            w["chunk_overlap"],
+            is_feature_visible(self._user_mode, "rag.settings.chunking.overlap", default=True),
+        )
+        _set_form_row_visible(
+            f["chunking"],
+            w["chunking_strategy"],
+            is_feature_visible(self._user_mode, "rag.settings.chunking.strategy", default=True),
+        )
+        _set_form_row_visible(
+            f["chunking"],
+            w["include_headings"],
+            is_feature_visible(self._user_mode, "rag.settings.chunking.include_headings", default=True),
+        )
+        _set_form_row_visible(
+            f["chunking"],
+            w["include_filename"],
+            is_feature_visible(self._user_mode, "rag.settings.chunking.include_filename", default=True),
+        )
 
-        w["extended_hint"].setVisible(expert_only)
-        _set_form_row_visible(f["extended"], w["ext_before"], expert_only)
-        _set_form_row_visible(f["extended"], w["ext_after"], expert_only)
+        w["extended_hint"].setVisible(
+            bool(is_feature_visible(self._user_mode, "rag.settings.extended.hint", default=True))
+        )
+        _set_form_row_visible(
+            f["extended"],
+            w["ext_before"],
+            is_feature_visible(self._user_mode, "rag.settings.extended.before", default=True),
+        )
+        _set_form_row_visible(
+            f["extended"],
+            w["ext_after"],
+            is_feature_visible(self._user_mode, "rag.settings.extended.after", default=True),
+        )
 
-        _set_form_row_visible(f["selection"], w["selection_mode"], plus_or_higher)
-        w["selection_hint"].setVisible(plus_or_higher)
-        _set_form_row_visible(f["selection"], w["threshold"], plus_or_higher)
-        _set_form_row_visible(f["selection"], w["llm_rerank_enabled"], plus_or_higher)
-        _set_form_row_visible(f["selection"], w["llm_rerank_min_score"], expert_only)
+        _set_form_row_visible(
+            f["selection"],
+            w["selection_mode"],
+            is_feature_visible(self._user_mode, "rag.settings.selection.mode", default=True),
+        )
+        w["selection_hint"].setVisible(
+            bool(is_feature_visible(self._user_mode, "rag.settings.selection.hint", default=True))
+        )
+        _set_form_row_visible(
+            f["selection"],
+            w["threshold"],
+            is_feature_visible(self._user_mode, "rag.settings.selection.threshold", default=True),
+        )
+        _set_form_row_visible(
+            f["selection"],
+            w["llm_rerank_enabled"],
+            is_feature_visible(
+                self._user_mode,
+                "rag.settings.selection.llm_rerank_enabled",
+                default=True,
+            ),
+        )
+        self._show_rerank_min_score = bool(
+            is_feature_visible(
+                self._user_mode,
+                "rag.settings.selection.llm_rerank_min_score",
+                default=False,
+            )
+        )
+        _set_form_row_visible(
+            f["selection"],
+            w["llm_rerank_min_score"],
+            self._show_rerank_min_score,
+        )
         _set_form_row_visible(
             f["selection"],
             w["llm_rerank_max_candidates"],
-            expert_only,
+            is_feature_visible(
+                self._user_mode,
+                "rag.settings.selection.llm_rerank_max_candidates",
+                default=False,
+            ),
         )
-        w["rerank_hint"].setVisible(plus_or_higher)
+        w["rerank_hint"].setVisible(
+            bool(is_feature_visible(self._user_mode, "rag.settings.selection.rerank_hint", default=True))
+        )
         self._sync_dynamic_state()
 
     def get_config(self) -> RAGConfig:

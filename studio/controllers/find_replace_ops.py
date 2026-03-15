@@ -181,15 +181,33 @@ def _find_in_target(self, target: dict, needle: str, *, backward: bool = False) 
 def _replace_from_dialog(self):
     target = self._resolve_find_target()
     if target is None:
-        self._show_status("Kein aktiver Editor für Ersetzen.", 2000)
+        self._show_status(
+            self._label(
+                "find_replace.status.no_active_editor_replace",
+                "Kein aktiver Editor für Ersetzen.",
+            ),
+            2000,
+        )
         return
     if self._find_target_is_read_only(target):
-        self._show_status("Ersetzen ist in dieser Ansicht gesperrt.", 2000)
+        self._show_status(
+            self._label(
+                "find_replace.status.replace_locked",
+                "Ersetzen ist in dieser Ansicht gesperrt.",
+            ),
+            2000,
+        )
         self._update_find_replace_controls_state(target)
         return
     editor = target.get("editor")
     if not isinstance(editor, MarkdownEditor):
-        self._show_status("Ersetzen ist in dieser Ansicht nicht verfügbar.", 2000)
+        self._show_status(
+            self._label(
+                "find_replace.status.replace_unavailable",
+                "Ersetzen ist in dieser Ansicht nicht verfügbar.",
+            ),
+            2000,
+        )
         self._update_find_replace_controls_state(target)
         return
 
@@ -200,7 +218,13 @@ def _replace_from_dialog(self):
         self._replace_query_edit.text() if self._replace_query_edit is not None else ""
     )
     if not needle:
-        self._show_status("Bitte Suchtext eingeben.", 2000)
+        self._show_status(
+            self._label(
+                "find_replace.status.enter_search_text",
+                "Bitte Suchtext eingeben.",
+            ),
+            2000,
+        )
         return
 
     cursor = editor.textCursor()
@@ -224,15 +248,33 @@ def _replace_from_dialog(self):
 def _replace_all_from_dialog(self):
     target = self._resolve_find_target()
     if target is None:
-        self._show_status("Kein aktiver Editor für Ersetzen.", 2000)
+        self._show_status(
+            self._label(
+                "find_replace.status.no_active_editor_replace",
+                "Kein aktiver Editor für Ersetzen.",
+            ),
+            2000,
+        )
         return
     if self._find_target_is_read_only(target):
-        self._show_status("Ersetzen ist in dieser Ansicht gesperrt.", 2000)
+        self._show_status(
+            self._label(
+                "find_replace.status.replace_locked",
+                "Ersetzen ist in dieser Ansicht gesperrt.",
+            ),
+            2000,
+        )
         self._update_find_replace_controls_state(target)
         return
     editor = target.get("editor")
     if not isinstance(editor, MarkdownEditor):
-        self._show_status("Ersetzen ist in dieser Ansicht nicht verfügbar.", 2000)
+        self._show_status(
+            self._label(
+                "find_replace.status.replace_unavailable",
+                "Ersetzen ist in dieser Ansicht nicht verfügbar.",
+            ),
+            2000,
+        )
         self._update_find_replace_controls_state(target)
         return
 
@@ -243,7 +285,13 @@ def _replace_all_from_dialog(self):
         self._replace_query_edit.text() if self._replace_query_edit is not None else ""
     )
     if not needle:
-        self._show_status("Bitte Suchtext eingeben.", 2000)
+        self._show_status(
+            self._label(
+                "find_replace.status.enter_search_text",
+                "Bitte Suchtext eingeben.",
+            ),
+            2000,
+        )
         return
 
     flags = self._build_find_flags(backward=False)
@@ -278,9 +326,16 @@ def _replace_all_from_dialog(self):
             needle,
         )
 
-    self._show_status(
-        f"{count} Treffer ersetzt." if count else "Keine Treffer zum Ersetzen.",
-        2000,
-    )
+    if count:
+        message = self._format_label(
+            "find_replace.status.replaced_count",
+            "{count} Treffer ersetzt.",
+            count=count,
+        )
+    else:
+        message = self._label(
+            "find_replace.status.replaced_none",
+            "Keine Treffer zum Ersetzen.",
+        )
+    self._show_status(message, 2000)
     self._update_find_match_count()
-

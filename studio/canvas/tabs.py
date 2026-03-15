@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from shared.domain.user_mode import normalize_user_mode, resolve_feature_label
 from shared.services.highlights.store import get_highlight_store
 from studio.canvas.tabbed_editor_widget import TabbedEditorWidget
 from studio.canvas.split_view import MarkdownSplitPanel
@@ -26,9 +27,11 @@ class CanvasTabWidget(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self._user_mode = ""
         self._undo_redo_editor = None
         self._read_aloud_active = False
         self._setup_ui()
+        self.set_user_mode("")
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -94,12 +97,16 @@ class CanvasTabWidget(QWidget):
             hbox.addWidget(btn)
             return btn
 
-        _add_btn("+ New", lambda: self.tabs.add_tab())
-        _add_btn("📂 Open", self.open_file)
-        _add_btn("💾 Save", self.save_current)
+        self.new_btn = _add_btn("+ New", lambda: self.tabs.add_tab())
+        self.new_btn.setToolTip("Create a new draft tab")
+        self.open_btn = _add_btn("📂 Open", self.open_file)
+        self.open_btn.setToolTip("Open a file into the current tab")
+        self.save_btn = _add_btn("💾 Save", self.save_current)
+        self.save_btn.setToolTip("Save the current draft")
         self.read_aloud_btn = _add_btn("🔊 Play", self._request_read_aloud)
         self.read_aloud_btn.setToolTip("Aktuellen Draft vorlesen")
-        _add_btn("⬇ Export", self.export_document)
+        self.export_btn = _add_btn("⬇ Export", self.export_document)
+        self.export_btn.setToolTip("Export the current draft")
 
         return bar
 
@@ -244,11 +251,159 @@ class CanvasTabWidget(QWidget):
         if btn is None:
             return
         if self._read_aloud_active:
-            btn.setText("⏹ Stop")
-            btn.setToolTip("Vorlesen stoppen")
+            btn.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "canvas.toolbar.read_aloud.stop",
+                    "⏹ Stop",
+                )
+            )
+            btn.setToolTip(
+                resolve_feature_label(
+                    self._user_mode,
+                    "canvas.toolbar.read_aloud.stop.tooltip",
+                    "Vorlesen stoppen",
+                )
+            )
             return
-        btn.setText("🔊 Play")
-        btn.setToolTip("Aktuellen Draft vorlesen")
+        btn.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "canvas.toolbar.read_aloud.play",
+                "🔊 Play",
+            )
+        )
+        btn.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "canvas.toolbar.read_aloud.play.tooltip",
+                "Aktuellen Draft vorlesen",
+            )
+        )
+
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+        self.undo_btn.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "canvas.toolbar.undo",
+                "↶ Zurück",
+            )
+        )
+        self.undo_btn.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "canvas.toolbar.undo.tooltip",
+                "Rückgängig (Undo)",
+            )
+        )
+        self.redo_btn.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "canvas.toolbar.redo",
+                "↷ Vor",
+            )
+        )
+        self.redo_btn.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "canvas.toolbar.redo.tooltip",
+                "Wiederholen (Redo)",
+            )
+        )
+        self.new_btn.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "canvas.toolbar.new_tab",
+                "+ New",
+            )
+        )
+        self.new_btn.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "canvas.toolbar.new_tab.tooltip",
+                "Create a new draft tab",
+            )
+        )
+        self.open_btn.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "canvas.toolbar.open",
+                "📂 Open",
+            )
+        )
+        self.open_btn.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "canvas.toolbar.open.tooltip",
+                "Open a file into the current tab",
+            )
+        )
+        self.save_btn.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "canvas.toolbar.save",
+                "💾 Save",
+            )
+        )
+        self.save_btn.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "canvas.toolbar.save.tooltip",
+                "Save the current draft",
+            )
+        )
+        self.export_btn.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "canvas.toolbar.export",
+                "⬇ Export",
+            )
+        )
+        self.export_btn.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "canvas.toolbar.export.tooltip",
+                "Export the current draft",
+            )
+        )
+        if self._read_aloud_active:
+            self.read_aloud_btn.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "canvas.toolbar.read_aloud.stop",
+                    "⏹ Stop",
+                )
+            )
+            self.read_aloud_btn.setToolTip(
+                resolve_feature_label(
+                    self._user_mode,
+                    "canvas.toolbar.read_aloud.stop.tooltip",
+                    "Vorlesen stoppen",
+                )
+            )
+        else:
+            self.read_aloud_btn.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "canvas.toolbar.read_aloud.play",
+                    "🔊 Play",
+                )
+            )
+            self.read_aloud_btn.setToolTip(
+                resolve_feature_label(
+                    self._user_mode,
+                    "canvas.toolbar.read_aloud.play.tooltip",
+                    "Aktuellen Draft vorlesen",
+                )
+            )
+
+        host = self.tabs.tab_widget
+        for idx in range(host.count()):
+            panel = host.widget(idx)
+            setter = getattr(panel, "set_user_mode", None)
+            if callable(setter):
+                setter(self._user_mode)
 
     def _on_tab_renamed(self, old_title: str, new_title: str):
         get_highlight_store().rename_tab(

@@ -13,15 +13,32 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from shared.domain.user_mode import (
+    default_user_mode,
+    normalize_user_mode,
+    resolve_feature_label,
+)
+
 from .models import ExportOptions
 
 
 class ExportOptionsDialog(QDialog):
     """Simple options menu for PDF/Word export settings."""
 
-    def __init__(self, parent: QWidget | None = None, default_format: str = "pdf"):
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        default_format: str = "pdf",
+        user_mode: str | None = None,
+    ):
         super().__init__(parent)
-        self.setWindowTitle("Export Optionen")
+        self._user_mode = normalize_user_mode(
+            default_user_mode() if user_mode is None else user_mode
+        )
+        self._format_label = None
+        self._font_label = None
+        self._font_size_label = None
+        self._line_spacing_label = None
         self.setModal(True)
         self.resize(460, 260)
 
@@ -39,6 +56,7 @@ class ExportOptionsDialog(QDialog):
         fmt = str(default_format or "pdf").strip().lower()
         self.format_combo.setCurrentIndex(1 if fmt == "word" else 0)
         form.addRow("Format:", self.format_combo)
+        self._format_label = form.labelForField(self.format_combo)
 
         self.font_combo = QComboBox()
         self.font_combo.setEditable(True)
@@ -58,12 +76,14 @@ class ExportOptionsDialog(QDialog):
             self.font_combo.addItem(name)
         self.font_combo.setCurrentText("Calibri")
         form.addRow("Schriftart:", self.font_combo)
+        self._font_label = form.labelForField(self.font_combo)
 
         self.font_size_spin = QSpinBox()
         self.font_size_spin.setRange(6, 72)
         self.font_size_spin.setValue(11)
         self.font_size_spin.setSuffix(" pt")
         form.addRow("Schriftgroesse:", self.font_size_spin)
+        self._font_size_label = form.labelForField(self.font_size_spin)
 
         self.line_spacing_spin = QDoubleSpinBox()
         self.line_spacing_spin.setRange(1.0, 3.0)
@@ -71,6 +91,7 @@ class ExportOptionsDialog(QDialog):
         self.line_spacing_spin.setDecimals(2)
         self.line_spacing_spin.setValue(1.15)
         form.addRow("Zeilenabstand:", self.line_spacing_spin)
+        self._line_spacing_label = form.labelForField(self.line_spacing_spin)
 
         root.addLayout(form)
 
@@ -88,7 +109,64 @@ class ExportOptionsDialog(QDialog):
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        self._buttons = buttons
         root.addWidget(buttons)
+        self.set_user_mode(self._user_mode)
+
+    def _label(self, key: str, default: str) -> str:
+        return resolve_feature_label(self._user_mode, key, default)
+
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+        self.setWindowTitle(self._label("export.options.window_title", "Export Optionen"))
+        if self._format_label is not None:
+            self._format_label.setText(self._label("export.options.field.format", "Format:"))
+        if self._font_label is not None:
+            self._font_label.setText(self._label("export.options.field.font", "Schriftart:"))
+        if self._font_size_label is not None:
+            self._font_size_label.setText(
+                self._label("export.options.field.font_size", "Schriftgroesse:")
+            )
+        if self._line_spacing_label is not None:
+            self._line_spacing_label.setText(
+                self._label("export.options.field.line_spacing", "Zeilenabstand:")
+            )
+        idx_pdf = self.format_combo.findData("pdf")
+        if idx_pdf >= 0:
+            self.format_combo.setItemText(
+                idx_pdf,
+                self._label("export.options.option.format.pdf", "PDF"),
+            )
+        idx_word = self.format_combo.findData("word")
+        if idx_word >= 0:
+            self.format_combo.setItemText(
+                idx_word,
+                self._label("export.options.option.format.word", "Word (DOCX)"),
+            )
+        self.multi_column_cb.setText(
+            self._label(
+                "export.options.checkbox.multi_column",
+                "Multi-Column Export (2 Spalten)",
+            )
+        )
+        self.highlights_cb.setText(
+            self._label(
+                "export.options.checkbox.highlights",
+                "Markierungen uebernehmen",
+            )
+        )
+        self.comments_cb.setText(
+            self._label(
+                "export.options.checkbox.comments",
+                "Kommentare uebernehmen",
+            )
+        )
+        ok_btn = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_btn is not None:
+            ok_btn.setText(self._label("export.options.button.ok", "OK"))
+        cancel_btn = self._buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_btn is not None:
+            cancel_btn.setText(self._label("export.options.button.cancel", "Cancel"))
 
     def options(self) -> ExportOptions:
         fmt = str(self.format_combo.currentData() or "pdf").strip().lower()

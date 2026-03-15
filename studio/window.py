@@ -15,6 +15,7 @@ from pathlib import Path
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QDialog,
     QInputDialog,
     QLabel,
     QMainWindow,
@@ -23,9 +24,10 @@ from PySide6.QtWidgets import (
 )
 
 from shared.domain.user_mode import (
-    USER_MODE_LABELS,
-    USER_MODE_SIMPLE,
+    is_feature_visible,
     normalize_user_mode,
+    resolve_feature_label,
+    user_mode_label,
 )
 from shared.services.highlights.store import get_highlight_store
 from studio.canvas.preview.pane import CanvasPreviewPane
@@ -36,6 +38,10 @@ from studio.feedback.bar import FeedbackBar
 from studio.glossary.editor import GlossaryEditorDialog
 from studio.importer.dialog import FileImportDialog
 from studio.dialogs.window_manager import DialogWindowManager
+from studio.profile_text_overrides import (
+    apply_profile_text_overrides,
+    install_qmessagebox_literal_overrides,
+)
 from studio.setup.controllers_setup import init_controllers as _setup_controllers
 from studio.setup.docks_setup import init_docks as _setup_docks
 from studio.setup.services_setup import init_services as _setup_services
@@ -75,6 +81,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        install_qmessagebox_literal_overrides()
         self._dialog_manager = DialogWindowManager(self)
         self._init_services()
         self._init_early_controllers()
@@ -119,6 +126,8 @@ class MainWindow(QMainWindow):
         self._model_status_success = None
         self._theme_actions = {}
         self._preview_theme_actions = {}
+        self._feature_visibility_bindings: list[tuple[object, str, bool]] = []
+        self._feature_label_bindings: list[tuple[object, str, str]] = []
 
     def _init_early_controllers(self):
         self._theme_ctrl = ThemeController(
@@ -176,12 +185,120 @@ class MainWindow(QMainWindow):
         self.chat_dock = docks.chat_dock
         self.log_dock = docks.log_dock
 
-    def _add_action(self, menu, label: str, shortcut: str, slot) -> QAction:
+    def _bind_feature_visibility(
+        self,
+        target: object,
+        feature_key: str,
+        default: bool = True,
+    ) -> None:
+        key = str(feature_key or "").strip()
+        if not key:
+            return
+        self._feature_visibility_bindings.append((target, key, bool(default)))
+        self._apply_feature_visibility_for_target(target, key, bool(default), self._user_mode)
+
+    @staticmethod
+    def _apply_feature_visibility_for_target(
+        target: object,
+        feature_key: str,
+        default: bool,
+        mode: str,
+    ) -> None:
+        setter = getattr(target, "setVisible", None)
+        if not callable(setter):
+            return
+        setter(bool(is_feature_visible(mode, feature_key, default=default)))
+
+    def _apply_feature_visibility_bindings(self, mode: str) -> None:
+        for target, feature_key, default in list(self._feature_visibility_bindings):
+            self._apply_feature_visibility_for_target(
+                target,
+                feature_key,
+                bool(default),
+                mode,
+            )
+
+    def _bind_feature_label(
+        self,
+        target: object,
+        feature_key: str,
+        default_text: str,
+    ) -> None:
+        key = str(feature_key or "").strip()
+        if not key:
+            return
+        fallback = str(default_text or "")
+        self._feature_label_bindings.append((target, key, fallback))
+        self._apply_feature_label_for_target(target, key, fallback, self._user_mode)
+
+    @staticmethod
+    def _apply_feature_label_for_target(
+        target: object,
+        feature_key: str,
+        default_text: str,
+        mode: str,
+    ) -> None:
+        setter = getattr(target, "setText", None)
+        if not callable(setter):
+            return
+        setter(resolve_feature_label(mode, feature_key, default_text))
+
+    def _apply_feature_label_bindings(self, mode: str) -> None:
+        for target, feature_key, default_text in list(self._feature_label_bindings):
+            self._apply_feature_label_for_target(
+                target,
+                feature_key,
+                default_text,
+                mode,
+            )
+
+    def _propagate_user_mode_to_dialogs(self, mode: str) -> None:
+        dialogs = getattr(self._dialog_manager, "dialogs", None)
+        if not callable(dialogs):
+            return
+        for dialog in dialogs():
+            setter = getattr(dialog, "set_user_mode", None)
+            if not callable(setter):
+                continue
+            try:
+                setter(mode)
+            except Exception as exc:
+                self.app_logger.warning(
+                    "SYS",
+                    f"Failed to apply user mode '{mode}' to dialog: {exc}",
+                )
+            apply_profile_text_overrides(dialog, mode)
+
+    def _add_action(
+        self,
+        menu,
+        label: str,
+        shortcut: str,
+        slot,
+        *,
+        visibility_key: str | None = None,
+        visible_default: bool = True,
+        label_key: str | None = None,
+        label_default: str | None = None,
+    ) -> QAction:
         act = QAction(label, self)
         if shortcut:
             act.setShortcut(QKeySequence(shortcut))
         act.triggered.connect(slot)
         menu.addAction(act)
+        if visibility_key:
+            self._bind_feature_visibility(
+                act,
+                visibility_key,
+                default=bool(visible_default),
+            )
+        key_for_label = str(label_key or visibility_key or "").strip()
+        if key_for_label:
+            self._bind_feature_label(
+                act,
+                key_for_label,
+                str(label if label_default is None else label_default),
+            )
         return act
 
     def _init_global_shortcuts(self):
@@ -211,8 +328,9 @@ class MainWindow(QMainWindow):
         sb.addPermanentWidget(self._model_lbl)
         self._backend_lbl = QLabel(f"backend: {self.rag_system.current_backend()}")
         sb.addPermanentWidget(self._backend_lbl)
-        self._mode_lbl = QLabel(f"mode: {USER_MODE_LABELS[self._user_mode]}")
+        self._mode_lbl = QLabel(f"mode: {user_mode_label(self._user_mode)}")
         sb.addPermanentWidget(self._mode_lbl)
+        self._bind_feature_visibility(self._mode_lbl, "window.status.mode_label", default=True)
         self._apply_window_chrome_theme()
         sb.showMessage("Ready")
         # Bind early so controllers_setup can access it when creating LLMSideTaskController.
@@ -378,7 +496,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Glossar-Overlay: AN" if checked else "Glossar-Overlay: AUS", 2500)
     def _open_glossary_editor(self):
         def _create() -> GlossaryEditorDialog:
-            dialog = GlossaryEditorDialog(self)
+            dialog = GlossaryEditorDialog(self, user_mode=self._user_mode)
             dialog.glossary_saved.connect(self._on_glossary_saved_from_editor)
             return dialog
 
@@ -396,20 +514,108 @@ class MainWindow(QMainWindow):
         ok, info = self._generate_glossary_from_llm_context(self._build_llm_context(), done_cb=_err)
         if not ok: QMessageBox.information(self, "Glossar", info)
     def _generate_mindmap_from_context(self):
-        _title = "MindMap/Graph/Chunk-MindMap generieren"
-        mode_label, ok = QInputDialog.getItem(self, _title, "Ausgabeformat:",
-                                              ["Chunk-MindMap", "MindMap", "Graph"], 0, False)
-        if not ok: return
-        low = str(mode_label or "").strip().casefold()
-        mode_hint = "graph" if low == "graph" else ("chunkmap" if "chunk" in low else "mindmap")
-        _defaults = {
-            "graph": "Welche zentralen Entitäten und Beziehungen sind im Kontext belegt?",
-            "chunkmap": "Wie ist der Kontext nach Überschriften und Chunks strukturiert?",
-            "mindmap": "Welche zentralen Konzepte beantworten die Fragestellung im Kontext?",
+        title = resolve_feature_label(
+            self._user_mode,
+            "mindmap.generate.dialog.title",
+            "MindMap/Graph/Chunk-MindMap generieren",
+        )
+        output_label = resolve_feature_label(
+            self._user_mode,
+            "mindmap.generate.dialog.output_format",
+            "Ausgabeformat:",
+        )
+        ok_text = resolve_feature_label(
+            self._user_mode,
+            "mindmap.generate.dialog.button.ok",
+            "OK",
+        )
+        cancel_text = resolve_feature_label(
+            self._user_mode,
+            "mindmap.generate.dialog.button.cancel",
+            "Cancel",
+        )
+        mode_options = [
+            (
+                "chunkmap",
+                resolve_feature_label(
+                    self._user_mode,
+                    "mindmap.generate.dialog.option.chunkmap",
+                    "Chunk-MindMap",
+                ),
+            ),
+            (
+                "mindmap",
+                resolve_feature_label(
+                    self._user_mode,
+                    "mindmap.generate.dialog.option.mindmap",
+                    "MindMap",
+                ),
+            ),
+            (
+                "graph",
+                resolve_feature_label(
+                    self._user_mode,
+                    "mindmap.generate.dialog.option.graph",
+                    "Graph",
+                ),
+            ),
+        ]
+
+        mode_dialog = QInputDialog(self)
+        mode_dialog.setWindowTitle(title)
+        mode_dialog.setLabelText(output_label)
+        mode_dialog.setComboBoxItems([label for _, label in mode_options])
+        mode_dialog.setTextValue(mode_options[0][1])
+        mode_dialog.setOkButtonText(ok_text)
+        mode_dialog.setCancelButtonText(cancel_text)
+        if mode_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        selected_mode_label = str(mode_dialog.textValue() or "")
+        mode_hint = mode_options[0][0]
+        for mode_name, mode_label in mode_options:
+            if mode_label == selected_mode_label:
+                mode_hint = mode_name
+                break
+
+        query_defaults = {
+            "graph": resolve_feature_label(
+                self._user_mode,
+                "mindmap.generate.dialog.query_default.graph",
+                "Welche zentralen Entitäten und Beziehungen sind im Kontext belegt?",
+            ),
+            "chunkmap": resolve_feature_label(
+                self._user_mode,
+                "mindmap.generate.dialog.query_default.chunkmap",
+                "Wie ist der Kontext nach Überschriften und Chunks strukturiert?",
+            ),
+            "mindmap": resolve_feature_label(
+                self._user_mode,
+                "mindmap.generate.dialog.query_default.mindmap",
+                "Welche zentralen Konzepte beantworten die Fragestellung im Kontext?",
+            ),
         }
-        query_raw, ok = QInputDialog.getMultiLineText(self, _title, "Fragestellung (optional):",
-                                                      _defaults[mode_hint])
-        if not ok: return
+        query_label = resolve_feature_label(
+            self._user_mode,
+            "mindmap.generate.dialog.query_label",
+            "Fragestellung (optional):",
+        )
+
+        query_dialog = QInputDialog(self)
+        query_dialog.setWindowTitle(title)
+        query_dialog.setInputMode(QInputDialog.InputMode.TextInput)
+        query_dialog.setOption(
+            QInputDialog.InputDialogOption.UsePlainTextEditForTextInput,
+            True,
+        )
+        query_dialog.setLabelText(query_label)
+        query_dialog.setTextValue(query_defaults.get(mode_hint, query_defaults["mindmap"]))
+        query_dialog.setOkButtonText(ok_text)
+        query_dialog.setCancelButtonText(cancel_text)
+        if query_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        query_raw = query_dialog.textValue()
+
         _err2 = lambda ok2, info: (not ok2) and QMessageBox.information(self, "MindMap/Graph", info)
         ok, info = self._generate_mindmap_from_llm_context(
             self._build_llm_context(), str(query_raw or ""), mode_hint=mode_hint, done_cb=_err2)
@@ -460,27 +666,55 @@ class MainWindow(QMainWindow):
         effective_mode = normalize_user_mode(
             self._user_mode if mode is None else mode
         )
-        return effective_mode != USER_MODE_SIMPLE
+        return bool(
+            is_feature_visible(
+                effective_mode,
+                "window.prompt_editor",
+                default=True,
+            )
+        )
 
     def set_user_mode(self, mode: str, notify: bool = True):
         normalized = normalize_user_mode(mode)
         self._user_mode = normalized
         self._context.user_mode = normalized
+        if hasattr(self, "canvas"): self.canvas.set_user_mode(normalized)
         if hasattr(self, "chat_dock"): self.chat_dock.set_user_mode(normalized)
         if hasattr(self, "log_dock"): self.log_dock.set_user_mode(normalized)
+        if hasattr(self, "knowledge_dock"): self.knowledge_dock.set_user_mode(normalized)
+        self._apply_feature_visibility_bindings(normalized)
+        self._apply_feature_label_bindings(normalized)
+        self._propagate_user_mode_to_dialogs(normalized)
+        apply_profile_text_overrides(self, normalized)
         if hasattr(self, "_action_edit_prompts"):
-            self._action_edit_prompts.setVisible(
+            self._action_edit_prompts.setVisible(bool(
                 self._is_prompt_editor_allowed(normalized)
-            )
+                and is_feature_visible(
+                    normalized,
+                    "menu.ai.edit_prompts",
+                    default=True,
+                )
+            ))
         if hasattr(self, "_log_toggle_action"):
-            show_log = normalized != USER_MODE_SIMPLE
+            show_log = bool(
+                is_feature_visible(
+                    normalized,
+                    "window.log_dock_visible",
+                    default=True,
+                )
+                and is_feature_visible(
+                    normalized,
+                    "menu.view.debug_log",
+                    default=True,
+                )
+            )
             self._log_toggle_action.setVisible(show_log)
             if not show_log and hasattr(self, "log_dock"): self.log_dock.hide()
         for mode_key, act in self._mode_actions.items():
             blocked = act.blockSignals(True); act.setChecked(mode_key == normalized); act.blockSignals(blocked)
-        if hasattr(self, "_mode_lbl"): self._mode_lbl.setText(f"mode: {USER_MODE_LABELS[normalized]}")
+        if hasattr(self, "_mode_lbl"): self._mode_lbl.setText(f"mode: {user_mode_label(normalized)}")
         if notify and self.statusBar():
-            self.statusBar().showMessage(f"Nutzermodus: {USER_MODE_LABELS[normalized]}", 2500)
+            self.statusBar().showMessage(f"Nutzermodus: {user_mode_label(normalized)}", 2500)
             self._autosave_ctrl.schedule_full(delay_ms=500)
 
     # ── RAG, prompts, view actions ────────────────────────────────────

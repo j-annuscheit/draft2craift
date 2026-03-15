@@ -264,7 +264,12 @@ def _show_table_insert_menu(self):
 
     menu = QMenu(self)
     menu.setToolTipsVisible(False)
-    picker = TableInsertPicker(max_rows=12, max_cols=12, parent=menu)
+    picker = TableInsertPicker(
+        max_rows=12,
+        max_cols=12,
+        user_mode=str(getattr(self, "_user_mode", "") or ""),
+        parent=menu,
+    )
 
     def _insert_selected(rows: int, cols: int):
         try:

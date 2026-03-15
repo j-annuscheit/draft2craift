@@ -6,7 +6,7 @@ from typing import Callable
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QDockWidget
 
-from shared.domain.user_mode import USER_MODE_PLUS
+from shared.domain.user_mode import default_user_mode
 from shared.services.feedback.service import FeedbackService
 from shared.services.llm.manager import LLMManager
 
@@ -25,12 +25,12 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
     read_aloud_requested = Signal(str)
     read_aloud_stop_requested = Signal()
     tts_mode_changed = Signal(str)
-    _NO_MODEL_LOADED_MESSAGE = "⚠ No model loaded. Load a GGUF model first."
+    _NO_MODEL_LOADED_MESSAGE = "⚠ No model loaded. Load a model first."
 
     def __init__(self, llm_manager: LLMManager, parent=None):
         super().__init__("AI Chat", parent)
         self.llm = llm_manager
-        self._user_mode = USER_MODE_PLUS
+        self._user_mode = default_user_mode()
         self._context_getter: Callable[[], dict] | None = None
         self._canvas_selection_getter: Callable[[], str] | None = None
         self._selection_apply_handler: (
@@ -72,6 +72,8 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         self._llm_generating = False
         self._aux_generating = False
         self._model_panel_last_size = 160
+        self._send_feature_visible = True
+        self._stop_feature_visible = True
 
         self._feedback_service: FeedbackService | None = None
         self._last_user_msg = ""

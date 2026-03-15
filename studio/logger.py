@@ -15,10 +15,10 @@ from PySide6.QtWidgets import (
 )
 
 from shared.domain.user_mode import (
-    USER_MODE_EXPERT,
-    USER_MODE_PLUS,
+    default_user_mode,
+    is_feature_visible,
     normalize_user_mode,
-    mode_rank,
+    resolve_feature_label,
 )
 
 
@@ -199,9 +199,11 @@ class LogDock(QDockWidget):
     def __init__(self, app_logger: AppLogger, parent=None):
         super().__init__("Debug Log", parent)
         self._logger       = app_logger
-        self._user_mode    = USER_MODE_PLUS
+        self._user_mode    = default_user_mode()
         self._level_filter = "All"
         self._cat_filter   = "All"
+        self._btn_clear: QPushButton | None = None
+        self._btn_copy: QPushButton | None = None
         self._setup_ui()
         self.set_user_mode(self._user_mode)
         self._connect_signals()
@@ -256,12 +258,12 @@ class LogDock(QDockWidget):
         hbox.setContentsMargins(6, 2, 6, 2)
         hbox.setSpacing(6)
 
-        btn_clear = QPushButton("Clear")
-        btn_copy  = QPushButton("Copy all")
-        btn_clear.clicked.connect(self._on_clear)
-        btn_copy.clicked.connect(self._on_copy)
-        hbox.addWidget(btn_clear)
-        hbox.addWidget(btn_copy)
+        self._btn_clear = QPushButton("Clear")
+        self._btn_copy = QPushButton("Copy all")
+        self._btn_clear.clicked.connect(self._on_clear)
+        self._btn_copy.clicked.connect(self._on_copy)
+        hbox.addWidget(self._btn_clear)
+        hbox.addWidget(self._btn_copy)
 
         hbox.addStretch()
 
@@ -312,21 +314,85 @@ class LogDock(QDockWidget):
 
     def _on_toggle_logging(self, checked: bool):
         self._logger.enabled = checked
-        label = "enabled" if checked else "disabled"
+        label = resolve_feature_label(
+            self._user_mode,
+            "log.logging.state.enabled",
+            "enabled",
+        ) if checked else resolve_feature_label(
+            self._user_mode,
+            "log.logging.state.disabled",
+            "disabled",
+        )
         # Always show this system event regardless of filter
         ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        self._append_html(ts, "INFO", "SYS", f"Logging {label}")
+        msg_template = resolve_feature_label(
+            self._user_mode,
+            "log.logging.state.template",
+            "Logging {state}",
+        )
+        try:
+            message = msg_template.format(state=label)
+        except Exception:
+            message = f"Logging {label}"
+        self._append_html(ts, "INFO", "SYS", message)
         self._update_status()
 
     def set_user_mode(self, mode: str):
         self._user_mode = normalize_user_mode(mode)
-        show_filters = mode_rank(self._user_mode) >= mode_rank(USER_MODE_EXPERT)
+        show_filters = bool(
+            is_feature_visible(
+                self._user_mode,
+                "log.filters",
+                default=False,
+            )
+        )
         for widget in (self._level_lbl, self._level_combo, self._cat_lbl, self._cat_combo):
             widget.setVisible(show_filters)
             widget.setEnabled(show_filters)
         if not show_filters:
             self._level_combo.setCurrentText("All")
             self._cat_combo.setCurrentText("All")
+        self.setWindowTitle(
+            resolve_feature_label(self._user_mode, "window.log_dock_title", "Debug Log")
+        )
+        if self._btn_clear is not None:
+            self._btn_clear.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "log.toolbar.button.clear",
+                    "Clear",
+                )
+            )
+        if self._btn_copy is not None:
+            self._btn_copy.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "log.toolbar.button.copy_all",
+                    "Copy all",
+                )
+            )
+        self._enabled_cb.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "log.toolbar.checkbox.logging_enabled",
+                "Logging on",
+            )
+        )
+        self._level_lbl.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "log.toolbar.label.level",
+                "  Level:",
+            )
+        )
+        self._cat_lbl.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "log.toolbar.label.category",
+                "Cat:",
+            )
+        )
+        self._update_status()
 
     def _rebuild_from_history(self):
         self._text.clear()
@@ -362,6 +428,24 @@ class LogDock(QDockWidget):
         total    = len(self._logger._entries)
         filtered = len(self._logger.get_entries(self._level_filter, self._cat_filter))
         if self._level_filter == "All" and self._cat_filter == "All":
-            self._status_lbl.setText(f"{total} entries")
+            template = resolve_feature_label(
+                self._user_mode,
+                "log.status.entries.template",
+                "{total} entries",
+            )
+            try:
+                self._status_lbl.setText(template.format(total=total))
+            except Exception:
+                self._status_lbl.setText(f"{total} entries")
         else:
-            self._status_lbl.setText(f"{filtered} shown / {total} total")
+            template = resolve_feature_label(
+                self._user_mode,
+                "log.status.filtered.template",
+                "{shown} shown / {total} total",
+            )
+            try:
+                self._status_lbl.setText(
+                    template.format(shown=filtered, total=total)
+                )
+            except Exception:
+                self._status_lbl.setText(f"{filtered} shown / {total} total")

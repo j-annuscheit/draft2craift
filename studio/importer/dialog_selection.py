@@ -5,6 +5,7 @@ import os
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QLineEdit, QListWidgetItem
 
+from shared.domain.user_mode import resolve_feature_label
 from shared.services.importer.entry import (
     ImportEntry,
     can_keep_detection_state,
@@ -52,8 +53,16 @@ class FileImportSelectionMixin:
         current_name = str(entry.name or "").strip() or os.path.basename(path)
         new_name, ok = QInputDialog.getText(
             self,
-            "Datei umbenennen",
-            "Neuer Name:",
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.rename.window_title",
+                "Datei umbenennen",
+            ),
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.rename.prompt",
+                "Neuer Name:",
+            ),
             QLineEdit.EchoMode.Normal,
             current_name,
         )
@@ -82,7 +91,16 @@ class FileImportSelectionMixin:
             )
 
     def _add_files(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, "Add Files", "", _SUPPORTED_FILTER)
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.file_picker.title",
+                "Add Files",
+            ),
+            "",
+            _SUPPORTED_FILTER,
+        )
         for path in paths:
             if path in self._entries:
                 continue
@@ -197,10 +215,14 @@ class FileImportSelectionMixin:
             mid_w = 320
             right_w = max(10, total - left_w - mid_w)
             self._splitter.setSizes([left_w, mid_w, right_w])
-            self._btn_toggle_settings.setText("◀ Settings")
+            updater = getattr(self, "_update_toggle_settings_button_text", None)
+            if callable(updater):
+                updater()
             return
         self._splitter.setSizes([left_w, 0, total - left_w])
-        self._btn_toggle_settings.setText("▶ Settings")
+        updater = getattr(self, "_update_toggle_settings_button_text", None)
+        if callable(updater):
+            updater()
 
     def _on_zone_changed(self, top: float, bottom: float):
         """Called when user drags zone boundary lines in the PDF viewer."""

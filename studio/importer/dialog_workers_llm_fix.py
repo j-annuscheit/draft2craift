@@ -5,14 +5,42 @@ from typing import Any
 
 from PySide6.QtCore import Qt
 
+from shared.domain.user_mode import resolve_feature_label
 from .ui_constants import _STATUS_DONE, _STATUS_ERROR
 from .workers import MarkdownLLMFixWorker
+
+
+def _label(self, key: str, default: str) -> str:
+    return resolve_feature_label(
+        str(getattr(self, "_user_mode", "") or ""),
+        key,
+        default,
+    )
+
+
+def _format_label(self, key: str, default: str, **kwargs: object) -> str:
+    template = _label(self, key, default)
+    try:
+        return template.format(**kwargs)
+    except Exception:
+        return template
 
 
 def _llm_fix_label_prefix(self, path: str) -> str:
     entry = self._entries.get(str(path or ""))
     name = str(getattr(entry, "name", "") or "").strip()
-    return f"LLM-Fix ({name})" if name else "LLM-Fix"
+    if name:
+        return _format_label(
+            self,
+            "importer.dialog.llm_fix.status.prefix.named",
+            "LLM-Fix ({name})",
+            name=name,
+        )
+    return _label(
+        self,
+        "importer.dialog.llm_fix.status.prefix.default",
+        "LLM-Fix",
+    )
 
 
 def _set_llm_fix_status_for_path(
@@ -55,7 +83,16 @@ def _sync_llm_fix_status_for_current_path(self):
         self._preview_status.setVisible(visible and bool(text.strip()))
         return
     current_text = str(self._preview_status.text() or "").strip()
-    if current_text.startswith("LLM-Fix") or current_text.startswith("Fix by LLM"):
+    prefix_default = _label(
+        self,
+        "importer.dialog.llm_fix.status.prefix.default",
+        "LLM-Fix",
+    )
+    if (
+        current_text.startswith(prefix_default)
+        or current_text.startswith("LLM-Fix")
+        or current_text.startswith("Fix by LLM")
+    ):
         self._preview_status.setText("")
         self._preview_status.setToolTip("")
         self._preview_status.setVisible(False)
@@ -133,16 +170,25 @@ def _start_next_llm_fix_job(self, manager: Any):
 
         running_fn = getattr(getattr(manager, "worker", None), "isRunning", None)
         if callable(running_fn) and bool(running_fn()):
-            msg = f"{self._llm_fix_label_prefix(path)}: LLM beschaeftigt."
+            msg = _format_label(
+                self,
+                "importer.dialog.llm_fix.status.busy",
+                "{prefix}: LLM busy.",
+                prefix=self._llm_fix_label_prefix(path),
+            )
             self._set_llm_fix_status_for_path(path, msg, tooltip=msg, visible=True)
             self._finish_llm_fix_batch()
             return
 
         file_total = max(1, int(getattr(self, "_llm_fix_total", 1) or 1))
         file_idx = max(1, min(file_total, int(self._llm_fix_done_count) + 1))
-        start_msg = (
-            f"{self._llm_fix_label_prefix(path)}: "
-            f"Datei {file_idx}/{file_total} startet…"
+        start_msg = _format_label(
+            self,
+            "importer.dialog.llm_fix.status.file_start",
+            "{prefix}: file {index}/{total} starting…",
+            prefix=self._llm_fix_label_prefix(path),
+            index=file_idx,
+            total=file_total,
         )
         self._set_llm_fix_status_for_path(
             path,
@@ -163,7 +209,13 @@ def _start_next_llm_fix_job(self, manager: Any):
     done_files = min(total_files, int(getattr(self, "_llm_fix_done_count", 0) or 0))
     current = str(getattr(self, "_current_path", "") or "").strip()
     if current and total_files > 0:
-        summary = f"LLM-Fix: Batch fertig ({done_files}/{total_files} Dateien)."
+        summary = _format_label(
+            self,
+            "importer.dialog.llm_fix.status.batch_done",
+            "LLM-Fix: batch completed ({done}/{total} files).",
+            done=done_files,
+            total=total_files,
+        )
         self._set_llm_fix_status_for_path(
             current,
             summary,
@@ -177,39 +229,77 @@ def _refresh_llm_fix_button(self):
     btn = getattr(self, "_btn_llm_fix", None)
     if btn is None:
         return
-    default_tip = (
-        "Korrigiert die Markdown-Struktur fuer alle geladenen Dateien nacheinander "
-        "(Ueberschriften, Tabellen, Zeilenumbrueche, OCR-Formatfehler). "
-        "Inhalte sollen unveraendert bleiben."
+    default_tip = _label(
+        self,
+        "importer.dialog.button.llm_fix.tooltip.default",
+        "Fix markdown structure for all loaded files sequentially "
+        "(headings, tables, line breaks, OCR artifacts). "
+        "Content should remain unchanged.",
     )
     if bool(getattr(self, "_llm_fix_batch_active", False)):
         btn.setEnabled(False)
-        btn.setToolTip("Fix by LLM laeuft bereits…")
+        btn.setToolTip(
+            _label(
+                self,
+                "importer.dialog.button.llm_fix.tooltip.running",
+                "LLM fix is already running…",
+            )
+        )
         return
     llm_worker = getattr(self, "_llm_fix_worker", None)
     if llm_worker is not None and llm_worker.isRunning():
         btn.setEnabled(False)
-        btn.setToolTip("Fix by LLM laeuft bereits…")
+        btn.setToolTip(
+            _label(
+                self,
+                "importer.dialog.button.llm_fix.tooltip.running",
+                "LLM fix is already running…",
+            )
+        )
         return
 
     if not self._llm_fix_candidate_paths():
         btn.setEnabled(False)
-        btn.setToolTip("Zuerst Dateien konvertieren, damit Markdown vorhanden ist.")
+        btn.setToolTip(
+            _label(
+                self,
+                "importer.dialog.button.llm_fix.tooltip.no_markdown",
+                "Convert files first so markdown is available.",
+            )
+        )
         return
 
     manager = self._resolve_llm_manager()
     if manager is None:
         btn.setEnabled(False)
-        btn.setToolTip("Kein LLM-Manager gefunden.")
+        btn.setToolTip(
+            _label(
+                self,
+                "importer.dialog.button.llm_fix.tooltip.no_manager",
+                "No LLM manager found.",
+            )
+        )
         return
     if not bool(getattr(manager, "is_model_loaded", lambda: False)()):
         btn.setEnabled(False)
-        btn.setToolTip("Bitte zuerst ein GGUF-Modell laden.")
+        btn.setToolTip(
+            _label(
+                self,
+                "importer.dialog.button.llm_fix.tooltip.no_model",
+                "Please load a model first.",
+            )
+        )
         return
     running_fn = getattr(getattr(manager, "worker", None), "isRunning", None)
     if callable(running_fn) and bool(running_fn()):
         btn.setEnabled(False)
-        btn.setToolTip("LLM ist aktuell beschaeftigt.")
+        btn.setToolTip(
+            _label(
+                self,
+                "importer.dialog.button.llm_fix.tooltip.busy",
+                "LLM is currently busy.",
+            )
+        )
         return
 
     btn.setEnabled(True)
@@ -228,7 +318,12 @@ def _run_llm_fix_current_markdown(self):
         path = str(getattr(self, "_current_path", "") or "").strip()
         if not path and self._entries:
             path = next(iter(self._entries.keys()))
-        msg = f"{self._llm_fix_label_prefix(path)}: kein Markdown vorhanden."
+        msg = _format_label(
+            self,
+            "importer.dialog.llm_fix.status.no_markdown",
+            "{prefix}: no markdown available.",
+            prefix=self._llm_fix_label_prefix(path),
+        )
         self._set_llm_fix_status_for_path(path, msg, tooltip=msg, visible=True)
         self._refresh_llm_fix_button()
         return
@@ -236,14 +331,24 @@ def _run_llm_fix_current_markdown(self):
     manager = self._resolve_llm_manager()
     if manager is None or not bool(getattr(manager, "is_model_loaded", lambda: False)()):
         path = str(getattr(self, "_current_path", "") or "").strip() or candidates[0]
-        msg = f"{self._llm_fix_label_prefix(path)}: kein Modell geladen."
+        msg = _format_label(
+            self,
+            "importer.dialog.llm_fix.status.no_model",
+            "{prefix}: no model loaded.",
+            prefix=self._llm_fix_label_prefix(path),
+        )
         self._set_llm_fix_status_for_path(path, msg, tooltip=msg, visible=True)
         self._refresh_llm_fix_button()
         return
     running_fn = getattr(getattr(manager, "worker", None), "isRunning", None)
     if callable(running_fn) and bool(running_fn()):
         path = str(getattr(self, "_current_path", "") or "").strip() or candidates[0]
-        msg = f"{self._llm_fix_label_prefix(path)}: LLM beschaeftigt."
+        msg = _format_label(
+            self,
+            "importer.dialog.llm_fix.status.busy",
+            "{prefix}: LLM busy.",
+            prefix=self._llm_fix_label_prefix(path),
+        )
         self._set_llm_fix_status_for_path(path, msg, tooltip=msg, visible=True)
         self._refresh_llm_fix_button()
         return
@@ -261,9 +366,15 @@ def _on_llm_fix_progress(self, done: int, total: int, info: str):
     path = str(getattr(self, "_llm_fix_path", "") or "")
     file_total = max(1, int(getattr(self, "_llm_fix_total", 1) or 1))
     file_idx = max(1, min(file_total, int(getattr(self, "_llm_fix_done_count", 0)) + 1))
-    text = (
-        f"{self._llm_fix_label_prefix(path)}: "
-        f"Datei {file_idx}/{file_total}, Block {done_safe}/{total_safe}"
+    text = _format_label(
+        self,
+        "importer.dialog.llm_fix.status.progress",
+        "{prefix}: file {file_index}/{file_total}, block {block_done}/{block_total}",
+        prefix=self._llm_fix_label_prefix(path),
+        file_index=file_idx,
+        file_total=file_total,
+        block_done=done_safe,
+        block_total=total_safe,
     )
     detail = str(info or "").strip()
     self._set_llm_fix_status_for_path(
@@ -303,39 +414,88 @@ def _on_llm_fix_done(self, markdown: str, meta: object):
     file_total = max(1, int(getattr(self, "_llm_fix_total", 1) or 1))
     file_idx = max(1, min(file_total, int(getattr(self, "_llm_fix_done_count", 0)) + 1))
     skipped_total = max(0, unchanged + rejected + skipped)
-    skipped_breakdown = (
-        f"skipped={skipped_total} "
-        f"(gleich={unchanged}, fehlgeschlagen={rejected}, nicht_bearbeitet={skipped})"
+    skipped_breakdown = _format_label(
+        self,
+        "importer.dialog.llm_fix.status.skipped_breakdown",
+        "skipped={skipped} (unchanged={unchanged}, rejected={rejected}, not_processed={not_processed})",
+        skipped=skipped_total,
+        unchanged=unchanged,
+        rejected=rejected,
+        not_processed=skipped,
     )
 
     if stopped:
-        message = (
-            f"{self._llm_fix_label_prefix(path)}: Datei {file_idx}/{file_total} "
-            f"gestoppt | geaendert={changed} | {skipped_breakdown} | fehler={errors}"
+        message = _format_label(
+            self,
+            "importer.dialog.llm_fix.status.stopped",
+            "{prefix}: file {file_index}/{file_total} stopped | changed={changed} | {skipped_breakdown} | errors={errors}",
+            prefix=self._llm_fix_label_prefix(path),
+            file_index=file_idx,
+            file_total=file_total,
+            changed=changed,
+            skipped_breakdown=skipped_breakdown,
+            errors=errors,
         )
-        detail_message = (
-            f"Fix by LLM gestoppt: {processed}/{chunks} bearbeitet, "
-            f"{skipped} uebersprungen."
+        detail_message = _format_label(
+            self,
+            "importer.dialog.llm_fix.status.detail.stopped",
+            "LLM fix stopped: processed {processed}/{chunks}, skipped {skipped}.",
+            processed=processed,
+            chunks=chunks,
+            skipped=skipped,
         )
     elif chunks > 0:
-        message = (
-            f"{self._llm_fix_label_prefix(path)}: Datei {file_idx}/{file_total} | "
-            f"geaendert={changed}/{chunks} | {skipped_breakdown} | fehler={errors}"
+        message = _format_label(
+            self,
+            "importer.dialog.llm_fix.status.completed",
+            "{prefix}: file {file_index}/{file_total} | changed={changed}/{chunks} | {skipped_breakdown} | errors={errors}",
+            prefix=self._llm_fix_label_prefix(path),
+            file_index=file_idx,
+            file_total=file_total,
+            changed=changed,
+            chunks=chunks,
+            skipped_breakdown=skipped_breakdown,
+            errors=errors,
         )
-        detail_message = (
-            f"Fix by LLM fertig: {changed}/{chunks} Bloecke geaendert, "
-            f"{unchanged} unveraendert, {rejected} verworfen, {errors} Fehler."
+        detail_message = _format_label(
+            self,
+            "importer.dialog.llm_fix.status.detail.completed",
+            "LLM fix done: changed {changed}/{chunks} blocks, unchanged {unchanged}, rejected {rejected}, errors {errors}.",
+            changed=changed,
+            chunks=chunks,
+            unchanged=unchanged,
+            rejected=rejected,
+            errors=errors,
         )
     elif reason:
-        message = (
-            f"{self._llm_fix_label_prefix(path)}: Datei {file_idx}/{file_total} | "
-            f"{reason} | {skipped_breakdown} | fehler={errors}"
+        message = _format_label(
+            self,
+            "importer.dialog.llm_fix.status.with_reason",
+            "{prefix}: file {file_index}/{file_total} | {reason} | {skipped_breakdown} | errors={errors}",
+            prefix=self._llm_fix_label_prefix(path),
+            file_index=file_idx,
+            file_total=file_total,
+            reason=reason,
+            skipped_breakdown=skipped_breakdown,
+            errors=errors,
         )
-        detail_message = f"Fix by LLM: {reason}"
+        detail_message = _format_label(
+            self,
+            "importer.dialog.llm_fix.status.detail.with_reason",
+            "LLM fix: {reason}",
+            reason=reason,
+        )
     else:
-        message = (
-            f"{self._llm_fix_label_prefix(path)}: Datei {file_idx}/{file_total} "
-            f"beendet | geaendert={changed} | {skipped_breakdown} | fehler={errors}"
+        message = _format_label(
+            self,
+            "importer.dialog.llm_fix.status.finished",
+            "{prefix}: file {file_index}/{file_total} finished | changed={changed} | {skipped_breakdown} | errors={errors}",
+            prefix=self._llm_fix_label_prefix(path),
+            file_index=file_idx,
+            file_total=file_total,
+            changed=changed,
+            skipped_breakdown=skipped_breakdown,
+            errors=errors,
         )
         detail_message = message
     self._set_llm_fix_status_for_path(
@@ -353,4 +513,3 @@ def _on_llm_fix_done(self, markdown: str, meta: object):
         self._start_next_llm_fix_job(manager)
         return
     self._finish_llm_fix_batch()
-

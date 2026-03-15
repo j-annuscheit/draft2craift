@@ -12,6 +12,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shared.domain.user_mode import (
+    default_user_mode,
+    normalize_user_mode,
+    resolve_feature_label,
+)
 
 from .styles import CTX_CB_STYLE, CTX_DOC_CB_STYLE
 
@@ -37,9 +42,12 @@ class ContextSelectorPanel(QWidget):
         self._docs: dict[str, str] = {}
         self._cbs: dict[str, QCheckBox] = {}
         self._header: QWidget | None = None
+        self._header_lbl: QLabel | None = None
         self._scroll: QScrollArea | None = None
         self._body: QWidget | None = None
+        self._user_mode = default_user_mode()
         self._setup_ui()
+        self.set_user_mode(self._user_mode)
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
@@ -54,12 +62,12 @@ class ContextSelectorPanel(QWidget):
         self._header = hdr
         hbox = QHBoxLayout(hdr)
         hbox.setContentsMargins(8, 0, 8, 0)
-        lbl = QLabel("Context Sources")
-        lbl.setStyleSheet(
+        self._header_lbl = QLabel("Context Sources")
+        self._header_lbl.setStyleSheet(
             "color: palette(highlight); font-size: 10px; "
             "font-weight: bold; background: transparent;"
         )
-        hbox.addWidget(lbl)
+        hbox.addWidget(self._header_lbl)
         root.addWidget(hdr)
 
         scroll = QScrollArea()
@@ -112,6 +120,31 @@ class ContextSelectorPanel(QWidget):
             QSizePolicy.Policy.Fixed,
         )
         self._schedule_height_refresh()
+
+    def _label(self, key: str, default: str) -> str:
+        return resolve_feature_label(self._user_mode, key, default)
+
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+        if self._header_lbl is not None:
+            self._header_lbl.setText(
+                self._label("chat.context_panel.title", "Context Sources")
+            )
+        self._use_canvas.setText(
+            self._label("chat.context_panel.source.current_draft", "Current Draft")
+        )
+        self._use_rag.setText(
+            self._label(
+                "chat.context_panel.source.current_rag_results",
+                "Current RAG Results",
+            )
+        )
+        self._docs_lbl.setText(
+            self._label(
+                "chat.context_panel.label.imported_documents",
+                "Imported Documents:",
+            )
+        )
 
     def preferred_height(self) -> int:
         """Return exact panel height needed to display all source rows."""

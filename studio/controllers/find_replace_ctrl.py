@@ -26,6 +26,7 @@ from studio.controllers.find_replace_ops import (
     _replace_from_dialog as _replace_from_dialog_fn,
 )
 from studio.canvas.editor import MarkdownEditor
+from shared.domain.user_mode import normalize_user_mode, resolve_feature_label
 
 _LOG = logging.getLogger(__name__)
 
@@ -63,13 +64,37 @@ class FindReplaceController:
         self._find_count_lbl: QLabel | None = None
         self._find_replace_btn: QPushButton | None = None
         self._find_replace_all_btn: QPushButton | None = None
+        self._find_label: QLabel | None = None
+        self._replace_label: QLabel | None = None
+        self._find_prev_btn: QPushButton | None = None
+        self._find_next_btn: QPushButton | None = None
+        self._find_close_btn: QPushButton | None = None
 
     # ── Public interface ───────────────────────────────────────────────
+
+    def _user_mode(self) -> str:
+        return normalize_user_mode(str(getattr(self._parent_window, "user_mode", "") or ""))
+
+    def _label(self, key: str, default: str) -> str:
+        return resolve_feature_label(self._user_mode(), key, default)
+
+    def _format_label(self, key: str, default: str, **kwargs: object) -> str:
+        template = self._label(key, default)
+        try:
+            return template.format(**kwargs)
+        except Exception:
+            return template
 
     def open_dialog(self):
         target = self._resolve_find_target()
         if target is None:
-            self._show_status("Kein aktiver Editor für Suche.", 2000)
+            self._show_status(
+                self._label(
+                    "find_replace.status.no_active_editor_search",
+                    "Kein aktiver Editor für Suche.",
+                ),
+                2000,
+            )
             return
         self._find_target = target
         editor = target.get("editor")
@@ -78,6 +103,8 @@ class FindReplaceController:
 
         if self._dialog is None:
             self._build_dialog()
+        else:
+            self._apply_dialog_labels()
 
         find_edit = self._find_query_edit
         if find_edit is not None:
@@ -113,7 +140,7 @@ class FindReplaceController:
 
     def _build_dialog(self):
         dlg = QDialog(self._parent_window)
-        dlg.setWindowTitle("Suchen / Ersetzen")
+        dlg.setWindowTitle(self._label("find_replace.window_title", "Suchen / Ersetzen"))
         dlg.setModal(False)
         dlg.resize(520, 170)
         layout = QVBoxLayout(dlg)
@@ -123,7 +150,8 @@ class FindReplaceController:
         row_find = QHBoxLayout()
         row_find.setContentsMargins(0, 0, 0, 0)
         row_find.setSpacing(6)
-        row_find.addWidget(QLabel("Suchen:"))
+        self._find_label = QLabel("")
+        row_find.addWidget(self._find_label)
         self._find_query_edit = QLineEdit()
         row_find.addWidget(self._find_query_edit, 1)
         layout.addLayout(row_find)
@@ -131,7 +159,8 @@ class FindReplaceController:
         row_replace = QHBoxLayout()
         row_replace.setContentsMargins(0, 0, 0, 0)
         row_replace.setSpacing(6)
-        row_replace.addWidget(QLabel("Ersetzen:"))
+        self._replace_label = QLabel("")
+        row_replace.addWidget(self._replace_label)
         self._replace_query_edit = QLineEdit()
         row_replace.addWidget(self._replace_query_edit, 1)
         layout.addLayout(row_replace)
@@ -139,12 +168,12 @@ class FindReplaceController:
         flags_row = QHBoxLayout()
         flags_row.setContentsMargins(0, 0, 0, 0)
         flags_row.setSpacing(10)
-        self._find_case_cb = QCheckBox("Groß/Kleinschreibung")
-        self._find_whole_cb = QCheckBox("Ganzes Wort")
+        self._find_case_cb = QCheckBox("")
+        self._find_whole_cb = QCheckBox("")
         flags_row.addWidget(self._find_case_cb)
         flags_row.addWidget(self._find_whole_cb)
         flags_row.addStretch(1)
-        self._find_count_lbl = QLabel("Treffer: 0")
+        self._find_count_lbl = QLabel("")
         self._find_count_lbl.setStyleSheet(
             "color: palette(placeholder-text); font-size: 10px;"
         )
@@ -154,22 +183,26 @@ class FindReplaceController:
         btn_row = QHBoxLayout()
         btn_row.setContentsMargins(0, 0, 0, 0)
         btn_row.setSpacing(6)
-        btn_prev = QPushButton("Vorheriges")
-        btn_next = QPushButton("Nächstes")
-        self._find_replace_btn = QPushButton("Ersetzen")
-        self._find_replace_all_btn = QPushButton("Alle ersetzen")
-        btn_close = QPushButton("Schließen")
-        btn_prev.clicked.connect(lambda: self._find_in_editor_from_dialog(backward=True))
-        btn_next.clicked.connect(lambda: self._find_in_editor_from_dialog(backward=False))
+        self._find_prev_btn = QPushButton("")
+        self._find_next_btn = QPushButton("")
+        self._find_replace_btn = QPushButton("")
+        self._find_replace_all_btn = QPushButton("")
+        self._find_close_btn = QPushButton("")
+        self._find_prev_btn.clicked.connect(
+            lambda: self._find_in_editor_from_dialog(backward=True)
+        )
+        self._find_next_btn.clicked.connect(
+            lambda: self._find_in_editor_from_dialog(backward=False)
+        )
         self._find_replace_btn.clicked.connect(self._replace_from_dialog)
         self._find_replace_all_btn.clicked.connect(self._replace_all_from_dialog)
-        btn_close.clicked.connect(dlg.hide)
-        btn_row.addWidget(btn_prev)
-        btn_row.addWidget(btn_next)
+        self._find_close_btn.clicked.connect(dlg.hide)
+        btn_row.addWidget(self._find_prev_btn)
+        btn_row.addWidget(self._find_next_btn)
         btn_row.addWidget(self._find_replace_btn)
         btn_row.addWidget(self._find_replace_all_btn)
         btn_row.addStretch(1)
-        btn_row.addWidget(btn_close)
+        btn_row.addWidget(self._find_close_btn)
         layout.addLayout(btn_row)
 
         self._find_query_edit.textChanged.connect(
@@ -182,6 +215,50 @@ class FindReplaceController:
         )
         self._replace_query_edit.returnPressed.connect(self._replace_from_dialog)
         self._dialog = dlg
+        self._apply_dialog_labels()
+
+    def _apply_dialog_labels(self) -> None:
+        if self._dialog is not None:
+            self._dialog.setWindowTitle(
+                self._label("find_replace.window_title", "Suchen / Ersetzen")
+            )
+        if self._find_label is not None:
+            self._find_label.setText(self._label("find_replace.label.find", "Suchen:"))
+        if self._replace_label is not None:
+            self._replace_label.setText(
+                self._label("find_replace.label.replace", "Ersetzen:")
+            )
+        if self._find_case_cb is not None:
+            self._find_case_cb.setText(
+                self._label(
+                    "find_replace.checkbox.case_sensitive",
+                    "Groß/Kleinschreibung",
+                )
+            )
+        if self._find_whole_cb is not None:
+            self._find_whole_cb.setText(
+                self._label("find_replace.checkbox.whole_word", "Ganzes Wort")
+            )
+        if self._find_prev_btn is not None:
+            self._find_prev_btn.setText(
+                self._label("find_replace.button.previous", "Vorheriges")
+            )
+        if self._find_next_btn is not None:
+            self._find_next_btn.setText(
+                self._label("find_replace.button.next", "Nächstes")
+            )
+        if self._find_replace_btn is not None:
+            self._find_replace_btn.setText(
+                self._label("find_replace.button.replace", "Ersetzen")
+            )
+        if self._find_replace_all_btn is not None:
+            self._find_replace_all_btn.setText(
+                self._label("find_replace.button.replace_all", "Alle ersetzen")
+            )
+        if self._find_close_btn is not None:
+            self._find_close_btn.setText(
+                self._label("find_replace.button.close", "Schließen")
+            )
 
     def _is_valid_find_target(self, target: dict | None) -> bool:
         if not isinstance(target, dict):
@@ -343,10 +420,22 @@ class FindReplaceController:
         query = str(self._find_query_edit.text() if self._find_query_edit is not None else "")
         target = self._resolve_find_target()
         if target is None:
-            label.setText("Treffer: —")
+            label.setText(
+                self._format_label(
+                    "find_replace.label.matches.none",
+                    "Treffer: {count}",
+                    count="—",
+                )
+            )
             self._update_find_replace_controls_state(None)
             return
-        label.setText(f"Treffer: {self._count_find_matches(target, query)}")
+        label.setText(
+            self._format_label(
+                "find_replace.label.matches.template",
+                "Treffer: {count}",
+                count=self._count_find_matches(target, query),
+            )
+        )
         self._update_find_replace_controls_state(target)
 
     _build_find_flags = _build_find_flags_fn
@@ -355,7 +444,13 @@ class FindReplaceController:
     def _find_in_editor_from_dialog(self, *, backward: bool = False) -> bool:
         target = self._resolve_find_target()
         if target is None:
-            self._show_status("Kein aktiver Editor für Suche.", 2000)
+            self._show_status(
+                self._label(
+                    "find_replace.status.no_active_editor_search",
+                    "Kein aktiver Editor für Suche.",
+                ),
+                2000,
+            )
             self._update_find_replace_controls_state(None)
             return False
         self._update_find_replace_controls_state(target)
@@ -364,13 +459,22 @@ class FindReplaceController:
             self._find_query_edit.text() if self._find_query_edit is not None else ""
         ).strip()
         if not needle:
-            self._show_status("Bitte Suchtext eingeben.", 2000)
+            self._show_status(
+                self._label(
+                    "find_replace.status.enter_search_text",
+                    "Bitte Suchtext eingeben.",
+                ),
+                2000,
+            )
             return False
 
         if self._find_in_target(target, needle, backward=backward):
             return True
 
-        self._show_status("Kein Treffer gefunden.", 1800)
+        self._show_status(
+            self._label("find_replace.status.no_match_found", "Kein Treffer gefunden."),
+            1800,
+        )
         return False
 
     _replace_from_dialog = _replace_from_dialog_fn

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from shared.domain.user_mode import normalize_user_mode, resolve_feature_label
 from shared.services.importer.models import PDFImportSettings
 from .pdf_viewer_overlay import (
     _HeadingAnchor,
@@ -332,12 +333,14 @@ class PDFViewerPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._user_mode = ""
         self._path       = ""
         self._page_idx   = 0
         self._body_size  = 0.0
         self._settings: Optional[PDFImportSettings] = None
         self._heading_anchors: list[_HeadingAnchor] = []
         self._setup_ui()
+        self.set_user_mode("")
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
@@ -413,6 +416,93 @@ class PDFViewerPanel(QWidget):
         self._page_view.zone_changed.connect(self.zone_changed)
         self._scroll.setWidget(self._page_view)
         root.addWidget(self._scroll, stretch=1)
+
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+        self._btn_prev.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.pdf.viewer.button.prev.tooltip",
+                "Previous page",
+            )
+        )
+        self._btn_next.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.pdf.viewer.button.next.tooltip",
+                "Next page",
+            )
+        )
+        self._btn_zoom_in.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.pdf.viewer.button.zoom_in.tooltip",
+                "Zoom in",
+            )
+        )
+        self._btn_zoom_out.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.pdf.viewer.button.zoom_out.tooltip",
+                "Zoom out",
+            )
+        )
+        self._btn_fit.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.pdf.viewer.button.fit",
+                "Fit",
+            )
+        )
+        self._btn_fit.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.pdf.viewer.button.fit.tooltip",
+                "Fit page to view",
+            )
+        )
+        self._chk_zones.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.pdf.viewer.checkbox.zones",
+                "Zones",
+            )
+        )
+        self._chk_zones.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.pdf.viewer.checkbox.zones.tooltip",
+                "Show or hide highlighted scan zones.",
+            )
+        )
+        self._chk_hf.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.pdf.viewer.checkbox.hf",
+                "H/F",
+            )
+        )
+        self._chk_hf.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.pdf.viewer.checkbox.hf.tooltip",
+                "Show or hide detected header/footer blocks.",
+            )
+        )
+        self._chk_headings.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.pdf.viewer.checkbox.headings",
+                "Headings",
+            )
+        )
+        self._chk_headings.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "importer.pdf.viewer.checkbox.headings.tooltip",
+                "Show or hide detected heading overlays.",
+            )
+        )
 
     # ── Public API ─────────────────────────────────────────────────────────
 

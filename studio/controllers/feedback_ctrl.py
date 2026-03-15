@@ -57,41 +57,70 @@ class FeedbackController:
 
     def open_settings_dialog(self):
         from studio.feedback.settings_dialog import FeedbackSettingsDialog
+        user_mode = str(getattr(self._parent, "user_mode", "") or "")
         manager = find_dialog_manager(self._parent)
         if manager is not None:
             manager.show_dialog(
                 "feedback-settings",
-                lambda: FeedbackSettingsDialog(self._feedback_settings, parent=self._parent),
+                lambda: FeedbackSettingsDialog(
+                    self._feedback_settings,
+                    user_mode=user_mode,
+                    parent=self._parent,
+                ),
+                on_reopen=lambda dlg, mode=user_mode: getattr(dlg, "set_user_mode", lambda _m: None)(mode),
                 on_accept=lambda dlg: self._apply_settings_dialog(dlg),
             )
             return
-        dlg = FeedbackSettingsDialog(self._feedback_settings, parent=self._parent)
+        dlg = FeedbackSettingsDialog(
+            self._feedback_settings,
+            user_mode=user_mode,
+            parent=self._parent,
+        )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._apply_settings_dialog(dlg)
 
     def open_stats_dialog(self):
         from studio.feedback.stats_dialog import FeedbackStatsDialog
+        user_mode = str(getattr(self._parent, "user_mode", "") or "")
         manager = find_dialog_manager(self._parent)
         if manager is not None:
             manager.show_dialog(
                 "feedback-stats",
-                lambda: FeedbackStatsDialog(self._feedback_service, parent=self._parent),
-                on_reopen=lambda dlg: dlg._load_data(),
+                lambda: FeedbackStatsDialog(
+                    self._feedback_service,
+                    user_mode=user_mode,
+                    parent=self._parent,
+                ),
+                on_reopen=lambda dlg, mode=user_mode: self._reopen_stats_dialog(dlg, mode),
             )
             return
-        FeedbackStatsDialog(self._feedback_service, parent=self._parent).exec()
+        FeedbackStatsDialog(
+            self._feedback_service,
+            user_mode=user_mode,
+            parent=self._parent,
+        ).exec()
 
     def open_freeform_dialog(self):
         from studio.feedback.freeform_dialog import FeedbackFreeformDialog
+        user_mode = str(getattr(self._parent, "user_mode", "") or "")
         manager = find_dialog_manager(self._parent)
         if manager is not None:
             manager.show_dialog(
                 "feedback-freeform",
-                lambda: FeedbackFreeformDialog(self._feedback_service, parent=self._parent),
+                lambda: FeedbackFreeformDialog(
+                    self._feedback_service,
+                    user_mode=user_mode,
+                    parent=self._parent,
+                ),
+                on_reopen=lambda dlg, mode=user_mode: getattr(dlg, "set_user_mode", lambda _m: None)(mode),
                 on_accept=lambda _dlg: self._show_status("Feedback gespeichert. Danke!", 3000),
             )
             return
-        dlg = FeedbackFreeformDialog(self._feedback_service, parent=self._parent)
+        dlg = FeedbackFreeformDialog(
+            self._feedback_service,
+            user_mode=user_mode,
+            parent=self._parent,
+        )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._show_status("Feedback gespeichert. Danke!", 3000)
 
@@ -138,3 +167,12 @@ class FeedbackController:
             return
         self.save(get_settings())
         self._show_status("Feedback-Einstellungen gespeichert.", 3000)
+
+    @staticmethod
+    def _reopen_stats_dialog(dialog: QDialog, mode: str) -> None:
+        setter = getattr(dialog, "set_user_mode", None)
+        if callable(setter):
+            setter(mode)
+        loader = getattr(dialog, "_load_data", None)
+        if callable(loader):
+            loader()

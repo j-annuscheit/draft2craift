@@ -9,6 +9,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from shared.domain.user_mode import (
+    default_user_mode,
+    normalize_user_mode,
+    resolve_feature_label,
+)
 from studio.canvas.editor import MarkdownEditor
 from studio.canvas.editor_styles import TOOLBAR_STYLE
 
@@ -33,7 +38,9 @@ class EditorPanel(QWidget):
         self.editor = MarkdownEditor(read_only=read_only)
         self.lock_btn: QPushButton | None = None
         self.status_label: QLabel | None = None
+        self._user_mode = default_user_mode()
         self._setup_ui(show_toolbar)
+        self.set_user_mode(self._user_mode)
 
     def _setup_ui(self, show_toolbar: bool):
         layout = QVBoxLayout(self)
@@ -71,8 +78,41 @@ class EditorPanel(QWidget):
         if self.lock_btn is None:
             return
         read_only = self.editor.isReadOnly()
-        self.lock_btn.setText("🔒 Read-Only" if read_only else "✏ Editing")
+        if read_only:
+            self.lock_btn.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "editor.lock.read_only",
+                    "🔒 Read-Only",
+                )
+            )
+            self.lock_btn.setToolTip(
+                resolve_feature_label(
+                    self._user_mode,
+                    "editor.lock.read_only.tooltip",
+                    "The draft is locked for editing.",
+                )
+            )
+        else:
+            self.lock_btn.setText(
+                resolve_feature_label(
+                    self._user_mode,
+                    "editor.lock.editing",
+                    "✏ Editing",
+                )
+            )
+            self.lock_btn.setToolTip(
+                resolve_feature_label(
+                    self._user_mode,
+                    "editor.lock.editing.tooltip",
+                    "The draft is editable.",
+                )
+            )
         self.lock_btn.setChecked(read_only)
+
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+        self._sync_lock_btn()
 
     def _toggle_lock(self):
         self.editor.toggle_read_only()
