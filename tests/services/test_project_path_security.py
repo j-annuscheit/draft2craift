@@ -11,13 +11,15 @@ from shared.services.project.project_saver import ProjectSaver
 
 
 def test_project_paths_reject_relative_traversal(monkeypatch, tmp_path: Path):
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DRAFT2CRAIFT_APP_DATA_DIR", str(tmp_path))
     with pytest.raises(ValueError, match="traversal"):
         ProjectPaths("../../etc/cron.d")
 
 
-def test_project_paths_allow_relative_folder_within_cwd(monkeypatch, tmp_path: Path):
-    monkeypatch.chdir(tmp_path)
+def test_project_paths_allow_relative_folder_within_app_data_dir(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("DRAFT2CRAIFT_APP_DATA_DIR", str(tmp_path))
     paths = ProjectPaths("projects/demo")
     assert paths.base == (tmp_path / "projects" / "demo").resolve()
 

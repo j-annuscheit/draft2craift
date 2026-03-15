@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from shared.config.paths import app_data_dir
+
 
 def _is_relative_to(path: Path, root: Path) -> bool:
     try:
@@ -58,7 +60,7 @@ class ProjectPaths:
                 )
             return resolved
 
-        anchor = allowed_root or Path.cwd().resolve(strict=False)
+        anchor = allowed_root or app_data_dir()
         resolved = (anchor / raw).resolve(strict=False)
         if not _is_relative_to(resolved, anchor):
             raise ValueError(

@@ -6,6 +6,8 @@ import shutil
 import tempfile
 from typing import Any
 
+from shared.config.paths import app_data_dir
+
 from .project_loader import ProjectLoader, ProjectSchemaError
 from .project_archive import create_project_archive, extract_project_archive
 from .project_paths import ProjectPaths
@@ -172,7 +174,7 @@ class ProjectManager:
         if raw.is_absolute():
             resolved = raw.resolve(strict=False)
         else:
-            anchor = allowed_root or Path.cwd().resolve(strict=False)
+            anchor = allowed_root or app_data_dir()
             resolved = (anchor / raw).resolve(strict=False)
 
         if allowed_root is not None and not _is_relative_to(resolved, allowed_root):
