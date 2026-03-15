@@ -152,6 +152,29 @@ class MarkdownSplitPanel(QWidget):
             self._preview.request_preserve_view_state()
         self._preview.schedule_update()
 
+    def _ensure_preview_visible_for_jump(self) -> None:
+        if self._preview_visible:
+            return
+        if self._markdown_visible:
+            self.set_view_mode("both")
+            return
+        self.set_view_mode("preview")
+
+    def jump_to_highlight(self, highlight_id: str) -> bool:
+        target_id = str(highlight_id or "").strip()
+        if not target_id:
+            return False
+        self._ensure_preview_visible_for_jump()
+        jump = getattr(self._preview, "jump_to_highlight", None)
+        if callable(jump):
+            try:
+                return bool(jump(target_id))
+            except Exception:
+                return False
+        self._preview.schedule_update()
+        QApplication.processEvents()
+        return False
+
     def flush_pending_preview_edits(self):
         if hasattr(self._preview, "flush_pending_preview_edits"):
             self._preview.flush_pending_preview_edits()

@@ -174,6 +174,54 @@ class ChatHistoryWidget(QWidget):
         idx = int(tabs.currentIndex())
         return "" if idx < 0 else str(tabs.tabText(idx) or "").strip()
 
+    def activate_tab_by_title(self, title: str) -> bool:
+        tabs = self._tabs
+        target = str(title or "").strip()
+        if tabs is None or not target:
+            return False
+        for idx in range(tabs.count()):
+            if str(tabs.tabText(idx) or "").strip() != target:
+                continue
+            tabs.setCurrentIndex(idx)
+            return True
+        return False
+
+    def jump_to_highlight(
+        self,
+        highlight_id: str,
+        *,
+        preferred_tab_titles: list[str] | None = None,
+    ) -> bool:
+        tabs = self._tabs
+        target_id = str(highlight_id or "").strip()
+        if tabs is None or not target_id:
+            return False
+
+        preferred = [str(item or "").strip() for item in list(preferred_tab_titles or []) if str(item or "").strip()]
+        indices: list[int] = []
+        for title in preferred:
+            if not self.activate_tab_by_title(title):
+                continue
+            idx = int(tabs.currentIndex())
+            if idx >= 0 and idx not in indices:
+                indices.append(idx)
+        for idx in range(tabs.count()):
+            if idx not in indices:
+                indices.append(idx)
+
+        for idx in indices:
+            tabs.setCurrentIndex(idx)
+            page = tabs.widget(idx)
+            session = None if page is None else self._sessions.get(page)
+            if session is None:
+                continue
+            jump = getattr(session.display, "jump_to_highlight", None)
+            if not callable(jump):
+                continue
+            if bool(jump(target_id)):
+                return True
+        return False
+
     def export_sessions(self) -> dict:
         tabs = self._tabs
         if tabs is None:

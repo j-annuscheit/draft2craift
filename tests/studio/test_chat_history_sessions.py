@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import Mock
 
 import pytest
 
@@ -50,6 +51,37 @@ class ChatHistorySessionsTests(unittest.TestCase):
         self.assertEqual(exported.get("current_tab"), 1)
         self.assertEqual(exported["tabs"][0]["title"], "A")
         self.assertEqual(exported["tabs"][1]["history"][0]["content"], "zwei")
+        widget.deleteLater()
+
+    def test_activate_tab_by_title_switches_current_tab(self):
+        widget = ChatHistoryWidget()
+        widget.add_tab("Zweiter Chat")
+
+        switched = widget.activate_tab_by_title("Zweiter Chat")
+
+        self.assertTrue(switched)
+        self.assertEqual(widget.current_tab_title(), "Zweiter Chat")
+        widget.deleteLater()
+
+    def test_jump_to_highlight_prefers_requested_tab_title(self):
+        widget = ChatHistoryWidget()
+        widget.add_tab("Zweiter Chat")
+        tabs = getattr(widget, "_tabs")
+        first_page = tabs.widget(0)
+        second_page = tabs.widget(1)
+        first_display = widget._sessions[first_page].display
+        second_display = widget._sessions[second_page].display
+        first_display.jump_to_highlight = Mock(return_value=False)
+        second_display.jump_to_highlight = Mock(return_value=True)
+
+        jumped = widget.jump_to_highlight(
+            "hl_target",
+            preferred_tab_titles=["Zweiter Chat"],
+        )
+
+        self.assertTrue(jumped)
+        self.assertGreaterEqual(second_display.jump_to_highlight.call_count, 1)
+        self.assertEqual(widget.current_tab_title(), "Zweiter Chat")
         widget.deleteLater()
 
 

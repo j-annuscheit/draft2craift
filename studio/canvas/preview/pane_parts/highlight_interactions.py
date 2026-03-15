@@ -3,6 +3,50 @@ from __future__ import annotations
 
 from .deps import *  # noqa: F403
 
+
+def _normalize_tab_label(value: object) -> str:
+    text = str(value or "").strip()
+    if text.startswith("🔒 "):
+        text = text[2:].strip()
+    return text
+
+
+def _target_tabs_from_record(target: dict) -> list[str]:
+    scope = str(target.get("tab_scope", "") or "tabs").strip().lower()
+    if scope != "tabs":
+        return []
+    return [
+        _normalize_tab_label(item)
+        for item in list(target.get("tabs", []) or [])
+        if _normalize_tab_label(item)
+    ]
+
+
+def _tab_match_indices(tabbed: object, preferred_titles: list[str]) -> list[int]:
+    tab_widget = getattr(tabbed, "tab_widget", None)
+    if tab_widget is None:
+        return []
+    wanted = [_normalize_tab_label(item) for item in list(preferred_titles or []) if _normalize_tab_label(item)]
+    if not wanted:
+        return []
+    getter = getattr(tabbed, "get_tab_full_title", None)
+    bar = tab_widget.tabBar()
+    out: list[int] = []
+    for idx in range(tab_widget.count()):
+        variants = {
+            _normalize_tab_label(tab_widget.tabText(idx)),
+            _normalize_tab_label(bar.tabData(idx)),
+        }
+        if callable(getter):
+            try:
+                variants.add(_normalize_tab_label(getter(idx)))
+            except Exception:
+                pass
+        if any(item in variants for item in wanted):
+            out.append(idx)
+    return out
+
+
 def _open_highlight_context_menu(self, global_pos: QPoint):
     menu = self._view.createStandardContextMenu()
 
@@ -224,6 +268,129 @@ def _pick_jump_target(self, source_highlight_id: str) -> str | None:
     if not ok:
         return None
     return label_to_id.get(str(picked), "")
+
+
+def jump_to_highlight(self, target_id: str) -> bool:
+    normalized = str(target_id or "").strip()
+    if not normalized:
+        return False
+    self.request_preserve_view_state()
+    self._render()
+    if self._jump_to_highlight_id(normalized):
+        return True
+    self.schedule_update()
+    QApplication.processEvents()
+    return bool(self._jump_to_highlight_id(normalized))
+
+
+def _jump_in_tabbed(self, tabbed: object, highlight_id: str, preferred_tabs: list[str]) -> bool:
+    tab_widget = getattr(tabbed, "tab_widget", None)
+    if tab_widget is None:
+        return False
+    target = str(highlight_id or "").strip()
+    if not target:
+        return False
+
+    candidates = _tab_match_indices(tabbed, preferred_tabs)
+    for idx in range(tab_widget.count()):
+        if idx not in candidates:
+            candidates.append(idx)
+    if not candidates:
+        return False
+
+    current_panel = getattr(tabbed, "current_panel", None)
+    for idx in candidates:
+        tab_widget.setCurrentIndex(idx)
+        QApplication.processEvents()
+        panel = current_panel() if callable(current_panel) else tab_widget.widget(idx)
+        jump = getattr(panel, "jump_to_highlight", None)
+        if not callable(jump):
+            continue
+        try:
+            if bool(jump(target)):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _navigate_to_highlight_target(self, target_id: str, target: dict) -> bool:
+    target_scope = str(target.get("panel_scope", "") or "").strip().lower()
+    effective_scope = target_scope or str(self._highlight_scope or "").strip().lower()
+    target_tabs = _target_tabs_from_record(target)
+
+    if effective_scope == self._highlight_scope and not target_tabs:
+        if self._jump_to_highlight_id(target_id):
+            return True
+
+    window = self.window()
+    if window is None:
+        return False
+
+    def _show_and_raise(widget: object | None) -> None:
+        if widget is None:
+            return
+        show = getattr(widget, "show", None)
+        if callable(show):
+            show()
+        raise_fn = getattr(widget, "raise_", None)
+        if callable(raise_fn):
+            try:
+                raise_fn()
+            except Exception:
+                pass
+
+    if effective_scope == "draft":
+        canvas = getattr(window, "canvas", None)
+        if canvas is None:
+            return False
+        return self._jump_in_tabbed(getattr(canvas, "tabs", None), target_id, target_tabs)
+
+    if effective_scope in {"viewer", "rag"}:
+        knowledge_dock = getattr(window, "knowledge_dock", None)
+        if knowledge_dock is None:
+            return False
+        _show_and_raise(knowledge_dock)
+        host_tabs = getattr(knowledge_dock, "tab_widget", None)
+        if effective_scope == "viewer":
+            viewer = getattr(knowledge_dock, "doc_viewer", None)
+            if host_tabs is not None and viewer is not None:
+                host_tabs.setCurrentWidget(viewer)
+            return self._jump_in_tabbed(getattr(viewer, "tabs", None), target_id, target_tabs)
+        rag_tab = getattr(knowledge_dock, "rag_tab", None)
+        if host_tabs is not None and rag_tab is not None:
+            host_tabs.setCurrentWidget(rag_tab)
+        rag_panel = getattr(knowledge_dock, "rag_panel", None)
+        return self._jump_in_tabbed(getattr(rag_panel, "tabs", None), target_id, target_tabs)
+
+    if effective_scope == "chat":
+        chat_dock = getattr(window, "chat_dock", None)
+        if chat_dock is None:
+            return False
+        _show_and_raise(chat_dock)
+        history = getattr(chat_dock, "history", None)
+        jump = getattr(history, "jump_to_highlight", None)
+        if not callable(jump):
+            return False
+        try:
+            return bool(jump(target_id, preferred_tab_titles=target_tabs))
+        except Exception:
+            return False
+
+    if effective_scope == self._highlight_scope:
+        switcher = self._tab_switcher
+        if callable(switcher):
+            for tab_name in target_tabs:
+                if not switcher(tab_name):
+                    continue
+                QApplication.processEvents()
+                if self._jump_to_highlight_id(target_id):
+                    return True
+        return bool(self._jump_to_highlight_id(target_id))
+
+    return False
+
+
 def _handle_highlight_click(self, global_pos: QPoint) -> bool:
     vp_pos = self._view.viewport().mapFromGlobal(global_pos)
     cursor = self._view.cursorForPosition(vp_pos)
@@ -236,42 +403,33 @@ def _handle_highlight_click(self, global_pos: QPoint) -> bool:
 
     store = get_highlight_store()
     target = store.get_highlight(target_ref)
-    if isinstance(target, dict):
-        target_scope = str(target.get("panel_scope", "") or "").strip().lower()
-        if target_scope and target_scope != self._highlight_scope:
-            QToolTip.showText(
-                global_pos,
-                (
-                    "Jump-Ziel liegt in anderem Panel "
-                    f"('{target_scope}')."
-                ),
-                self._view.viewport(),
-            )
-            return True
+    if not isinstance(target, dict):
+        return False
 
-        target_tab_scope = str(target.get("tab_scope", "") or "tabs")
-        current_tab = self._current_tab_name()
-        if target_tab_scope == "tabs":
-            tabs = [
-                str(item or "").strip()
-                for item in list(target.get("tabs", []) or [])
-                if str(item or "").strip()
-            ]
-            if tabs and current_tab not in tabs:
-                switcher = self._tab_switcher
-                if switcher is not None and switcher(tabs[0]):
-                    return True
-                QToolTip.showText(
-                    global_pos,
-                    f"Jump-Ziel ist im Tab '{tabs[0]}'.",
-                    self._view.viewport(),
-                )
-                return True
-        if self._jump_to_highlight_id(target_ref):
-            return True
+    if self._navigate_to_highlight_target(target_ref, target):
         return True
 
-    return False
+    target_scope = str(target.get("panel_scope", "") or "").strip().lower()
+    if target_scope and target_scope != self._highlight_scope:
+        QToolTip.showText(
+            global_pos,
+            (
+                "Jump-Ziel konnte nicht geöffnet werden "
+                f"(Panel: '{target_scope}')."
+            ),
+            self._view.viewport(),
+        )
+        return True
+
+    target_tabs = _target_tabs_from_record(target)
+    if target_tabs:
+        QToolTip.showText(
+            global_pos,
+            f"Jump-Ziel konnte nicht gefunden werden (Tab: '{target_tabs[0]}').",
+            self._view.viewport(),
+        )
+        return True
+    return True
 def _jump_to_highlight_id(self, target_id: str) -> bool:
     match = get_highlight_store().resolve_highlight_by_id(
         highlight_id=target_id,
@@ -287,8 +445,10 @@ def _jump_to_highlight_id(self, target_id: str) -> bool:
         return False
     cursor = self._view.textCursor()
     cursor.setPosition(qt_start)
-    cursor.setPosition(qt_end, QTextCursor.MoveMode.KeepAnchor)
+    # Keep caret collapsed so the insertion cursor can blink at target.
+    cursor.clearSelection()
     self._view.setTextCursor(cursor)
+    self._view.setFocus(Qt.FocusReason.OtherFocusReason)
     self._view.ensureCursorVisible()
     return True
 __all__ = [
@@ -299,6 +459,9 @@ __all__ = [
     "_update_hover_tooltip",
     "_tooltip_text",
     "_pick_jump_target",
+    "jump_to_highlight",
+    "_jump_in_tabbed",
+    "_navigate_to_highlight_target",
     "_handle_highlight_click",
     "_jump_to_highlight_id",
 ]
