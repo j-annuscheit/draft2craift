@@ -38,12 +38,16 @@ def create_application(argv: list[str] | None = None) -> QApplication:
     app.setApplicationVersion("1.0.0")
     app.setStyle("Fusion")
     settings = QSettings("draft2craift", "draft2craift")
+    setattr(app, "_draft2craift_settings", settings)
     apply_theme(app, settings.value(ThemeSettingsKeys.UI_THEME, "dark"))
     return app
 
 
 def run(argv: list[str] | None = None) -> int:
     app = create_application(argv)
-    window = MainWindow()
+    settings = getattr(app, "_draft2craift_settings", None)
+    if not isinstance(settings, QSettings):
+        raise RuntimeError("Application settings are not initialized.")
+    window = MainWindow(app_settings=settings)
     window.show()
     return app.exec()

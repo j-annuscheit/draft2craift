@@ -22,6 +22,7 @@ def _create_project_folder(base: Path) -> None:
 
     manifest = {
         "version": 1,
+        "rag_config": {},
         "canvas": {"tabs": [], "current_tab": 0},
         "knowledge": {"files": []},
         "settings": {},
@@ -33,7 +34,10 @@ def _create_project_folder(base: Path) -> None:
         encoding="utf-8",
     )
     (base / "canvas" / "doc_0000.md").write_text("# Draft\n", encoding="utf-8")
-    (base / "chat" / "history.json").write_text("[]", encoding="utf-8")
+    (base / "chat" / "history.json").write_text(
+        json.dumps({"current_tab": 0, "tabs": []}),
+        encoding="utf-8",
+    )
     (base / "logs" / "entries.json").write_text("[]", encoding="utf-8")
     (base / "highlights.json").write_text("{}", encoding="utf-8")
 

@@ -198,7 +198,7 @@ class AutosaveControllerTests(unittest.TestCase):
                     return False
 
             self.controller._collect_canvas_tabs_data = Mock(return_value=[])
-            self.controller._context.autosave_state_extras.return_value = {}
+            self.controller._autosave_state_extras = Mock(return_value={})
             self.controller._context.chat_tts_mode.return_value = "off"
 
             with patch(

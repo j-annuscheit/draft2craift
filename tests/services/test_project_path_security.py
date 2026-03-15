@@ -57,14 +57,10 @@ def test_project_loader_does_not_read_outside_project_folder(tmp_path: Path):
     paths = ProjectPaths(str(project_dir))
     loader = ProjectLoader(paths=paths)
 
-    assert loader._read_canvas_content("../secret.md") == ""
-    assert (
-        loader._read_knowledge_markdown(
-            {"markdown": "fallback"},
-            "../secret.md",
-        )
-        == "fallback"
-    )
+    with pytest.raises(ValueError, match="escapes"):
+        loader._read_canvas_content("../secret.md")
+    with pytest.raises(ValueError, match="escapes"):
+        loader._read_knowledge_markdown("../secret.md")
 
 
 def test_project_manager_blocks_save_outside_allowed_root(tmp_path: Path, monkeypatch):

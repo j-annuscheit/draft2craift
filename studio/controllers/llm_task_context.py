@@ -29,3 +29,7 @@ class LLMTaskContext:
     set_status_feedback_payload: Callable[[Mapping[str, object] | None], None]
     refresh_preview_overlays: Callable[[], None]
     autosave_schedule_fn: Callable[[int], None]
+    build_llm_context: Callable[[], dict]
+    get_user_mode: Callable[[], str]
+    is_prompt_editor_allowed: Callable[[str | None], bool]
+    dialog_manager: object

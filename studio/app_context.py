@@ -10,7 +10,7 @@ What belongs here
 ~~~~~~~~~~~~~~~~~
 * Forwarding calls that cross controller boundaries (autosave ↔ knowledge,
   knowledge ↔ chat, any controller ↔ project/settings).
-* Runtime state that truly has no single owner (user_mode, feedback payload).
+* Runtime state that truly has no single owner.
 * Validation that all required bindings are present after setup.
 
 What does NOT belong here
@@ -22,10 +22,10 @@ What does NOT belong here
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from PySide6.QtCore import QSettings
@@ -58,7 +58,7 @@ class AppContext:
         project_manager: ProjectManager,
         app_settings: QSettings,
         file_registry: dict[str, tuple[str, str]],
-        user_mode: str,
+        get_user_mode: Callable[[], str],
     ) -> None:
         # ── Services (long-lived, set at construction) ─────────────────
         self._window = window
@@ -68,7 +68,7 @@ class AppContext:
         self.project_manager: ProjectManager = project_manager
         self.app_settings: QSettings = app_settings
         self.file_registry: dict[str, tuple[str, str]] = file_registry
-        self.user_mode: str = str(user_mode or "")
+        self._get_user_mode = get_user_mode
 
         # ── Controller bindings (populated during setup) ───────────────
         self._theme_controller: ThemeController | None = None
@@ -78,9 +78,6 @@ class AppContext:
 
         # ── UI-widget bindings (populated during setup) ────────────────
         self._glossary_feedback_bar = None
-
-        # ── Runtime state ──────────────────────────────────────────────
-        self._status_feedback_payload: dict[str, object] = {}
 
     # ── Bind points ───────────────────────────────────────────────────
 
@@ -116,10 +113,6 @@ class AppContext:
     @property
     def glossary_feedback_bar(self) -> object:
         return self._glossary_feedback_bar
-
-    @property
-    def status_feedback_payload(self) -> dict[str, object]:
-        return dict(self._status_feedback_payload)
 
     # ── Setup validation ──────────────────────────────────────────────
 
@@ -233,10 +226,10 @@ class AppContext:
     # ── Runtime state helpers ─────────────────────────────────────────
 
     def get_user_mode(self) -> str:
-        return str(self.user_mode or "")
-
-    def set_status_feedback_payload(self, payload: Mapping[str, object] | None) -> None:
-        self._status_feedback_payload = dict(payload or {})
+        try:
+            return str(self._get_user_mode() or "")
+        except Exception:
+            return ""
 
     # ── Autosave coordination ─────────────────────────────────────────
     # These methods let controllers (knowledge, project) coordinate with
@@ -278,39 +271,3 @@ class AppContext:
         if ctrl is None:
             return
         ctrl.rewire_editors()
-
-    def autosave_state_extras(self) -> dict[str, Any]:
-        """Gather cross-controller state required for the autosave snapshot.
-
-        Collects theme, preview settings, user mode, and imported-doc list.
-        Each piece is fetched defensively so a failing controller cannot abort
-        the autosave cycle.
-        """
-        theme = ""
-        preview_margin: dict[str, object] = {}
-        preview_theme = ""
-        ctrl = self._theme_controller
-        if ctrl is not None:
-            try:
-                theme = str(ctrl.get_theme_id() or "")
-            except Exception as exc:
-                self.app_logger.warning("SYS", f"[AUTOSAVE] get_theme_id failed: {exc}")
-            try:
-                preview_margin = dict(ctrl.get_preview_page_margin_settings() or {})
-            except Exception as exc:
-                self.app_logger.warning(
-                    "SYS", f"[AUTOSAVE] get_preview_page_margin_settings failed: {exc}"
-                )
-            try:
-                preview_theme = str(ctrl.get_preview_theme_id() or "")
-            except Exception as exc:
-                self.app_logger.warning(
-                    "SYS", f"[AUTOSAVE] get_preview_theme_id failed: {exc}"
-                )
-        return {
-            "user_mode": self.get_user_mode(),
-            "theme": theme,
-            "imported_docs": sorted(self.file_registry.keys()),
-            "preview_page_margin": preview_margin,
-            "preview_theme": preview_theme,
-        }

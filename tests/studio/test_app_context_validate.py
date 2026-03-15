@@ -20,7 +20,7 @@ def _build_context() -> AppContext:
         project_manager=object(),
         app_settings=object(),
         file_registry={},
-        user_mode="plus",
+        get_user_mode=lambda: "plus",
     )
 
 

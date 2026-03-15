@@ -361,6 +361,39 @@ class LLMManager(QObject):
             stop_requested=stop_requested,
         )
 
+    def shutdown(
+        self,
+        *,
+        stop_timeout_ms: int = 3000,
+        terminate_timeout_ms: int = 2000,
+    ) -> bool:
+        """Stop the worker thread gracefully and fall back to terminate."""
+        worker = self.worker
+        if not worker.isRunning():
+            return True
+        worker.request_stop()
+        if worker.wait(max(0, int(stop_timeout_ms))):
+            return True
+        warning = getattr(self._log, "warning", None)
+        if callable(warning):
+            warning(
+                "SYS",
+                f"LLM worker did not stop within {int(stop_timeout_ms)}ms; terminating thread.",
+            )
+        worker.terminate()
+        if worker.wait(max(0, int(terminate_timeout_ms))):
+            return True
+        error = getattr(self._log, "error", None)
+        if callable(error):
+            error(
+                "SYS",
+                (
+                    "LLM worker did not terminate within "
+                    f"{int(terminate_timeout_ms)}ms; aborting shutdown."
+                ),
+            )
+        return False
+
     @staticmethod
     def _extract_tagged_payload(raw_text: str, tag: str) -> str:
         payload, _tag_found = LLMManager._extract_tagged_payload_with_flag(raw_text, tag)

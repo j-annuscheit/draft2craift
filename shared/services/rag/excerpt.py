@@ -3,17 +3,6 @@ from __future__ import annotations
 
 import re
 
-
-def make_excerpt(chunks: list[str], max_chars: int = 420) -> str:
-    """Legacy helper kept for callers that join multiple chunks."""
-    if not chunks:
-        return ""
-    text = " … ".join(part.strip() for part in chunks if part.strip())
-    if len(text) <= max_chars:
-        return text
-    return text[: max_chars - 1].rstrip() + "…"
-
-
 def excerpt(content: str, tokens: list[str], window: int = 400) -> str:
     """Extract a relevant passage centered on the first token match."""
     body = str(content or "")

@@ -189,6 +189,23 @@ class SpeechController(QObject):
             self._dictation_worker.wait(3000)
         self._tts_manager.stop()
 
+    def apply_dictation_running_to_actions(
+        self,
+        running: bool,
+        *,
+        start_action: object | None = None,
+        stop_action: object | None = None,
+    ) -> None:
+        if start_action is not None and hasattr(start_action, "setEnabled"):
+            start_action.setEnabled(not bool(running))
+        if stop_action is not None and hasattr(stop_action, "setEnabled"):
+            stop_action.setEnabled(bool(running))
+
+    def apply_tts_speaking_state(self, speaking: bool) -> None:
+        active = bool(speaking)
+        self._canvas.set_read_aloud_active(active)
+        self._chat_dock.set_read_aloud_active(active)
+
     # ── Private helpers ────────────────────────────────────────────────
 
     def _apply_runtime_settings(self):

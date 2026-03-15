@@ -4,8 +4,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtWidgets import QDialog, QInputDialog, QMessageBox
 
+from shared.domain.user_mode import resolve_feature_label
+from shared.services.highlights.store import get_highlight_store
 from shared.services.llm.manager import LLMManager
+from studio.glossary.editor import GlossaryEditorDialog
 from studio.controllers.llm_task_context import LLMTaskContext
 from studio.controllers.llm_tasks_context import (
     _build_context_text_from_llm_context as _build_context_text_from_llm_context_fn,
@@ -158,6 +162,10 @@ class LLMSideTaskController(QObject):
         self._set_status_feedback_payload = ctx.set_status_feedback_payload
         self._refresh_preview_overlays = ctx.refresh_preview_overlays
         self._autosave_schedule_fn = ctx.autosave_schedule_fn
+        self._build_llm_context_cb = ctx.build_llm_context
+        self._get_user_mode = ctx.get_user_mode
+        self._is_prompt_editor_allowed = ctx.is_prompt_editor_allowed
+        self._dialog_manager = ctx.dialog_manager
 
         self._thread: QThread | None = None
         self._worker: _LLMSideTaskWorker | None = None
@@ -240,6 +248,176 @@ class LLMSideTaskController(QObject):
             ),
             status_message="Generiere MindMap/Graph/Chunk-MindMap aus Kontext…",
             done_cb=done_cb,
+        )
+
+    def toggle_glossary_overlays(self, checked: bool) -> None:
+        get_highlight_store().set_glossary_enabled(bool(checked))
+        self._refresh_preview_overlays()
+        self._show_status("Glossar-Overlay: AN" if checked else "Glossar-Overlay: AUS", 2500)
+
+    def open_glossary_editor(self) -> None:
+        parent = self.parent()
+        if parent is None:
+            return
+
+        def _create() -> GlossaryEditorDialog:
+            dialog = GlossaryEditorDialog(
+                parent,
+                user_mode=self._get_user_mode(),
+            )
+            dialog.glossary_saved.connect(self.on_glossary_saved_from_editor)
+            return dialog
+
+        self._dialog_manager.show_dialog("glossary-editor", _create)
+
+    def on_glossary_saved_from_editor(self, count: int) -> None:
+        self._refresh_preview_overlays()
+        overlays_on = get_highlight_store().is_glossary_enabled()
+        suffix = "" if overlays_on else " (Overlay aktuell AUS)."
+        self._show_status(f"Glossar gespeichert: {int(count)} Begriffe{suffix}", 4500)
+
+    def generate_glossary_from_context(self) -> None:
+        parent = self.parent()
+        if parent is None:
+            return
+        _err = lambda ok, info: (not ok) and QMessageBox.information(parent, "Glossar", info)
+        ok, info = self.generate_glossary_from_llm_context(
+            self._build_llm_context_cb(),
+            done_cb=_err,
+        )
+        if not ok:
+            QMessageBox.information(parent, "Glossar", info)
+
+    def generate_mindmap_from_context(self) -> None:
+        parent = self.parent()
+        if parent is None:
+            return
+        user_mode = self._get_user_mode()
+        title = resolve_feature_label(
+            user_mode,
+            "mindmap.generate.dialog.title",
+            "MindMap/Graph/Chunk-MindMap generieren",
+        )
+        output_label = resolve_feature_label(
+            user_mode,
+            "mindmap.generate.dialog.output_format",
+            "Ausgabeformat:",
+        )
+        ok_text = resolve_feature_label(
+            user_mode,
+            "mindmap.generate.dialog.button.ok",
+            "OK",
+        )
+        cancel_text = resolve_feature_label(
+            user_mode,
+            "mindmap.generate.dialog.button.cancel",
+            "Cancel",
+        )
+        mode_options = [
+            (
+                "chunkmap",
+                resolve_feature_label(
+                    user_mode,
+                    "mindmap.generate.dialog.option.chunkmap",
+                    "Chunk-MindMap",
+                ),
+            ),
+            (
+                "mindmap",
+                resolve_feature_label(
+                    user_mode,
+                    "mindmap.generate.dialog.option.mindmap",
+                    "MindMap",
+                ),
+            ),
+            (
+                "graph",
+                resolve_feature_label(
+                    user_mode,
+                    "mindmap.generate.dialog.option.graph",
+                    "Graph",
+                ),
+            ),
+        ]
+        mode_dialog = QInputDialog(parent)
+        mode_dialog.setWindowTitle(title)
+        mode_dialog.setLabelText(output_label)
+        mode_dialog.setComboBoxItems([label for _, label in mode_options])
+        mode_dialog.setTextValue(mode_options[0][1])
+        mode_dialog.setOkButtonText(ok_text)
+        mode_dialog.setCancelButtonText(cancel_text)
+        if mode_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        selected_mode_label = str(mode_dialog.textValue() or "")
+        mode_hint = mode_options[0][0]
+        for mode_name, mode_label in mode_options:
+            if mode_label == selected_mode_label:
+                mode_hint = mode_name
+                break
+        query_defaults = {
+            "graph": resolve_feature_label(
+                user_mode,
+                "mindmap.generate.dialog.query_default.graph",
+                "Welche zentralen Entitäten und Beziehungen sind im Kontext belegt?",
+            ),
+            "chunkmap": resolve_feature_label(
+                user_mode,
+                "mindmap.generate.dialog.query_default.chunkmap",
+                "Wie ist der Kontext nach Überschriften und Chunks strukturiert?",
+            ),
+            "mindmap": resolve_feature_label(
+                user_mode,
+                "mindmap.generate.dialog.query_default.mindmap",
+                "Welche zentralen Konzepte beantworten die Fragestellung im Kontext?",
+            ),
+        }
+        query_label = resolve_feature_label(
+            user_mode,
+            "mindmap.generate.dialog.query_label",
+            "Fragestellung (optional):",
+        )
+        query_dialog = QInputDialog(parent)
+        query_dialog.setWindowTitle(title)
+        query_dialog.setInputMode(QInputDialog.InputMode.TextInput)
+        query_dialog.setOption(
+            QInputDialog.InputDialogOption.UsePlainTextEditForTextInput,
+            True,
+        )
+        query_dialog.setLabelText(query_label)
+        query_dialog.setTextValue(query_defaults.get(mode_hint, query_defaults["mindmap"]))
+        query_dialog.setOkButtonText(ok_text)
+        query_dialog.setCancelButtonText(cancel_text)
+        if query_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        query_raw = query_dialog.textValue()
+        _err2 = lambda ok2, info: (not ok2) and QMessageBox.information(parent, "MindMap/Graph", info)
+        ok, info = self.generate_mindmap_from_llm_context(
+            self._build_llm_context_cb(),
+            str(query_raw or ""),
+            mode_hint=mode_hint,
+            done_cb=_err2,
+        )
+        if not ok:
+            QMessageBox.information(parent, "MindMap/Graph", info)
+
+    def edit_system_prompt(self) -> None:
+        parent = self.parent()
+        if parent is None:
+            return
+        user_mode = self._get_user_mode()
+        if not self._is_prompt_editor_allowed(user_mode):
+            QMessageBox.information(
+                parent,
+                "Prompt Editor",
+                "Im Einfach-Modus ist der Prompt-Editor ausgeblendet.\nWechsle zu Plus oder Experte.",
+            )
+            return
+        from studio.dialogs.prompt_editor import PromptEditorDialog
+
+        self._dialog_manager.show_dialog(
+            "prompt-editor",
+            lambda: PromptEditorDialog(self._llm_manager, user_mode, parent=parent),
+            on_accept=lambda _dlg: self._autosave_schedule_fn(300),
         )
 
     # ── Private helpers ────────────────────────────────────────────────

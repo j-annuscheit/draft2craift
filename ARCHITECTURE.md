@@ -1,64 +1,51 @@
 # draft2craift — Architecture Reference
 
-> This document is the authoritative description of the repository structure,
-> layer rules, and design patterns. Any new code must conform to the rules
-> stated here. Any deviation is a defect, not a style preference.
+> **Dieses Dokument ist normativ.**
+> Wenn Code und Regelwerk widersprechen, gilt das Regelwerk — nicht der Code.
+> Abweichungen sind Defekte, keine Stilfragen. Ausnahmen erfordern das Verfahren aus §22.
 
 ---
 
-## 1. What the Application Is
+## 1. Was die Anwendung ist
 
-**draft2craift** is a local-first AI writing studio — a PySide6 desktop application.
-It runs fully offline (no cloud calls except optional model downloads from
-Hugging Face Hub over HTTPS). Core capabilities:
+**draft2craift** ist ein local-first AI Writing Studio — eine PySide6-Desktop-Applikation.
+Sie läuft vollständig offline (keine Cloud-Aufrufe außer optionalen Modell-Downloads von
+Hugging Face Hub über HTTPS). Kern-Features:
 
-- Multi-tab Markdown editor with live preview
-- RAG (Retrieval-Augmented Generation) over imported documents
-- Streaming LLM chat with context selection
-- Glossary and mind-map generation
-- Text-to-speech / speech-to-text
-- Atomic project save/load with crash-recovery autosave
+- Multi-Tab Markdown-Editor mit Live-Vorschau
+- RAG (Retrieval-Augmented Generation) über importierte Dokumente
+- Streaming-LLM-Chat mit Kontextauswahl
+- Glossar- und Mindmap-Generierung
+- Text-to-Speech / Speech-to-Text
+- Atomares Projekt-Save/Load mit Crash-Recovery-Autosave
 
-Entry point: `draft2craift` CLI → `studio.main:main` → `studio.app:run` →
-`studio.window.MainWindow`.
+Entry point: `draft2craift` CLI → `studio.main:main` → `studio.app:run` → `studio.window.MainWindow`.
 
 ---
 
-## 2. Two-Layer Architecture
+## 1.1 Änderungsstand (2026-03-15)
 
-The repository is split into exactly two source trees:
+Diese Punkte sind seit v7 **verbindlich umgesetzt** und ab jetzt Teil des Regelwerks:
 
-```
-canvas2/
-├── shared/      # Layer 1 — Qt-agnostic business logic
-└── studio/      # Layer 2 — Qt UI application
-```
+1. **Kein Legacy-/Kompatibilitäts-Fallback im Projekt-Load/Save-Pfad**
+   - `ProjectLoader` lädt strikt gegen das aktuelle Format.
+   - Alte/abweichende Formate werden nicht mehr still toleriert.
+2. **User-Mode-Verantwortung in `UserModeController` zentralisiert**
+   - Moduswechsel + Dialog-Propagation laufen über `studio/controllers/user_mode_controller.py`.
+3. **Setup-Extraktionen umgesetzt**
+   - Global Shortcuts: `studio/setup/shortcuts_setup.py`
+   - Global Signals: `studio/setup/signals_setup.py`
+4. **Menubar über explizite Inputs statt Gott-Objekt**
+   - `build_menubar(MenuBuildInputs(...))` statt implizitem Zugriff auf `MainWindow`-Interna.
+5. **QSettings konsolidiert**
+   - Genau eine Runtime-Instanz in `services_setup.py`; Bootstrap-Instanz in `studio/app.py` bleibt die einzige erlaubte zweite Instanz.
 
-### Layer 1 — `shared/`
+**Architekturentscheidung:** Es gibt **keine Rückwärtskompatibilitätspflicht** zu alten Projektformaten.
+Fehlerhafte/alte Strukturen sind Ladefehler, keine Anlassfälle für neue Fallback-Branches.
 
-**Rule:** `shared/` must not import from `studio/`.
+---
 
-`shared/` contains domain models and services that have no knowledge of the
-UI. It is importable in isolation (e.g. for unit tests, eval scripts, or a
-future headless server mode).
-
-**Allowed Qt usage in `shared/`:** Qt is used in worker/service boundaries where
-signal/slot threading is required:
-- `shared/services/rag/*` (`RAGSystem`, `RAGWorker`)
-- `shared/services/llm/*` (`LLMManager`, `LLMWorker`)
-- `shared/services/speech/*` (TTS/STT workers and managers)
-- `shared/services/project/project_loader.py` (`QByteArray` for persisted UI state restore)
-
-`shared/` must still avoid UI widgets (`QWidget`, `QDialog`, `QMainWindow`).
-
-### Layer 2 — `studio/`
-
-`studio/` imports freely from `shared/`. It owns all Qt widgets, docks,
-controllers, dialogs, and the setup pipeline. It must not reach into
-`shared/` module *internals* (e.g. private `_` attributes); use the public
-API only.
-
-### Dependency Direction
+## 2. Schichtenmodell (verbindlich)
 
 ```
 studio/  →  shared/services/  →  shared/domain/
@@ -66,90 +53,159 @@ studio/  →  shared/services/  →  shared/domain/
            shared/config/
 ```
 
-`shared/domain/` and `shared/config/` never import from `shared/services/`.
-`shared/services/` sub-packages do not import from each other unless one is
-a declared dependency (e.g. `rag/` uses `llm/manager.py` for query expansion).
+Das Repository ist in genau zwei Source-Trees aufgeteilt:
+
+```
+canvas2/
+├── shared/      # Layer 1 — Qt-agnostische Business-Logik
+└── studio/      # Layer 2 — Qt UI-Anwendung
+```
+
+### Layer 1 — `shared/`
+
+**Regel:** `shared/` darf niemals aus `studio/` importieren.
+
+`shared/` enthält Domain-Modelle und Services ohne jede Kenntnis der UI. Es ist isoliert importierbar (z.B. für Unit-Tests, Eval-Skripte oder einen künftigen Headless-Modus).
+
+**Erlaubte Qt-Nutzung in `shared/`:** Qt wird an Worker-/Service-Grenzen verwendet, wo Signal/Slot-Threading erforderlich ist:
+- `shared/services/rag/*` (`RAGSystem`, `RAGWorker`)
+- `shared/services/llm/*` (`LLMManager`, `LLMWorker`)
+- `shared/services/speech/*` (TTS/STT-Worker und Manager)
+- `shared/services/project/project_loader.py` (`QByteArray` für persistierten UI-State-Restore)
+
+`shared/` muss UI-Widgets (`QWidget`, `QDialog`, `QMainWindow`, `QLayout`) vollständig vermeiden.
+
+### Layer 2 — `studio/`
+
+`studio/` importiert frei aus `shared/`. Es besitzt alle Qt-Widgets, Docks, Controller, Dialoge und die Setup-Pipeline. Es darf nicht in `shared/`-Modul-*Interna* greifen (z.B. private `_`-Attribute); nur die öffentliche API nutzen.
+
+### Abhängigkeitsrichtung
+
+`shared/domain/` und `shared/config/` importieren nie aus `shared/services/`.
+`shared/services/`-Sub-Packages importieren nicht voneinander, außer wenn eines ein deklarierter
+Dependency ist (z.B. nutzt `rag/` `llm/manager.py` für Query-Expansion).
 
 ---
 
-## 3. Directory Structure
+## 3. Verzeichnisstruktur
 
 ```
 canvas2/
 ├── shared/
-│   ├── config/                  # Runtime config models, path helpers, QSettings key registry
-│   │   ├── app_settings.py      # Typed settings models (SpeechSettings, AppSettings)
-│   │   ├── paths.py             # Platform-aware app data path helpers
-│   │   └── setting_keys.py      # All persistent setting keys, grouped by domain
-│   ├── domain/                  # Pure data — frozen dataclasses, Enum, TypedDict
+│   ├── config/                  # QSettings-Key-Konstanten (keine Logik)
+│   │   └── setting_keys.py      # Alle persistenten Setting-Keys, gruppiert nach Domäne
+│   ├── domain/                  # Reine Daten — frozen dataclasses, Enum, TypedDict
 │   │   ├── document.py          # DocumentRef, DocumentContent
 │   │   ├── export.py            # ExportRequest
 │   │   ├── feedback.py          # FeedbackEntry
 │   │   ├── graph.py             # GraphNode, GraphEdge
-│   │   ├── graph_codec.py       # JSON serialisation for graphs
-│   │   ├── graph_spec.py        # Tree graph with collapse state
+│   │   ├── graph_codec.py       # JSON-Serialisierung für Graphen
+│   │   ├── graph_spec.py        # Tree-Graph mit Collapse-State
 │   │   ├── highlight.py         # HighlightSpan, HighlightEntry
 │   │   ├── prompt.py            # PromptTemplate
 │   │   ├── rag.py               # RagChunk, RagQuery, RagResult
-│   │   ├── testcase.py          # TestCase (eval harness)
-│   │   └── user_mode.py         # Config-driven profiles, visibility + label resolution
+│   │   ├── testcase.py          # TestCase (Eval-Harness)
+│   │   └── user_mode.py         # Config-getriebene Profile, Sichtbarkeits- und Label-Auflösung
 │   └── services/
-│       ├── feedback/            # Feedback persistence
-│       ├── highlights/          # Highlight store (project/autosave scoped)
-│       ├── importer/            # PDF / DOCX → Markdown conversion
-│       ├── llm/                 # LLM inference (manager, worker, backend adapters, prompt tasks)
-│       ├── project/             # Project save / load / path security
-│       ├── rag/                 # Indexing, search, chunking, config
-│       └── speech/              # TTS (Piper) and STT (Whisper)
+│       ├── feedback/            # Feedback-Persistenz
+│       ├── highlights/          # Highlight-Store (projekt-/autosave-gebunden)
+│       ├── importer/            # PDF/DOCX → Markdown-Konvertierung
+│       ├── llm/                 # LLM-Inferenz (Manager, Worker, Backend-Adapter, Prompt-Tasks)
+│       ├── project/             # Projekt-Save/Load, Pfadsicherheit, Schema
+│       ├── rag/                 # Indexierung, Suche, Chunking, Config
+│       └── speech/              # TTS (Piper) und STT (Whisper)
 │
 ├── studio/
-│   ├── app.py                   # QApplication bootstrap, theme bootstrap
-│   ├── main.py                  # CLI entry point (27 lines)
-│   ├── window.py                # MainWindow — orchestration hub
-│   ├── app_context.py           # AppContext mediator (see §6)
+│   ├── app.py                   # QApplication-Bootstrap, Theme-Bootstrap
+│   ├── main.py                  # CLI-Entry-Point (< 30 Zeilen)
+│   ├── window.py                # MainWindow — Dependency-Injector, ≤ 300 Zeilen (§10)
+│   ├── app_context.py           # AppContext-Mediator (§8)
 │   ├── logger.py                # AppLogger + LogDock
-│   ├── menubar.py               # Menu construction (called once from window.__init__)
-│   ├── theme.py                 # Theme helpers
-│   ├── user_mode_bindings.py    # Declarative helpers for profile-driven widget wiring
-│   ├── setup/                   # Bootstrap pipeline (no business logic)
-│   │   ├── services_setup.py    # Creates services + AppContext
-│   │   ├── docks_setup.py       # Creates dock widgets, initial signal wiring
-│   │   └── controllers_setup.py # Creates all controllers, binds to AppContext
-│   ├── controllers/             # One file per controller (see §7)
-│   ├── canvas/                  # CanvasTabWidget (editor + preview)
-│   ├── chat/                    # ChatDock + fact-check pipeline
-│   ├── knowledge/               # KnowledgeDock (viewer + RAG panel)
-│   ├── dialogs/                 # Modal dialogs (prompt editor, etc.)
-│   ├── feedback/                # Feedback UI components
-│   ├── glossary/                # Glossary editor dialog
-│   └── importer/                # File import dialog + workers
+│   ├── menubar.py               # Menü-Konstruktion — empfängt ctx, nicht window (§10)
+│   ├── theme.py                 # Theme-Hilfsfunktionen
+│   ├── user_mode_bindings.py    # Deklarative Helfer für profil-getriebenes Widget-Wiring
+│   ├── profile_text_overrides.py # Literal-Text/Tooltip-Overrides für Widget-Bäume
+│   ├── setup/                   # Bootstrap-Pipeline (keine Business-Logik)
+│   │   ├── services_setup.py    # Erzeugt Services + AppContext
+│   │   ├── docks_setup.py       # Erzeugt Dock-Widgets, initiales Signal-Wiring
+│   │   └── controllers_setup.py # Erzeugt alle Controller, bindet an AppContext
+│   ├── controllers/             # Eine Datei pro Controller (§9)
+│   ├── canvas/                  # CanvasTabWidget (Editor + Vorschau)
+│   ├── chat/                    # ChatDock + Fact-Check-Pipeline
+│   ├── knowledge/               # KnowledgeDock (Viewer + RAG-Panel)
+│   ├── dialogs/                 # Modale Dialoge (Prompt-Editor, etc.)
+│   ├── feedback/                # Feedback-UI-Komponenten
+│   ├── glossary/                # Glossar-Editor-Dialog
+│   └── importer/                # Datei-Import-Dialog + Worker
 │
-├── tests/                       # pytest tests (mirrors source tree layout)
-├── eval/                        # Offline evaluation scripts (currently packaged too)
-├── data/                        # Runtime-editable defaults (welcome/about texts, user_modes/*.toml)
-├── docs/                        # Human-readable documentation
-└── pyproject.toml               # Build config, dependencies, entry points
+├── tests/                       # pytest-Tests (spiegelt Source-Tree-Layout)
+├── eval/                        # Offline-Evaluation-Skripte
+├── data/                        # Laufzeit-editierbare Defaults (welcome/about, user_modes/*.toml)
+├── docs/                        # Menschenlesbare Dokumentation
+└── pyproject.toml               # Build-Config, Abhängigkeiten, Entry-Points
 ```
 
 ---
 
-## 4. `shared/services/rag/` — RAG Pipeline
+## 4. Invarianten (MUSS — ohne Ausnahme im Normalfall)
 
-### Components
+1. **`shared/` importiert niemals `studio/`.**
+2. **`shared/domain/` enthält keine I/O-, UI- oder Service-Logik.**
+3. **Kein Controller kennt einen anderen Controller direkt** — Koordination via `ctx.*` oder Signals.
+4. **Keine `_private`-Zugriffe über Modulgrenzen** (kein `other_object._attr`).
+5. **Projekt-I/O nur über `ProjectPaths`** — kein `Path(user_string)` ohne `.resolve()` + `_is_relative_to()`-Check.
+6. **Keine persistenten Pfade über `Path.cwd()`** — `QStandardPaths` (in `studio/`) oder `platformdirs` (in `shared/`). `allowed_root` in `ProjectPaths` ist immer explizit — kein `Path.cwd()`-Fallback.
+7. **UI-Updates nur im Main Thread** — keine direkten Widget-Aufrufe aus Background-Threads.
+8. **Worker kommunizieren mit UI ausschließlich via Signals/Slots.**
+9. **`QThread.wait(timeout_ms)` Rückgabewert wird geprüft** — bei `False`: `terminate()`, dann `wait()`, dann loggen.
+10. **Settings-Keys nur in `shared/config/setting_keys.py`** — keine String-Literale anderswo.
+11. **`AppContext.validate()` läuft nach vollständigem Setup** — einmal, nach `_init_controllers()`.
+12. **Highlights sind projekt-/autosave-gebunden** — nicht global pro Arbeitsverzeichnis.
+13. **`window.py` ist ein Dependency-Injector, kein Mediator** — Methoden-Body-Regel: §10.
+14. **Jedes modale und modeless Dialog implementiert `set_user_mode(mode: str) -> None`.**
+15. **Projekt-Persistenz ist strikt und formatgebunden** — keine stillen Legacy-/Kompatibilitäts-Fallbacks.
 
-| File | Class | Role |
-|------|-------|------|
-| `orchestrator.py` | `RAGSystem(QObject)` | Public facade; thread-safe via `RLock` |
-| `worker.py` | `RAGWorker(QThread)` | Queue-based background execution |
-| `config.py` | `RAGConfig` | Nested dataclass tree |
-| `indexer.py` | `RAGIndexer` | Owns index state (TF-IDF + ST embeddings) |
-| `searcher.py` | `RAGSearcher` | Full search pipeline (expansion → retrieval → fusion → rerank) |
-| `chunking.py` | — | Three strategies: `sliding_window`, `section`, `recursive` |
-| `expanders.py` | — | HyDE query expansion (TF-IDF mode, ST mode) |
-| `tfidf.py` | — | TF-IDF ranking |
-| `search_fusion.py` | — | Reciprocal Rank Fusion (RRF, k=60 per Cormack 2009) |
+---
 
-### `RAGConfig` Structure
+## 5. Anti-Drift-Gates
+
+Jede Änderung muss diese 5 Gates bestehen. Verletzung eines Gates → Change wird nicht gemerged.
+
+### Gate 1 — Schicht-Gate
+Keine neuen verbotenen Importkanten. `shared/` importiert nicht aus `studio/`. `shared/domain/` importiert nicht aus `shared/services/`.
+
+### Gate 2 — API-Gate
+Keine neuen privaten Cross-Modul-Zugriffe (`._*` auf fremde Klassen/Objekte). Keine neuen `set_*_handler`- oder `set_*_getter`-Methoden in Docks oder Widgets.
+
+### Gate 3 — Persistenz-Gate
+Kein neuer unsicherer Pfadzugriff. Projektdateien nur innerhalb des Projekt-Roots. Kein `Path.cwd()` für persistente Pfade.
+Keine neuen Legacy-/Kompatibilitäts-Fallbacks im Save/Load-Pfad.
+
+### Gate 4 — Threading-Gate
+Keine UI-Operation aus Worker-Threads. Shutdown-Pfade prüfen `wait()` mit Timeout robust. LLM-synchrone Methoden nicht im Main Thread aufgerufen.
+
+### Gate 5 — Test-Gate
+Für betroffene Schicht existiert mindestens ein Test, der das Verhalten absichert. Neue Controller haben mindestens einen Test in `tests/studio/`.
+
+---
+
+## 6. `shared/services/rag/` — RAG-Pipeline
+
+### Komponenten
+
+| Datei | Klasse | Rolle |
+|-------|-------|------|
+| `orchestrator.py` | `RAGSystem(QObject)` | Öffentliche Fassade; Thread-sicher via `RLock` |
+| `worker.py` | `RAGWorker(QThread)` | Queue-basierte Background-Ausführung |
+| `config.py` | `RAGConfig` | Verschachtelte Dataclass-Struktur |
+| `indexer.py` | `RAGIndexer` | Besitzt Index-State (TF-IDF + ST-Embeddings) |
+| `searcher.py` | `RAGSearcher` | Vollständige Such-Pipeline (Expansion → Retrieval → Fusion → Rerank) |
+| `chunking.py` | — | Drei Strategien: `sliding_window`, `section`, `recursive` |
+| `expanders.py` | — | HyDE Query-Expansion (TF-IDF-Modus, ST-Modus) |
+| `tfidf.py` | — | TF-IDF-Ranking |
+| `search_fusion.py` | — | Reciprocal Rank Fusion (RRF, k=60 nach Cormack 2009) |
+
+### `RAGConfig`-Struktur
 
 ```
 RAGConfig
@@ -162,772 +218,641 @@ RAGConfig
 └── rerank:    RerankConfig    — enabled, min_score
 ```
 
-### Internal Key Format
+### Internes Key-Format
 
-Chunk keys inside `RAGIndexer` are `"{doc_name}\x00{chunk_index}"`.
-`_SEP = "\x00"` is used because document names may contain `:`, `/`, and `|`
-but never a NUL byte.
+Chunk-Keys in `RAGIndexer` sind `"{doc_name}\x00{chunk_index}"`.
+`_SEP = "\x00"` — Dokumentnamen können `:`, `/` und `|` enthalten, aber niemals ein NUL-Byte.
 
-### `RAGSystem` Signals
+### `RAGSystem`-Signals
 
-| Signal | Payload | When |
+| Signal | Payload | Wann |
 |--------|---------|------|
-| `results_ready` | `list` | Search completed |
-| `backend_changed` | `str` | Active backend toggled |
-| `rag_settings_requested` | — | Settings dialog trigger |
+| `results_ready` | `list` | Suche abgeschlossen |
+| `backend_changed` | `str` | Aktives Backend gewechselt |
+| `rag_settings_requested` | — | Einstellungs-Dialog-Trigger |
 
-### `RAGWorker` Signals
+### `RAGWorker`-Signals
 
-| Signal | Payload | When |
+| Signal | Payload | Wann |
 |--------|---------|------|
 | `search_complete` | `(str, list, dict)` | query, results, debug_info |
-| `index_complete` | `int` | count of indexed documents |
-| `st_loaded` | `bool` | sentence-transformers model ready |
-| `status_changed` | `str` | status bar update |
+| `index_complete` | `int` | Anzahl indexierter Dokumente |
+| `st_loaded` | `bool` | Sentence-Transformers-Modell bereit |
+| `status_changed` | `str` | Status-Bar-Update |
 
 ---
 
-## 5. `shared/services/llm/` — LLM Pipeline
+## 7. `shared/services/llm/` — LLM-Pipeline
 
-### `LLMManager(QObject)` Signals
+### `LLMManager(QObject)`-Signals
 
-| Signal | Payload | When |
+| Signal | Payload | Wann |
 |--------|---------|------|
-| `token_received` | `str` | streaming token |
-| `generation_complete` | `str` | full output |
-| `error_occurred` | `str` | error message |
-| `model_loaded` | `(bool, str)` | success + backend/model status |
-| `nli_model_loaded` | `(bool, str)` | NLI model status |
-| `is_generating` | `bool` | generation state toggle |
+| `token_received` | `str` | Streaming-Token |
+| `generation_complete` | `str` | Vollständige Ausgabe |
+| `error_occurred` | `str` | Fehlermeldung |
+| `model_loaded` | `(bool, str)` | Erfolg + Backend/Modell-Status |
+| `nli_model_loaded` | `(bool, str)` | NLI-Modell-Status |
+| `is_generating` | `bool` | Generierungs-State-Toggle |
 
-`LLMWorker(QThread)` owns the active `BaseLLMBackend` instance
-(`shared/services/llm/backends/`). Token streaming goes via `token_received`
-signal to the main thread.
+`LLMWorker(QThread)` besitzt die aktive `BaseLLMBackend`-Instanz (`shared/services/llm/backends/`).
 
-### Backend Abstraction
+### Backend-Abstraktion
 
-LLM inference is backend-modular:
-- `BaseLLMBackend` defines the stable runtime contract (`load_model`,
-  `generate_once`, `generate_stream`, `count_tokens`, `context_window`,
-  `prepare_prompt`).
-- Built-in backends:
-  - `LlamaCppBackend` for local `.gguf/.bin` models.
-  - `TransformersBackend` for Hugging Face `transformers` model ids/URLs.
-- `factory.py` resolves backend choice from user setting (`auto|llama_cpp|transformers`)
-  and model reference.
-- `LLMManager` and task modules must call backend-agnostic helper methods;
-  no task may access backend-native model objects directly.
-- Prompt formatting and tokenization must be backend-owned. Runtime code passes
-  prompt text to the backend; each backend decides whether/how to transform it
-  (for example chat-template rendering in `transformers`) before token counting
-  or generation.
-- No new compatibility shims for deprecated internals (for example
-  `LLMWorker._model` or manager-level `_nli_*` proxy fields). Tests must target
-  public APIs or the active backend object directly.
+- `BaseLLMBackend` definiert den stabilen Runtime-Contract (`load_model`, `generate_once`, `generate_stream`, `count_tokens`, `context_window`, `prepare_prompt`).
+- Built-in Backends: `LlamaCppBackend` (`.gguf/.bin`), `TransformersBackend` (HF-IDs/URLs).
+- `factory.py` löst die Backend-Wahl aus dem User-Setting auf (`auto|llama_cpp|transformers`).
+- Task-Module rufen ausschließlich backend-agnostische Methoden auf — kein direkter Zugriff auf native Modell-Objekte.
+- Prompt-Formatierung und Tokenisierung sind Backend-owned.
 
-### Adding a New Backend
+### Neues Backend hinzufügen
 
-To add another provider (e.g. vLLM, ONNX Runtime, REST API wrapper):
-1. Implement `BaseLLMBackend` in a new module under `shared/services/llm/backends/`.
-2. Register it in `factory.py` (choice normalization + creation).
-3. Do **not** change chat/controller business logic; only backend wiring/factory.
-4. Add service tests that cover load + generate + stop behavior for the new backend.
+1. `BaseLLMBackend` in einem neuen Modul unter `shared/services/llm/backends/` implementieren.
+2. In `factory.py` registrieren.
+3. Keine Änderung an Chat-/Controller-Business-Logik — nur Backend-Wiring/Factory.
+4. Service-Tests für Load + Generate + Stop des neuen Backends schreiben.
 
 ---
 
-## 6. AppContext — The Mediator
+## 8. AppContext — Der Mediator
 
-**File:** `studio/app_context.py`
+**Datei:** `studio/app_context.py`
 
-### Purpose
+### Zweck
 
-`AppContext` is a **Mediator**: it gives controllers a stable, named API for
-cross-cutting operations without them knowing about each other directly.
+`AppContext` ist ein **Mediator**: er gibt Controllern eine stabile, benannte API für cross-cutting Operations, ohne dass sie sich gegenseitig kennen.
 
-### What Belongs in AppContext
+### Was in AppContext gehört
 
-- Forwarding calls that cross controller boundaries (e.g. autosave ↔
-  knowledge, knowledge ↔ chat, any controller ↔ project/settings).
-- Runtime state with no single owner: `user_mode`, `file_registry`,
-  `status_feedback_payload`.
-- `validate()` — post-setup binding check.
+- Weiterleitungs-Aufrufe, die Controller-Grenzen kreuzen.
+- Runtime-State ohne einzelnen Besitzer: `user_mode`, `file_registry`, `status_feedback_payload`.
+- `validate()` — Post-Setup-Binding-Check.
 
-### What Does NOT Belong in AppContext
+### Was NICHT in AppContext gehört
 
-- Business logic — keep that in the individual controllers.
-- New delegation methods that simply wrap a single controller method.
-  Add those directly to the calling controller.
-- **Direct dock access.** Docks are UI layer. Route through the controller
-  that owns the dock.
-- New `bind_*` methods for docks or widgets (the only UI bind is
-  `bind_glossary_feedback_bar`, which exists because `LLMSideTaskController`
-  needs the widget before it is a controller).
+- Business-Logik — gehört in die einzelnen Controller.
+- Neue Delegations-Methoden, die trivial eine einzelne Controller-Methode wrappen.
+- **Direkter Dock-Zugriff** — Docks sind UI-Layer; über den besitzenden Controller routen.
+- Neue `bind_*`-Methoden für Docks oder Widgets (die einzige UI-Bind-Ausnahme: `bind_glossary_feedback_bar`).
 
-### Bindings (set during setup, checked by `validate()`)
+### Bindings (gesetzt während Setup, geprüft von `validate()`)
 
 ```python
-ctx.bind_theme_controller(ThemeController)       # _init_early_controllers
-ctx.bind_autosave_controller(AutosaveController) # controllers_setup
+ctx.bind_theme_controller(ThemeController)
+ctx.bind_autosave_controller(AutosaveController)
 ctx.bind_knowledge_controller(KnowledgeController)
 ctx.bind_chat_controller(ChatController)
-ctx.bind_glossary_feedback_bar(FeedbackBar)      # _init_statusbar
+ctx.bind_glossary_feedback_bar(FeedbackBar)
 ```
 
-`validate()` raises `RuntimeError` listing missing bindings. It runs whenever
-`__debug__` is True (default CPython) or `APP_DEBUG=1` is set.
+`validate()` wirft `RuntimeError` bei fehlenden Bindings. Läuft wenn `__debug__` True (Standard-CPython) oder `APP_DEBUG=1`.
 
-### Services Held Directly
+### Services direkt gehalten
 
-`ctx.rag_system`, `ctx.llm_manager`, `ctx.project_manager`,
-`ctx.app_settings`, `ctx.app_logger`, `ctx.file_registry`, `ctx.user_mode`.
+`ctx.rag_system`, `ctx.llm_manager`, `ctx.project_manager`, `ctx.app_settings`, `ctx.app_logger`, `ctx.file_registry`, `ctx.user_mode`.
 
-These are direct attributes, not wrapped. Controllers access them as
-`ctx.rag_system`, not through delegation methods.
+Das sind direkte Attribute, keine Delegations-Methoden. Controller greifen als `ctx.rag_system` zu, nicht über Delegations-Methoden.
 
 ---
 
-## 7. Controller Pattern
+## 9. Controller-Pattern
 
-**Directory:** `studio/controllers/`
+**Verzeichnis:** `studio/controllers/`
 
-Each controller owns exactly one concern. Controllers do not call each other
-directly — they call `ctx.*` methods (AppContext), or communicate via Qt
-signals.
+Jeder Controller besitzt genau ein Thema. Controller rufen sich nicht gegenseitig direkt auf — sie nutzen `ctx.*`-Methoden oder Qt-Signals.
 
-### Controllers and Their Responsibilities
+### Controller und ihre Verantwortlichkeiten
 
-| Controller | File | Owns |
+| Controller | Datei | Besitzt |
 |------------|------|------|
-| `ThemeController` | `theme_ctrl.py` | App theme, preview theme, page margins |
-| `AutosaveController` | `autosave.py` | Periodic save, crash recovery, workspace cleanup |
-| `KnowledgeController` | `knowledge_controller.py` | `file_registry`, import, rename, remove, RAG reindex |
-| `ChatController` | `chat_controller.py` | LLM context building, context bar refresh, TTS mode |
-| `ProjectController` | `project_controller.py` | File-picker dialogs, delegates to `project_manager` |
-| `SpeechController` | `speech_ctrl.py` | TTS playback, Whisper dictation, speech settings |
-| `ZoomController` | `zoom_ctrl.py` | Editor zoom, view mode (markdown/preview/both) |
-| `CanvasController` | `canvas_controller.py` | Export, focus detection for canvas/dock selection |
-| `FindReplaceController` | `find_replace_ctrl.py` | Non-modal find/replace across all panels |
-| `LLMSideTaskController` | `llm_tasks.py` | Glossary, mind-map/graph/chunk-map tasks |
-| `FeedbackController` | `feedback_ctrl.py` | Feedback UI, freeform dialog, stats |
+| `ThemeController` | `theme_ctrl.py` | App-Theme, Vorschau-Theme, Seitenränder |
+| `AutosaveController` | `autosave.py` | Periodisches Save, Crash-Recovery, Workspace-Cleanup |
+| `KnowledgeController` | `knowledge_controller.py` | `file_registry`, Import, Umbenennen, Entfernen, RAG-Reindex |
+| `ChatController` | `chat_controller.py` | LLM-Kontext-Bau, Context-Bar-Refresh, TTS-Modus |
+| `ProjectController` | `project_controller.py` | File-Picker-Dialoge, delegiert an `project_manager` |
+| `SpeechController` | `speech_ctrl.py` | TTS-Playback, Whisper-Diktierung, Speech-Einstellungen |
+| `ZoomController` | `zoom_ctrl.py` | Editor-Zoom, View-Modus (markdown/preview/both) |
+| `CanvasController` | `canvas_controller.py` | Export, Fokus-Erkennung für Canvas/Dock-Auswahl |
+| `FindReplaceController` | `find_replace_ctrl.py` | Nicht-modales Find/Replace über alle Panels |
+| `LLMSideTaskController` | `llm_tasks.py` | Glossar, Mindmap/Graph/Chunk-Map-Tasks |
+| `FeedbackController` | `feedback_ctrl.py` | Feedback-UI, Freeform-Dialog, Statistiken |
+| `UserModeController` | `user_mode_controller.py` | Kanonischer User-Mode-State, Moduswechsel, Dialog-Propagation, Feature-Visibility/Label-Anwendung |
 
-### Controller Rules
+**Geplante Controller (noch nicht implementiert — Zielzustand):**
 
-1. A controller is created **once** in the setup pipeline and held for the
-   application lifetime.
-2. Constructors take explicit dependencies (no global state, no singletons
-   except `AppContext`).
-3. A controller **must not** hold a reference to another controller. Use
-   `ctx.*` methods or signals instead.
-4. A controller **must not** call private methods (`_`) of docks or widgets.
-   If you need that behaviour, add a public method or property to the target.
-5. Return types must be annotated on all public methods.
+| Controller | Aufgabe |
+|------------|--------|
+| `DialogController` | Dialog-Lebenszyklen (Factory, Show, Track offener Dialoge) |
 
-### KnowledgeController Ports (Protocols)
+### Controller-Regeln
 
-`KnowledgeController` interacts with docks through typed Protocols defined in
-`knowledge_ports.py`:
+1. Ein Controller wird **einmalig** in der Setup-Pipeline erzeugt und für die App-Lifetime gehalten.
+2. Konstruktoren nehmen explizite Abhängigkeiten (kein Global-State, keine Singletons außer `AppContext`).
+3. Ein Controller **darf keine Referenz auf einen anderen Controller** halten — `ctx.*` oder Signals nutzen.
+4. Ein Controller **darf keine privaten Methoden** (`_`) von Docks oder Widgets aufrufen.
+5. Rückgabetypen müssen auf allen öffentlichen Methoden annotiert sein.
+6. **Controller mit Background-Threads implementieren `shutdown(self, timeout_ms: int = ...) -> bool`** — wird sequenziell aus `closeEvent` aufgerufen.
+
+### KnowledgeController-Ports (Protokolle)
+
+`KnowledgeController` interagiert mit Docks über typisierte Protokolle in `knowledge_ports.py`:
 
 ```
-KnowledgeDockPort — suspend/resume reindex, add files, open/rename/remove docs
-ChatDockPort      — add/rename/remove documents in context panel
-RAGWorkerPort     — isRunning(), enqueue_load_st(), st_loaded signal
+KnowledgeDockPort — suspend/resume Reindex, Dateien hinzufügen, Dokumente öffnen/umbenennen/entfernen
+ChatDockPort      — Dokumente im Kontext-Panel hinzufügen/umbenennen/entfernen
+RAGWorkerPort     — isRunning(), enqueue_load_st(), st_loaded Signal
 ```
 
-These Protocols are `@runtime_checkable`. Pass a real dock in production,
-pass a `MagicMock(spec=<Port>)` in tests.
+Diese Protokolle sind `@runtime_checkable`. In Tests: `MagicMock(spec=KnowledgeDockPort)`.
 
 ---
 
-## 8. Setup Sequence
+## 10. `window.py` — Dependency-Injector-Regel (verbindlich)
 
-`MainWindow.__init__` runs exactly these steps in this order. The order is
-load-bearing — each step depends on the previous.
+**Datei:** `studio/window.py` — **Zielgröße: ≤ 300 Zeilen**
 
-```
-Step 1  _init_services()          — RAGSystem, LLMManager, ProjectManager, AppContext
-Step 2  _init_early_controllers() — ThemeController (needed by Step 3),
-                                    FeedbackController
-Step 3  _init_window()            — window geometry, chrome theme (needs ThemeCtrl)
-Step 4  _init_central()           — CanvasTabWidget (central widget)
-Step 5  _init_statusbar()         — QStatusBar, FeedbackBar, status labels
-                                    → binds FeedbackBar to ctx
-Step 6  _init_docks()             — KnowledgeDock, ChatDock, LogDock
-                                    → sets up dock callback wiring
-Step 7  _init_controllers()       — all remaining controllers including
-                                    LLMSideTaskController (needs FeedbackBar from Step 5)
-                                    and FindReplaceController
-Step 8  ctx.validate()            — asserts all bindings present (debug mode)
-Step 9  build_menubar()           — populates menu (needs knowledge_controller for submenu)
-Step 10 _init_global_shortcuts()  — Ctrl+F, Alt+1/2/3, Ctrl+Tab, Ctrl+Alt+S
-Step 11 _connect_global_signals() — cross-component signal wiring + 1 s context timer
-Step 12 set_user_mode()           — applies user mode UI state
-Step 13 _autosave_ctrl.maybe_restore_from_tmp() — crash recovery
-Step 14 _autosave_ctrl.start_runtime()          — activates periodic save
-Step 15 log startup info
-```
+### Die Kernregel
 
-**Why Step 5 before Step 6:** `LLMSideTaskController` (created in Step 7)
-needs the `FeedbackBar` widget. The `FeedbackBar` is created in Step 5 and
-bound to `ctx`. Step 6 creates the docks, which `LLMSideTaskController` also
-needs. So the order is: FeedbackBar → Docks → LLMSideTaskController. If you
-need a new controller that requires a UI widget created before docks exist,
-bind that widget to `ctx` in its creation step, not in `_init_docks`.
+> `window.py` ist ein **Dependency-Injector**. Es erzeugt Abhängigkeiten und verdrahtet sie.
+> Es implementiert keine Business-Logik selbst.
 
-### Profile-Driven UI Rules
+**Konkretes Kriterium:** Jede Methode in `window.py` darf entweder:
+- (a) ein **Setup-Schritt** sein — ruft genau ein Setup-Modul auf (`_init_*`-Methoden), oder
+- (b) eine **einzeilige Delegation** sein — ruft genau eine Controller-/ctx-Methode auf, oder
+- (c) `closeEvent` sein — kontrollierte Ausnahme (§23).
 
-User profiles are runtime-configured via `data/user_modes/*.toml` (not hard-coded).
-`shared/domain/user_mode.py` is the single resolver API used by UI code.
+**Verboten in `window.py`:**
+- Inline-Dialog-Factories mit Signal-Wiring (→ `DialogController`)
+- `if hasattr(self, "_widget"): self._widget.setXxx(...)` in Nicht-Setup-Methoden (→ `UserModeController`)
+- `resolve_feature_label(...)` Aufrufe in Methoden-Bodies (→ Dialog-Klasse oder Controller)
+- Business-Logik-Bodies (z.B. Autosave-Toggle-Logik → `AutosaveController`)
 
-#### A. Source-of-truth contract (MUST)
+### menubar.py-Regel
 
-- A profile is exactly one TOML file: `data/user_modes/<mode_id>.toml`.
-- Canonical profile id is the filename stem; `id` in TOML must match it.
-- Exactly one profile must declare `default_profile=true`.
-- Every profile must define all required sections:
-  `visibility`, `labels`, `literal_labels`, `literal_tooltips`.
-- Key sets across profiles must stay aligned; add/remove keys consistently in all
-  profile files.
-- `validate_user_mode_config()` must pass in tests/CI.
-
-#### B. Runtime API contract (MUST)
-
-- Use `is_feature_visible(mode, "feature.key", default=...)` for all visibility
-  gates (menus, actions, buttons, dialogs, advanced settings fields).
-- Use `resolve_feature_label(mode, "feature.key", default)` for profile-specific
-  labels; use `feature.key.tooltip` for hover text overrides.
-- For hard-coded UI literals that are not key-bound, use profile literal maps
-  (`literal_labels`, `literal_tooltips`) via
-  `studio/profile_text_overrides.py`.
-- Prefer declarative bindings over repeated imperative
-  `setText()/setToolTip()/setVisible()` blocks:
-  `studio/user_mode_bindings.py` (`apply_widget_texts`,
-  `apply_widget_tooltips`, `apply_widget_visibility`, `apply_form_row_*`,
-  `apply_combo_item_labels`).
-- Runtime `QMessageBox` text must remain profile-overridable via
-  `install_qmessagebox_literal_overrides()`.
-
-#### Example: profile-controlled button
-
-TOML keys in profile files:
-
-```toml
-# data/user_modes/simple.toml
-[visibility]
-"example.actions.generate_summary" = false
-
-[labels]
-"example.actions.generate_summary" = "Generate Summary"
-"example.actions.generate_summary.tooltip" = "Create a summary from the current context."
-```
-
-```toml
-# data/user_modes/plus.toml
-[visibility]
-"example.actions.generate_summary" = true
-
-[labels]
-"example.actions.generate_summary" = "Generate Summary"
-"example.actions.generate_summary.tooltip" = "Create a summary from the current context."
-```
-
-Widget wiring (no `if mode == "simple"` branching):
+`build_menubar(...)` empfängt einen **expliziten Input-Port** (`MenuBuildInputs`) mit exakt benannten Abhängigkeiten.
+Kein Menücode darf direkt auf beliebige `MainWindow`-Interna zugreifen.
 
 ```python
-from PySide6.QtWidgets import QPushButton
-
-from shared.domain.user_mode import normalize_user_mode
-from studio.user_mode_bindings import (
-    apply_widget_texts,
-    apply_widget_tooltips,
-    apply_widget_visibility,
+# Korrekt:
+build_menubar(
+    MenuBuildInputs(
+        host=self,  # nur Qt-Parent + menuBar()-Host
+        canvas=...,
+        knowledge_dock=...,
+        chat_dock=...,
+        log_dock=...,
+        action_handlers={...},
+        ...
+    )
 )
 
-self.generate_summary_btn = QPushButton("Generate Summary")
-
-def set_user_mode(self, mode: str) -> None:
-    self._user_mode = normalize_user_mode(mode)
-    apply_widget_visibility(
-        self._user_mode,
-        (
-            (self.generate_summary_btn, "example.actions.generate_summary", True),
-        ),
-    )
-    apply_widget_texts(
-        self._user_mode,
-        (
-            (self.generate_summary_btn, "example.actions.generate_summary", "Generate Summary"),
-        ),
-    )
-    apply_widget_tooltips(
-        self._user_mode,
-        (
-            (
-                self.generate_summary_btn,
-                "example.actions.generate_summary.tooltip",
-                "Create a summary from the current context.",
-            ),
-        ),
-    )
+# Verboten:
+build_menubar(self)   # MainWindow als Gott-Objekt
 ```
 
-#### C. Main-window propagation contract (MUST)
+### Erlaubte Struktur von `__init__`
 
-- `MainWindow.set_user_mode()` is the only orchestration point for mode changes.
-- It must continue to:
-  - normalize the incoming mode,
-  - update runtime context state,
-  - propagate to canvas/docks/open dialogs,
-  - apply key-based bindings and literal overrides,
-  - sync mode menu checks and status label.
-- Any new modeless dialog must implement `set_user_mode(mode: str)` so the
-  propagation path remains complete.
+```python
+def __init__(self):
+    super().__init__()
+    self._init_services()
+    self._init_early_controllers()
+    self._init_window()
+    self._init_central()
+    self._init_statusbar()
+    self._init_docks()
+    self._init_controllers()
+    self._context.validate()
+    build_menubar(MenuBuildInputs(...))
+    self._init_global_shortcuts()
+    self._connect_global_signals()
+    self.set_user_mode(self._user_mode, notify=False)
+    self._autosave_ctrl.maybe_restore_from_tmp(self)
+    self._autosave_ctrl.start_runtime()
+```
 
-#### D. Persistence contract (MUST)
+### `closeEvent`-Pattern
 
-- User mode must round-trip through project persistence in `project.json`
-  (`ui.user_mode`) and be restored by `ProjectLoader`.
-- Autosave restore must recover user mode because it loads the autosave project
-  through the same project loader path.
-- Unknown/legacy mode values must normalize safely to `default_user_mode()`.
-- Global `QSettings` is not the source of truth for user mode selection.
-  Persistent user mode state is project/autosave scoped.
+`closeEvent` koordiniert Shutdown sequenziell. Jeder Controller mit Background-Threads implementiert `shutdown() -> bool`:
 
-#### E. Key design and allowed patterns
-
-- Prefer stable key namespaces:
-  `canvas.toolbar.*`, `canvas.preview.button.*`, `knowledge.tab.*`,
-  `rag.results.*`, `prompt_editor.*`, `importer.dialog.*`,
-  `importer.pdf.viewer.*`, `importer.pdf.group.*`,
-  `importer.pdf.general.*`, `importer.pdf.tables.*`,
-  `importer.pdf.header_footer.*`, `importer.pdf.heading.*`,
-  `importer.pdf.paragraph.*`, `glossary.editor.*`, `feedback.*`.
-- Prefer key-based checks over rank-based or hard-coded branching.
-  `mode_rank()` is legacy and should not be used for new UI gating.
-- Avoid direct string branching like `if mode == "simple"` in UI code unless it
-  is an explicit, documented compatibility shim.
+```python
+def closeEvent(self, event):
+    if not self._confirm_save_on_close():
+        return event.ignore()
+    if not self._llm_ctrl.shutdown(timeout_ms=3000):
+        return event.ignore()
+    if not self._rag_ctrl.shutdown(timeout_ms=5000):
+        return event.ignore()
+    self._autosave_ctrl.flush_before_close()
+    self._speech_ctrl.stop_all()
+    self._dialog_manager.close_all()
+    event.accept()
+```
 
 ---
 
-## 9. Signal/Slot Rules
+## 11. Profil-System (User Modes)
 
-**Rule:** Prefer Qt signals over callback functions.
+### Überblick
 
-Correct pattern:
+User-Profile sind runtime-konfiguriert via `data/user_modes/*.toml` — nicht hard-coded in Python.
+`shared/domain/user_mode.py` ist die einzige Resolver-API, die UI-Code verwendet.
+
+### TOML-Datei-Konvention
+
+- Eine `.toml`-Datei pro Profil: Dateiname ist die kanonische Profil-ID (`plus.toml` → `plus`).
+- Das Feld `id` im TOML muss mit dem Dateinamen übereinstimmen.
+- Genau eine Datei setzt `default_profile = true`.
+- Struktur-Konsistenz wird von `validate_user_mode_config()` in Tests/CI erzwungen.
+
+### Profil-Datei-Struktur
+
+```toml
+version = 1
+id = "plus"
+label = "Plus"
+order = 1
+default_profile = true
+
+[visibility]
+"feature.key" = true        # steuert setVisible()
+
+[labels]
+"button.run" = "Starten"    # steuert setText() via resolve_feature_label()
+"button.run.tooltip" = "…"  # steuert setToolTip()
+
+[literal_labels]
+"Model Load" = "Modell laden"   # direkte Quelltext-Ersetzung
+
+[literal_tooltips]
+"Fact Check" = "Fakten prüfen"
+```
+
+### API-Nutzungsregeln
+
 ```python
-# Sender emits a signal:
+# Sichtbarkeit — für alle Menüs, Buttons, Dialoge, erweiterte Felder:
+is_feature_visible(mode, "feature.key", default=True)
+
+# Feature-Labels — für profil-spezifische Button/Label-Texte:
+resolve_feature_label(mode, "feature.key", default="Standard")
+
+# Literal-Overrides — für hard-codierte Strings, die überschrieben werden sollen:
+apply_profile_text_overrides(widget, mode)   # traversiert Widget-Baum einmalig
+
+# Deklarative Bindungen (bevorzugt gegenüber imperativem setText/setVisible):
+apply_widget_texts(mode, bindings)
+apply_widget_visibility(mode, bindings)
+apply_form_row_labels(mode, form, bindings)
+apply_combo_item_labels(mode, combo, bindings)
+```
+
+### Verboten
+
+- `mode_rank()` für neue Feature-Gates — **deprecated**, verwende `is_feature_visible()` mit expliziten Keys.
+- Inline-`resolve_feature_label()`-Aufrufe in `window.py`- oder Controller-Bodies — diese gehören in Dialog-Klassen oder Binding-Tabellen.
+- Globaler `_CATALOG`-State ohne Test-Teardown — in `conftest.py` via Fixture absichern.
+
+### `set_user_mode`-Konvention
+
+- **Jedes** modeless Dialog implementiert `set_user_mode(mode: str) -> None`.
+- Neue modale Dialoge mit profil-sensitivem Content ebenfalls.
+- `UserModeController` (§9) ist die zentrale Stelle für Normalisierung, Propagation und Feature-Bindings.
+- `MainWindow.set_user_mode(...)` bleibt eine **einzige Delegation** auf `UserModeController.apply_mode_to_window(...)`.
+- Kein direktes `hasattr`-Scanning oder Widget-Tree-Manipulation in `window.py`-Methoden außerhalb von `_init_*`/`closeEvent`.
+
+### Key-Namensräume (stabile Konvention)
+
+```
+canvas.toolbar.*         canvas.preview.button.*    knowledge.tab.*
+rag.results.*            prompt_editor.*             importer.dialog.*
+importer.pdf.*           glossary.editor.*           feedback.*
+menu.ai.*                menu.view.*                 window.status.*
+mindmap.generate.*
+```
+
+---
+
+## 12. Setup-Sequenz
+
+`MainWindow.__init__` läuft genau diese Schritte in dieser Reihenfolge. Die Reihenfolge ist load-bearing.
+
+```
+Step 1  _init_services()           — RAGSystem, LLMManager, ProjectManager, AppContext
+Step 2  _init_early_controllers()  — ThemeController (benötigt von Step 3), FeedbackController
+Step 3  _init_window()             — Window-Geometrie, Chrome-Theme (braucht ThemeCtrl)
+Step 4  _init_central()            — CanvasTabWidget (Central Widget)
+Step 5  _init_statusbar()          — QStatusBar, FeedbackBar, Status-Labels
+                                     → bindet FeedbackBar an ctx
+Step 6  _init_docks()              — KnowledgeDock, ChatDock, LogDock
+Step 7  _init_controllers()        — alle verbleibenden Controller inkl.
+                                     LLMSideTaskController (braucht FeedbackBar aus Step 5)
+                                     und FindReplaceController
+Step 8  ctx.validate()             — assertiert alle Bindings vorhanden (Debug-Modus)
+Step 9  build_menubar(MenuBuildInputs) — füllt Menü über explizite Ports
+Step 10 _init_global_shortcuts()   — delegiert an `setup/shortcuts_setup.py`
+Step 11 _connect_global_signals()  — delegiert an `setup/signals_setup.py`, inkl. 1s Context-Timer
+Step 12 set_user_mode(..., notify=False) — delegiert an `UserModeController`
+Step 13 autosave_ctrl.maybe_restore_from_tmp() — Crash-Recovery
+Step 14 autosave_ctrl.start_runtime()          — aktiviert periodisches Save
+Step 15 Startup-Info loggen
+```
+
+**Warum Step 5 vor Step 6:** `LLMSideTaskController` (erzeugt in Step 7) braucht `FeedbackBar`. `FeedbackBar` wird in Step 5 erzeugt und an `ctx` gebunden. Reihenfolge: FeedbackBar → Docks → LLMSideTaskController. Neue Controller, die ein UI-Widget vor Dock-Erzeugung brauchen: Widget in seinem Erzeugungsschritt an `ctx` binden.
+
+---
+
+## 13. Signal/Slot-Regeln
+
+**Regel:** Signals gegenüber Callbacks bevorzugen.
+
+```python
+# Korrekt — Sender emittiert Signal:
 class ChatDock(QDockWidget):
     glossary_requested = Signal(str)
 
-# Receiver connects to it:
+# Empfänger verbindet:
 chat_dock.glossary_requested.connect(llm_tasks_ctrl.request_glossary)
 ```
 
-Incorrect pattern (do not add more of these):
 ```python
-# Do NOT inject callbacks via set_* methods:
+# Verboten — Callback-Injection:
 chat_dock.set_glossary_request_handler(window._generate_glossary)
 ```
 
-The existing `set_context_getter`, `set_canvas_selection_getter` etc. on
-`ChatDock` are legacy. Do not add new `set_*_handler` or `set_*_getter`
-methods to any dock or widget.
+Keine `set_*_handler`- oder `set_*_getter`-Methoden zu Docks oder Widgets hinzufügen.
+Wiring läuft über Signals/Slots oder klar typisierte Controller-Ports.
 
-**Thread safety:** Signals crossing thread boundaries (worker → main thread)
-are safe because Qt queues them automatically when emitted from a non-GUI
-thread. Never update a QWidget directly from a background thread.
+**Thread-Sicherheit:** Signals, die Thread-Grenzen kreuzen (Worker → Main Thread), sind sicher, weil Qt sie automatisch queued. Niemals `QWidget` direkt aus einem Background-Thread aktualisieren.
 
 ---
 
-## 10. Threading Model
+## 14. Threading-Modell
 
 ```
-Main Thread (Qt event loop)
+Main Thread (Qt Event Loop)
 │
-├── LLMWorker (QThread)          — owns active BaseLLMBackend; streams tokens via signals
+├── LLMWorker (QThread)        — besitzt aktive BaseLLMBackend; streamt Tokens via Signals
 │
-├── RAGWorker (QThread)          — queue-based; indexing + search + ST model load
-│   └── RAGSystem (RLock)        — all RAGSystem methods are thread-safe
+├── RAGWorker (QThread)        — Queue-basiert; Indexierung + Suche + ST-Modell-Load
+│   └── RAGSystem (RLock)      — alle RAGSystem-Methoden sind thread-sicher
 │
-├── TTS Worker (QThread)         — Piper audio synthesis
+├── TTS Worker (QThread)       — Piper Audio-Synthese
 │
-└── Dictation Worker (QThread)   — Whisper inference + audio capture (arecord)
+└── Dictation Worker (QThread) — Whisper-Inferenz + Audio-Capture
 ```
 
-**Rules:**
-1. Never call a `QWidget` method from a background thread.
-2. Background threads communicate with the main thread exclusively via signals.
-3. `RAGSystem` methods are safe to call from any thread (protected by
-   `threading.RLock`), but long blocking calls (sync index) should still go
-   through `RAGWorker` to keep the UI responsive.
-4. `LLMManager` synchronous methods (`expand_query_tfidf_sync`, etc.) block
-   the calling thread. Call them only from a worker thread or from a context
-   where blocking is acceptable (e.g. during autosave preparation).
-5. `QThread.wait(timeout_ms)` return value **must** be checked. If it returns
-   `False`, call `terminate()` then `wait()` and log the event.
+**Regeln:**
+
+1. Niemals eine `QWidget`-Methode aus einem Background-Thread aufrufen.
+2. Background-Threads kommunizieren mit Main Thread ausschließlich via Signals.
+3. `RAGSystem`-Methoden sind von jedem Thread aufrufbar (`threading.RLock`), aber lange blockierende Aufrufe gehen über `RAGWorker` für UI-Responsivität.
+4. `LLMManager`-synchrone Methoden (`expand_query_tfidf_sync` etc.) blockieren den aufrufenden Thread — nur aus Worker-Threads aufrufen.
+5. `QThread.wait(timeout_ms)` Rückgabewert **muss** geprüft werden. Bei `False`: `terminate()`, dann `wait()`, dann loggen.
+6. Jeder Controller mit Background-Threads implementiert `shutdown(timeout_ms: int) -> bool`.
 
 ---
 
-## 11. Project Persistence
+## 15. Projekt-Persistenz
 
-### Folder Layout (on disk)
+### Ordner-Layout (auf Disk)
 
 ```
 <project_folder>/
 ├── canvas/
-│   ├── doc_0000.md          # Canvas tab 0 content
-│   ├── doc_0001.md          # Canvas tab 1 content
+│   ├── doc_0000.md          # Canvas-Tab 0 Inhalt
 │   └── ...
 ├── knowledge/
-│   ├── doc_0000.md          # Imported document 0 (persisted markdown)
-│   └── ...
+│   └── ...                  # Importierte Dokumente
 ├── rag/
-│   ├── index.pkl            # Pickled TF-IDF index + metadata
-│   └── embeddings.pt        # Pickled sentence-transformer embeddings (optional)
+│   ├── index.pkl            # TF-IDF-Index + Metadaten
+│   └── embeddings.pt        # ST-Embeddings (optional)
 ├── chat/
-│   ├── history.json         # Chat message history
-│   └── chunk_claim_cache.json  # Fact-check claim cache
+│   ├── history.json
+│   └── chunk_claim_cache.json
 ├── logs/
-│   └── entries.json         # Debug log entries
-├── highlights.json          # Highlight/glossary store for this project
-└── project.json             # Manifest (`version`, file list, metadata)
+│   └── entries.json
+├── highlights.json
+└── project.json             # Manifest (`version`, Dateiliste, Metadaten)
 ```
 
-### Archive Format (`.d2c`)
+### Archiv-Format (`.d2c`)
 
-Project persistence supports both folder-based projects and compressed archives:
-- Export creates a standard ZIP archive with `.d2c` extension that contains the
-  full project folder contents at archive root.
-- Import accepts `.d2c` archives (and ZIP-compatible content), validates ZIP
-  integrity and required project structure (`project.json`, `canvas/`,
-  `knowledge/`, `rag/`, `chat/`, `logs/`), then extracts to a managed workspace
-  before running `ProjectLoader`.
-- ZIP path traversal is blocked during validation/extraction (no absolute paths,
-  no `..`, no drive-style prefixes).
-- `ProjectLoader` expects current manifest fields only (for example
-  `llm.nli_model_id`, `settings.prompts`); deprecated aliases are not mapped.
+- Export erzeugt Standard-ZIP-Archiv mit `.d2c`-Extension.
+- Import validiert ZIP-Integrität und erforderliche Projektstruktur, extrahiert dann in managed Workspace.
+- ZIP-Pfad-Traversal wird bei Validierung/Extraktion geblockt (keine absoluten Pfade, kein `..`).
+- `ProjectLoader` erwartet aktuelle Manifest-Felder — keine deprecated Aliase.
 
-### Manifest UI contract
+### Strikter Ladevertrag (kein Legacy-Fallback)
 
-- `project.json` must preserve UI profile state in `ui.user_mode`.
-- Save path: `ProjectSaver` writes `ui.user_mode` from `MainWindow.user_mode`.
-- Load path: `ProjectLoader` restores `ui.user_mode` through
-  `MainWindow.set_user_mode(..., notify=False)`.
-- Because autosave restore uses `ProjectLoader` on the autosave workspace,
-  user mode restoration must behave identically for manual project load and
-  crash-recovery restore.
+- **Keine Altformat-Kompatibilität:** alte Projektstände sind nicht supported.
+- `project.json` muss dem aktuellen Schema entsprechen (`version == 1`, inkl. `rag_config`, `canvas`, `knowledge`, `settings`, `llm`, `ui`).
+- `chat/history.json` muss im Session-Objektformat vorliegen (`{"current_tab": ..., "tabs": [...]}`), nicht als alte Message-Liste.
+- `knowledge.files[*]` lädt Inhalt ausschließlich aus `knowledge_file`; kein Inline-`markdown`-Fallback.
+- Canvas lädt ausschließlich in `project.json` referenzierte Dateien; keine automatische Orphan-Recovery (`doc_*.md`) beim Load.
+- Traversal-/Schema-/Pfadfehler sind harte Ladefehler (`ProjectSchemaError`/`ValueError`), keine stillen Defaults.
 
-### Path Security
+### Pflicht- vs. optionale Artefakte beim Load
 
-All paths within a project are validated via `ProjectPaths._resolve_child()`:
-- `Path.resolve(strict=False)` prevents symlink traversal.
-- `_is_relative_to(candidate, allowed_root)` rejects escapes like `../../etc`.
-- No user-supplied string is ever passed to `Path` without going through
-  `ProjectPaths`.
+- **Pflicht:** `project.json`, `chat/history.json`, `logs/entries.json`
+- **Optional:** `rag/index.pkl`, `rag/embeddings.pt`, `chat/chunk_claim_cache.json`
+
+### Pfad-Sicherheit
+
+Alle Pfade innerhalb eines Projekts werden via `ProjectPaths._resolve_child()` validiert:
+- `Path.resolve(strict=False)` verhindert Symlink-Traversal.
+- `_is_relative_to(candidate, allowed_root)` lehnt Escapes wie `../../etc` ab.
+- Kein user-supplied String wird ohne `ProjectPaths`-Verarbeitung an `Path` übergeben.
+- `allowed_root` ist immer explizit — kein stiller `Path.cwd()`-Fallback.
 
 ---
 
-## 12. QSettings Key Registry
+## 16. QSettings-Key-Registry
 
-All persistent setting keys live in `shared/config/setting_keys.py` as
-`Final[str]` class attributes. **Never** write a QSettings key as a string
-literal anywhere else in the codebase.
+Alle persistenten Setting-Keys leben in `shared/config/setting_keys.py` als `Final[str]`-Klassenattribute. **Niemals** einen QSettings-Key als String-Literal anderswo schreiben.
 
-Key groups:
-
-| Class | Domain | Example key |
+| Klasse | Domäne | Beispiel-Key |
 |-------|--------|-------------|
 | `AutosaveSettingsKeys` | Autosave | `autosave/enabled` |
-| `ThemeSettingsKeys` | UI / preview | `ui/theme`, `preview/markdown_theme` |
+| `ThemeSettingsKeys` | UI/Vorschau | `ui/theme`, `preview/markdown_theme` |
 | `FeedbackSettingsKeys` | Feedback | `feedback/ui_enabled` |
-| `SpeechSettingsKeys` | TTS / STT | `tts_engine`, `stt_model_size` |
-| `PromptTemplateKeys` | LLM prompts | 39 keys, includes `ALL` tuple |
-| `RAGSettingsKeys` | RAG pipeline | `rag/chunking_strategy`, `rag/top_k` |
+| `SpeechSettingsKeys` | TTS/STT | `tts_engine`, `stt_model_size` |
+| `PromptTemplateKeys` | LLM-Prompts | 39 Keys, inkl. `ALL`-Tuple |
+| `RAGSettingsKeys` | RAG-Pipeline | `rag/chunking_strategy`, `rag/top_k` |
 
-QSettings organisation/application strings: `"draft2craift"` / `"draft2craift"`.
-Primary runtime settings are created in `services_setup.py` and passed through
-`AppContext`. One additional bootstrap instance exists in `studio/app.py` to
-apply the UI theme before `MainWindow` is constructed.
+QSettings Organisation/Applikation: `"draft2craift"` / `"draft2craift"`.
+**Eine** `QSettings`-Instanz wird in `services_setup.py` erzeugt und über `AppContext` weitergegeben. Die Bootstrap-Instanz in `studio/app.py` für Theme-Init vor `MainWindow` ist die einzige erlaubte zweite Instanz.
 
 ---
 
-## 13. Domain Models (`shared/domain/`)
+## 17. Domain-Modelle (`shared/domain/`)
 
-Domain models are pure Python — no Qt, no I/O. They use `@dataclass(frozen=True)`
-or plain `@dataclass`. No methods beyond `__post_init__` validation.
+Domain-Modelle sind reines Python — kein Qt, kein I/O. Sie nutzen `@dataclass(frozen=True)` oder einfaches `@dataclass`. Keine Methoden außer `__post_init__`-Validierung.
 
-Do not add serialisation logic to domain classes. Serialisation belongs in
-`shared/services/project/project_saver.py` and `project_loader.py`.
+Serialisierungs-Logik gehört nicht in Domain-Klassen — sie gehört in `shared/services/project/project_saver.py` und `project_loader.py`.
+
+**Typisierte Schnittstellen:** Strukturen, die Schichtgrenzen kreuzen (z.B. LLM-Kontext-Dict, RAG-Ergebnisse), sollen als `TypedDict` in `shared/domain/` definiert werden — keine ungetypten `dict`- oder `tuple`-Strukturen an Schnittstellen.
 
 ---
 
-## 14. Testing Conventions
+## 18. Test-Konventionen
 
-Tests mirror the source tree:
+Tests spiegeln die Source-Tree-Struktur:
 
 ```
 tests/
-├── domain/         # Tests for shared/domain/*
-├── services/       # Tests for shared/services/*
-└── studio/         # Tests for studio/controllers/* and studio/setup/*
+├── domain/         # Tests für shared/domain/*
+├── services/       # Tests für shared/services/*
+└── studio/         # Tests für studio/controllers/* und studio/setup/*
 ```
 
-**Mocking:**
-- Prefer `unittest.mock.create_autospec(SomeClass, instance=True, spec_set=True)`.
-- Avoid adding new hand-crafted stub classes (`_FooStub`); migrate legacy stubs opportunistically.
-- For dock dependencies, mock against the Port protocol:
-  `MagicMock(spec=KnowledgeDockPort)`.
+### Key-Fixtures (`conftest.py`)
 
-**Qt in tests:**
-- Tests that instantiate `QObject` subclasses need a `QApplication`. Use the
-  shared `conftest.py` fixture; do not create `QApplication` inline.
-- Controller tests should not instantiate `MainWindow`.
+| Fixture | Scope | Was sie bietet |
+|---------|-------|-----------------|
+| `_qt_offscreen` | session (autouse) | Setzt `QT_QPA_PLATFORM=offscreen` vor Qt-Init |
+| `qt_app` | session | Einzelne `QApplication`-Instanz, von allen Tests wiederverwendet |
+| `rag_config` | function | `RAGConfig` mit beiden Backends deaktiviert (schnell, kein Modell) |
+| `rag_entries` | function | Liste von `RAGEntry`-Objekten zum Seeden |
+| `rag_system` | function | Leere `RAGSystem`-Instanz |
+| `indexed_rag_system` | function | `RAGSystem` vorgeseeded mit `rag_entries` |
 
-**Coverage target:** 75 % (not yet enforced in CI but the goal).
+### Regeln
 
----
+- **Mirror-Struktur:** jedes `studio/foo.py` hat Tests in `tests/studio/test_foo.py`.
+- **Autospec-Mocks bevorzugen:** `create_autospec(SomeClass, instance=True, spec_set=True)`.
+- **Keine neuen Hand-Crafted-Stubs** (`_FooStub`) — Legacy-Stubs opportunistisch migrieren.
+- **Offscreen-Qt:** alle `tests/studio/`-Tests verlassen sich auf `_qt_offscreen`-Autouse-Fixture.
+- **Kein Netz/Modell-I/O:** Tests dürfen keine Modelle herunterladen oder externe APIs aufrufen.
+- **Globaler State:** Tests, die `reload_user_mode_config()` oder anderen globalen State mutieren, brauchen ein `autouse`-Teardown in `conftest.py`.
+- **Run:** `pytest tests/` vom Repo-Root. Keine speziellen Flags erforderlich.
 
-## 15. Architectural Rules — Checklist
-
-Use this list to verify that new code is conformant.
-
-### Layer rules
-- [ ] `shared/` contains no import from `studio/`
-- [ ] `shared/` contains no `QWidget`, `QDialog`, `QMainWindow`, `QLayout`
-- [ ] `shared/domain/` contains no import from `shared/services/`
-- [ ] `shared/config/` contains no import from `shared/services/`
-
-### AppContext rules
-- [ ] `AppContext` holds references only to services and controllers — not to
-      dock widgets (exception: `_glossary_feedback_bar`)
-- [ ] No new `bind_*dock*` or `bind_*widget*` methods added to `AppContext`
-- [ ] No new delegation method added to `AppContext` that is a trivial
-      one-liner wrap of a single controller method
-- [ ] `AppContext.validate()` is called exactly once, after `_init_controllers()`
-
-### Controller rules
-- [ ] No controller holds a reference to another controller
-- [ ] No controller calls a `_private` method of a dock or widget
-- [ ] Every new controller is created in `controllers_setup.py` and added to
-      `ControllerBundle`
-- [ ] Every controller method has a return type annotation
-
-### Signal/Slot rules
-- [ ] No new `set_*_handler` or `set_*_getter` injected into a dock or widget
-- [ ] No UI widget update performed from a non-main thread (no direct `setText`,
-      `setEnabled`, etc. in a `QThread.run()`)
-
-### Threading rules
-- [ ] `QThread.wait(timeout_ms)` return value is always checked
-- [ ] LLM synchronous methods are not called on the main thread during normal
-      UI operation
-
-### Settings rules
-- [ ] No QSettings key written as a string literal outside `setting_keys.py`
-- [ ] Additional `QSettings` instances are avoided in runtime code (bootstrap in `studio/app.py` is allowed)
-
-### User-mode rules
-- [ ] New UI behavior is gated via profile keys (`is_feature_visible` /
-      `resolve_feature_label`) rather than hard-coded mode branching
-- [ ] New profile keys are added consistently to all `data/user_modes/*.toml`
-      files and `validate_user_mode_config()` remains clean
-- [ ] New modeless dialogs implement `set_user_mode(mode: str)` and are
-      compatible with main-window propagation
-- [ ] Project save/load keeps `ui.user_mode` round-trip intact
-
-### Project path rules
-- [ ] All file I/O within a project folder goes through `ProjectPaths`
-- [ ] No `Path(user_string)` without `.resolve()` + `_is_relative_to()` check
-
-### Path resolution rules
-- [ ] `Path.cwd()` is not used for persistent data paths; use
-      `QStandardPaths.writableLocation()` (in `studio/`) or
-      `platformdirs.user_data_dir()` (in `shared/`)
-
-### Testing rules
-- [ ] New tests prefer autospec/spec-set mocks; no new long-lived hand-crafted stubs
-- [ ] New controller has at least one test in `tests/studio/`
+**Coverage-Ziel:** 75% (noch nicht in CI erzwungen, aber das Ziel).
 
 ---
 
-## 16. Static Data (`data/`)
+## 19. Statische Daten (`data/`)
 
 ```
 data/
-├── about.md          # "About" page shown in the preview panel
-├── shortcuts.md      # Keyboard shortcuts reference page
-├── welcome.md        # First-run welcome page
-├── user_modes/       # Profile catalog (*.toml) for visibility/labels/literals
-└── prompts/
-    └── defaults.json # Default LLM prompt templates shipped with the app
+├── about.md          # "About"-Seite in der Vorschau
+├── shortcuts.md      # Keyboard-Shortcuts-Referenz
+├── welcome.md        # Erstes-Start-Willkommen
+├── prompts/
+│   └── defaults.json # Default-LLM-Prompt-Templates
+└── user_modes/       # Profil-TOMLs (je eine Datei pro Profil)
 ```
 
-**Rules:**
-- Runtime code may read from `data/` (for example via `_read_data_file()` in
-  `window.py` and profile loading in `shared/domain/user_mode.py`), but must not
-  write back into repository data files.
-- `prompts/defaults.json` is the fallback when no user-customised prompts exist;
-  runtime user edits are stored in `QStandardPaths.AppDataLocation`, never in
-  `data/`.
-- `user_modes/*.toml` is the canonical profile catalog used by
-  `shared/domain/user_mode.py`.
-- Do not add binary assets, images, or model weights here — only plain text and
-  JSON.
+**Regeln:**
+- Dateien sind zur Laufzeit read-only via `_read_data_file(name)` in `window.py`.
+- `prompts/defaults.json` ist der Fallback; User-Edits werden in `QStandardPaths.AppDataLocation` gespeichert, nie zurück in `data/`.
+- Keine Binär-Assets, Bilder oder Modell-Gewichte in `data/` — nur Plain-Text und JSON.
 
 ---
 
-## 17. Automated Tests (`tests/`)
+## 20. Eval-Skripte (`eval/`)
 
-```
-tests/
-├── conftest.py            # Session-scoped pytest fixtures
-├── domain/                # Pure-Python domain model tests (no Qt)
-│   ├── test_feedback_domain.py
-│   ├── test_graph_spec.py
-│   └── test_user_mode.py
-├── services/              # shared/ service layer tests (no Qt or minimal Qt)
-│   ├── test_rag_chunking.py
-│   ├── test_rag_config.py
-│   ├── test_rag_concurrency.py
-│   ├── test_rag_orchestrator_public_api.py
-│   ├── test_project_path_security.py
-│   ├── test_prompt_migration.py
-│   └── ...                # ~11 files total
-└── studio/                # PySide6 UI layer tests (require Qt offscreen)
-    ├── test_app_context_validate.py
-    ├── test_autosave_controller.py
-    ├── test_chat_history_sessions.py
-    ├── test_find_replace_controller.py
-    ├── test_knowledge_controller_rag_public_api.py
-    ├── test_llm_tasks_controller.py
-    ├── test_theme_profiles.py
-    └── ...                # ~22 files total
-```
-
-### Key fixtures (`conftest.py`)
-
-| Fixture | Scope | What it provides |
-|---------|-------|-----------------|
-| `_qt_offscreen` | session (autouse) | Sets `QT_QPA_PLATFORM=offscreen` before Qt initialises |
-| `qt_app` | session | Single `QApplication` instance reused by all tests |
-| `rag_config` | function | `RAGConfig` with both backends disabled (fast, no model) |
-| `rag_entries` | function | List of `RAGEntry` objects for seeding |
-| `rag_system` | function | Empty `RAGSystem` instance |
-| `indexed_rag_system` | function | `RAGSystem` pre-seeded with `rag_entries` |
-
-### Conventions
-
-- **Mirror structure:** every `studio/foo.py` has tests in `tests/studio/test_foo.py`; every `shared/services/bar.py` has tests in `tests/services/test_bar.py`.
-- **Prefer autospec mocks:** use `unittest.mock.create_autospec(SomeClass, spec_set=True)` for new tests; migrate legacy stubs over time.
-- **Offscreen Qt:** all `tests/studio/` tests rely on the `_qt_offscreen` autouse fixture; never create a real display.
-- **No network / model I/O:** tests must not download models or call external APIs; mock `LLMManager` and `RAGSystem` at the boundary.
-- **Run:** `pytest tests/` from the repository root. No special flags required.
+**Regeln:**
+- `eval/` wird **nicht** in das Produktions-Wheel gebaut — in `pyproject.toml` ausschließen.
+- Shared Utilities leben in `eval/shared/` — keine Duplikate über Skripte.
+- Keine Qt-Imports in `eval/` — reine CLI-Tools.
+- Keine `sys.path.insert(0, ...)`-Hacks — `pip install -e .` nutzen.
+- Metriken aus `eval/shared/metrics.py` sind die kanonischen Implementierungen.
 
 ---
 
-## 18. Evaluation Scripts (`eval/`)
+## 21. Definition of Done (Architektur)
 
-```
-eval/
-├── rag_eval.py            # RAG pipeline: precision, recall, F1, MRR, MAP, nDCG
-├── rag_sweep.py           # Grid-sweep over RAGConfig hyperparameters
-├── factcheck_eval.py      # Fact-check claim accuracy vs. reference
-├── glossary_eval.py       # Glossary extraction quality
-├── judge_eval.py          # LLM-as-judge scoring of generated text
-├── llm_compare_eval.py    # Side-by-side comparison of two LLM outputs
-├── mindmap_eval.py        # Mind-map structure correctness
-├── pdf_eval.py            # PDF text extraction quality
-├── stt_diag.py            # Speech-to-text diagnostics (WER, latency)
-├── feedback_generate_tests.py  # Generate test cases from feedback events
-├── build_fixtures.py      # Build reusable eval fixture files
-└── shared/
-    ├── logger.py          # Structured JSONL logger used by all eval scripts
-    ├── metrics.py         # Shared metric implementations (RR, AP, nDCG, …)
-    └── models.py          # Dataclasses: EvalCase, EvalResult, SuiteRun
-```
+Ein Change ist architektonisch fertig, wenn:
 
-### Invocation pattern
-
-```bash
-python -m eval.rag_eval --suite eval/examples/rag_suite.example.json \
-       --output-dir runs/rag_eval --run-name exp-01
-python -m eval.rag_sweep --suite eval/examples/rag_sweep.example.json
-```
-
-All scripts write results as JSONL to `--output-dir` (defaults are tool-specific under `runs/`).
-
-### Rules
-
-- **Packaging status:** `eval/` is currently included in the wheel (see `pyproject.toml` `[tool.hatch.build.targets.wheel]`). It is still intended for repo/tooling workflows.
-- **Shared utilities live in `eval/shared/`**, never duplicated across scripts.
-- **No Qt imports** in `eval/` — these are pure CLI tools; GUI display is handled by `test_studio/`.
-- Metrics from `eval/shared/metrics.py` are the canonical implementations; do not recompute precision/recall/F1 inline.
+1. Schichtgrenzen eingehalten sind,
+2. Verantwortlichkeit eindeutig zugeordnet ist,
+3. keine neue versteckte Kopplung entstanden ist,
+4. Persistenz- und Threading-Regeln erfüllt sind,
+5. `window.py`-Methoden-Body-Regel (§10) eingehalten ist,
+6. Tests und Dokumentation die Entscheidung abbilden.
 
 ---
 
-## 19. Evaluation Dashboard (`test_studio/`)
+## 22. Ausnahmen (nur kontrolliert)
 
-```
-test_studio/
-├── main.py          # Entry point: `python test_studio/main.py`
-├── app.py           # Main PySide6 window (TestStudioApp)
-├── models.py        # Qt data models (SuiteRunModel, RunCompareModel)
-├── components/      # Data loading, metrics, runner/process helpers
-└── view/            # Reusable view widgets
-```
+Eine Ausnahme ist nur zulässig mit:
 
-**Purpose:** GUI dashboard for loading, running, and comparing `eval/` suite
-results. Reads JSONL run files produced by `eval/*.py` scripts and shows
-aggregate metrics, per-case diffs, and pass/fail status.
+1. Begründung (warum nötig),
+2. Risikoanalyse,
+3. Ablaufdatum (bis wann zurückgebaut),
+4. Verantwortliche Person,
+5. Test, der die Ausnahme sichtbar macht.
 
-**Rules:**
-- Uses PySide6 but is **not** part of the main `studio/` application; it is a
-  standalone tool launched separately.
-- Does not import from `studio/`; may import from `shared/` and `eval/shared/`.
-- Does not modify run files — read-only display only.
-- Launch: `python test_studio/main.py` (not `python main.py`).
+Ohne diese 5 Punkte gilt die Änderung als Architekturverstoß.
 
 ---
 
-## 20. Test-Case Authoring Studio (`testcase_studio/`)
+## 23. Bekannte intentionale Ausnahmen
 
-```
-testcase_studio/
-├── main.py               # Entry point: `python testcase_studio/main.py`
-├── app.py                # Root dialog (TestCaseStudioApp)
-├── case_dialog.py        # Per-case edit dialog
-├── case_fields.py        # Field widgets (query, ground-truth, tags…)
-├── controller.py         # Business logic: load/save/validate suite JSON
-├── draft_builder.py      # Builds draft test cases from feedback event JSONL
-├── feedback_formatter.py # Formats feedback payloads for human review
-├── models.py             # Dataclasses: TestCase, EvalSuite
-├── storage.py            # Read/write suite JSON files
-├── suite_schema.py       # JSON schema definition for suite files
-├── text_utils.py         # Text helpers (truncation, normalisation)
-├── ui_style.py           # Shared stylesheet constants
-└── views.py              # List / detail views
-```
-
-**Purpose:** PySide6 dialog application for authoring and editing evaluation
-test-case suites (`.json` files consumed by `eval/` scripts). Can also ingest
-feedback event logs and propose draft test cases for human review.
-
-**Rules:**
-- Standalone tool — not imported by `studio/` or `test_studio/`.
-- May import from `shared/` and `eval/shared/`; must not import from `studio/`.
-- Suite files it writes must validate against `suite_schema.py`'s schema.
-- Launch: `python testcase_studio/main.py`.
+| Muster | Ort | Begründung |
+|--------|-----|-----------|
+| `QObject`/`QThread` in `shared/` | `rag/orchestrator.py`, `rag/worker.py`, `llm/manager.py`, `llm/worker.py`, Speech-Worker | Signal/Slot-Threading erfordert Qt-Basisklassen |
+| `QByteArray` in `shared/services/project` | `project_loader.py` | Stellt persistierte Window-State-Bytes beim Projekt-Load wieder her |
+| `_apply_runtime_settings()` privater Aufruf | `studio/setup/signals_setup.py` | Übergangs-Call in Setup-Schritt; bis öffentliche Runtime-API auf `SpeechController` vorhanden ist |
+| `getattr(..., None)` defensiver Zugriff | `AppContext.autosave_*`-Methoden | Guard gegen teilweise initialisierten State beim Startup |
+| Bootstrap-`QSettings` in `studio/app.py` | `app.py:40` | Theme-Anwendung vor `MainWindow`-Konstruktion — einzige erlaubte zweite Instanz |
 
 ---
 
-## 21. Known Intentional Exceptions
+## 24. Kurz-Checkliste für Reviews
 
-These patterns look like violations but are intentional and must not be
-"fixed":
+### Schicht-Regeln
+- [ ] `shared/` enthält keinen Import aus `studio/`
+- [ ] `shared/` enthält kein `QWidget`, `QDialog`, `QMainWindow`, `QLayout`
+- [ ] `shared/domain/` enthält keinen Import aus `shared/services/`
+- [ ] `shared/config/` enthält keinen Import aus `shared/services/`
 
-| Pattern | Location | Reason |
-|---------|----------|--------|
-| `QObject` / `QThread` in `shared/` | `rag/orchestrator.py`, `rag/worker.py`, `llm/manager.py`, `llm/worker.py`, speech workers | Signal/slot threading requires Qt base classes |
-| `QByteArray` in `shared/services/project` | `project_loader.py` | Restores persisted window state bytes during project load |
-| `set_context_getter` etc. on `ChatDock` | `docks_setup.py` | Legacy callback wiring; acceptable until signal migration |
-| `_apply_runtime_settings()` called from `window.py` | `_connect_global_signals` | Private method call across layers; tracked as tech debt |
-| `getattr(..., None)` defensive access | `AppContext.autosave_*` methods | Guards against partially-initialised state during startup |
+### `window.py`-Regeln
+- [ ] Jede neue `window.py`-Methode ist eine `_init_*`-Setup-Methode, `closeEvent`, oder einzeilige Delegation
+- [ ] `window.py` wächst nicht (Zeilen-Count vor und nach dem Change vergleichen)
+- [ ] Kein `resolve_feature_label()`-Aufruf in `window.py`-Methoden-Bodies
+- [ ] Keine neue Inline-Dialog-Factory in `window.py`
+- [ ] `set_user_mode(...)` bleibt eine einzige Delegation auf `UserModeController`
+
+### AppContext-Regeln
+- [ ] `AppContext` hält Referenzen nur auf Services und Controller — nicht auf Dock-Widgets (Ausnahme: `_glossary_feedback_bar`)
+- [ ] Keine neuen `bind_*dock*`- oder `bind_*widget*`-Methoden in `AppContext`
+- [ ] Keine neue triviale Delegations-Methode in `AppContext`
+- [ ] `AppContext.validate()` wird genau einmal aufgerufen, nach `_init_controllers()`
+
+### Controller-Regeln
+- [ ] Kein Controller hält Referenz auf einen anderen Controller
+- [ ] Kein Controller ruft `_private`-Methode eines Docks oder Widgets auf
+- [ ] Jeder neue Controller ist in `controllers_setup.py` erzeugt und in `ControllerBundle`
+- [ ] Jede Controller-Methode hat eine Rückgabetyp-Annotation
+- [ ] Controller mit Background-Threads hat `shutdown(timeout_ms) -> bool`
+
+### Profil-/User-Mode-Regeln
+- [ ] Kein neuer `mode_rank()`-Aufruf — `is_feature_visible()` nutzen
+- [ ] Neues Dialog implementiert `set_user_mode(mode: str) -> None`
+- [ ] TOML-Schlüssel-Namensräume-Konvention eingehalten (§11)
+- [ ] Tests, die `reload_user_mode_config()` aufrufen, haben Teardown-Fixture
+
+### Signal/Slot-Regeln
+- [ ] Keine neuen `set_*_handler`- oder `set_*_getter`-Injektionen in Docks/Widgets
+- [ ] Kein Widget-Update aus einem Non-Main-Thread
+
+### Threading-Regeln
+- [ ] `QThread.wait(timeout_ms)` Rückgabewert immer geprüft
+- [ ] LLM-synchrone Methoden nicht im Main Thread aufgerufen
+
+### Settings-Regeln
+- [ ] Kein QSettings-Key als String-Literal außerhalb `setting_keys.py`
+- [ ] Keine zusätzlichen `QSettings`-Instanzen in Runtime-Code
+
+### Pfad-Regeln
+- [ ] Kein `Path.cwd()` für persistente Pfade
+- [ ] Kein `Path(user_string)` ohne `.resolve()` + `_is_relative_to()`-Check
+- [ ] `allowed_root` in `ProjectPaths` ist immer explizit
+- [ ] Keine Legacy-/Fallback-Branches im Projekt-Load/Save (altformate werden nicht still toleriert)
+
+### Test-Regeln
+- [ ] Neue Tests bevorzugen `create_autospec(spec_set=True)` — keine neuen Hand-Crafted-Stubs
+- [ ] Neuer Controller hat mindestens einen Test in `tests/studio/`
+- [ ] Kein Netz-/Modell-I/O in Tests

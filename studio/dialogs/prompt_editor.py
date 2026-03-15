@@ -41,14 +41,49 @@ class PromptEditorDialog(QDialog):
         except Exception:
             return str(value)
 
-    def _setup_ui(self):
+    @staticmethod
+    def _clear_layout_items(layout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            child = item.layout()
+            if child is not None:
+                PromptEditorDialog._clear_layout_items(child)
+                child.deleteLater()
+                continue
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+    def _collect_prompt_values(self) -> dict[str, str]:
+        values = dict(self._llm_manager.get_prompt_set())
+        for key, editor in list(self._editors.items()):
+            values[key] = str(editor.toPlainText() or "")
+        return values
+
+    def set_user_mode(self, mode: str) -> None:
+        normalized = normalize_user_mode(default_user_mode() if mode is None else mode)
+        if normalized == self._user_mode:
+            return
+        prompt_values = self._collect_prompt_values()
+        self._user_mode = normalized
+        self._setup_ui(prompt_values=prompt_values)
+
+    def _setup_ui(self, *, prompt_values: dict[str, str] | None = None):
         self.setWindowTitle(
             self._label("prompt_editor.window_title", "Edit Prompts")
         )
         self.resize(980, 700)
         self.setStyleSheet("background: palette(window); color: palette(window-text);")
 
-        layout = QVBoxLayout(self)
+        existing_layout = self.layout()
+        if existing_layout is None:
+            layout = QVBoxLayout(self)
+        else:
+            self._clear_layout_items(existing_layout)
+            layout = existing_layout
+
+        self._editors = {}
         lbl = QLabel(
             self._label(
                 "prompt_editor.intro",
@@ -61,7 +96,11 @@ class PromptEditorDialog(QDialog):
         lbl.setWordWrap(True)
         layout.addWidget(lbl)
 
-        prompt_values = self._llm_manager.get_prompt_set()
+        prompt_values = (
+            dict(self._llm_manager.get_prompt_set())
+            if prompt_values is None
+            else dict(prompt_values)
+        )
         prompt_defaults = self._llm_manager.get_prompt_defaults()
         top_tabs = QTabWidget()
         top_tabs.setStyleSheet("""
@@ -307,12 +346,6 @@ class PromptEditorDialog(QDialog):
                 "kind": "Struktur",
                 "desc": "Titel vor markierter Draft-Auswahl im Kontextblock.",
             },
-            "fact_check_system": {
-                "group": "Legacy",
-                "title": "Legacy: FactCheck (ungenutzt)",
-                "kind": "Legacy",
-                "desc": "Derzeit nicht aktiv im Codepfad. Nur für Rückwärtskompatibilität alter Projekte.",
-            },
         }
         show_advanced_groups = bool(
             is_feature_visible(
@@ -323,7 +356,7 @@ class PromptEditorDialog(QDialog):
         )
         group_order = ["Chat", "Faktencheck", "Glossar", "MindMap"]
         if show_advanced_groups:
-            group_order.extend(["RAG", "Erweitert", "Legacy"])
+            group_order.extend(["RAG", "Erweitert"])
 
         group_label_keys = {
             "Chat": "prompt_editor.group.chat",
@@ -332,7 +365,6 @@ class PromptEditorDialog(QDialog):
             "MindMap": "prompt_editor.group.mindmap",
             "RAG": "prompt_editor.group.rag",
             "Erweitert": "prompt_editor.group.advanced",
-            "Legacy": "prompt_editor.group.legacy",
         }
 
         def _group_label(group_name: str) -> str:
@@ -422,18 +454,6 @@ class PromptEditorDialog(QDialog):
                         "{nli_verify_user}     # mit {premise}, {hypothesis}",
                     ]),
                 )
-            if key == "fact_check_system":
-                return self._label(
-                    "prompt_editor.flow.legacy_fact_check",
-                    "\n".join([
-                        "Legacy-Hinweis:",
-                        "Dieser Prompt ist aktuell nicht im aktiven Ablauf verdrahtet.",
-                        "Aktiv genutzt werden stattdessen:",
-                        "- claim_extract_system + claim_extract_user",
-                        "- fact_verify_system + fact_verify_user",
-                        "- nli_verify_system + nli_verify_user (wenn NLI aktiv)",
-                    ]),
-                )
             if key.startswith("hyde_tfidf_"):
                 return _simple_flow("hyde_tfidf_system", "hyde_tfidf_user")
             if key.startswith("hyde_st_single_"):
@@ -505,11 +525,6 @@ class PromptEditorDialog(QDialog):
                 self._label(
                     "prompt_editor.group.info.default",
                     "Nur diese Prompts werden direkt in die jeweiligen LLM-Aufrufe übernommen.",
-                )
-                if group != "Legacy"
-                else self._label(
-                    "prompt_editor.group.info.legacy",
-                    "Legacy-Prompts sind nur für alte Projekte vorhanden und aktuell nicht aktiv verdrahtet.",
                 )
             )
             info.setWordWrap(True)

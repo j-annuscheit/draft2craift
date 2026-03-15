@@ -427,10 +427,10 @@ class FactcheckNliFlowTests(unittest.TestCase):
         self.assertIn("Doc A", markdown)
         self.assertIn("Doc B", markdown)
 
-    def test_normalize_factcheck_selection_supports_legacy_both(self):
+    def test_normalize_factcheck_selection_falls_back_to_nli_on_unknown_mode(self):
         dock = _DockProxy()
         modes = dock._normalize_factcheck_selection("both")
-        self.assertEqual(modes, ["nli", "llm_chunk"])
+        self.assertEqual(modes, ["nli"])
 
     def test_compose_factcheck_markdown_for_methods_renders_llm_global_section(self):
         dock = _DockProxy()

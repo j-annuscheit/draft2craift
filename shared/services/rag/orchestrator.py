@@ -143,6 +143,6 @@ class RAGSystem(QObject):
             return self._searcher.search(query, top_k, with_debug)
 
     def _build_chunks(self, content: str, doc_name: str = "") -> list[dict[str, Any]]:
-        """Compatibility hook used by chunk-based mindmap generation."""
+        """Build chunks for chunk-based mindmap generation."""
         with self._lock:
             return build_chunks(content, self._config.chunking, doc_name, self._log)

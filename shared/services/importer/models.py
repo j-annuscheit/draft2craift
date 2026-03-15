@@ -48,16 +48,6 @@ class PDFImportSettings:
     hf_threshold: float = 0.10
     hf_max_pairs: int = 3
 
-    # Legacy fields kept for compatibility with older saved states.
-    # The UI now offers only two modes:
-    #   auto_hf_detect=True   -> per-page auto-detection
-    #   auto_hf_detect=False  -> manual top/bottom scan zones (global)
-    use_manual_margins: bool = False
-    margin_top: float = 0.0
-    margin_bottom: float = 0.0
-    margin_left: float = 0.0
-    margin_right: float = 0.0
-
     # ── Heading detection ────────────────────────────────────────────────────
     # "pymupdf4llm"  – use the library's built-in detection (default)
     # "custom"       – use CustomHeaderDetector with the ratios below

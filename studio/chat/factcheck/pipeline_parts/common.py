@@ -84,8 +84,6 @@ def _normalize_factcheck_mode(cls, mode: str) -> str:
         "two_phase",
     }:
         return "llm_claim_nli"
-    if value == "both":
-        return "both"
     return ""
 
 @classmethod
@@ -98,10 +96,6 @@ def _normalize_factcheck_selection(
     def add_mode(raw_mode: object):
         normalized = cls._normalize_factcheck_mode(str(raw_mode or ""))
         if not normalized:
-            return
-        if normalized == "both":
-            for expanded in ("nli", "llm_chunk"):
-                seen.add(expanded)
             return
         seen.add(normalized)
 

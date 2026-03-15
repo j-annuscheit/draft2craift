@@ -67,6 +67,42 @@ default_profile = true
     )
 
 
+def _write_prompt_editor_mode_switch_config(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "alpha.toml").write_text(
+        """
+version = 1
+id = "alpha"
+label = "Alpha"
+order = 0
+default_profile = true
+
+[visibility]
+"prompt_editor.advanced_groups" = true
+
+[labels]
+"prompt_editor.window_title" = "Prompt Editor Alpha"
+"prompt_editor.group.advanced" = "Advanced"
+""".strip(),
+        encoding="utf-8",
+    )
+    (path / "beta.toml").write_text(
+        """
+version = 1
+id = "beta"
+label = "Beta"
+order = 1
+
+[visibility]
+"prompt_editor.advanced_groups" = false
+
+[labels]
+"prompt_editor.window_title" = "Prompt Editor Beta"
+""".strip(),
+        encoding="utf-8",
+    )
+
+
 def test_prompt_editor_uses_profile_labels(tmp_path: Path, qt_app):
     _ = qt_app
     cfg = tmp_path / "user_modes"
@@ -103,5 +139,38 @@ def test_prompt_editor_uses_profile_labels(tmp_path: Path, qt_app):
         cancel_btn = boxes[-1].button(QDialogButtonBox.StandardButton.Cancel)
         assert ok_btn is not None and ok_btn.text() == "Apply"
         assert cancel_btn is not None and cancel_btn.text() == "Abort"
+    finally:
+        reload_user_mode_config(USER_MODE_CONFIG_PATH)
+
+
+def test_prompt_editor_set_user_mode_rebuilds_ui(tmp_path: Path, qt_app):
+    _ = qt_app
+    cfg = tmp_path / "user_modes"
+    _write_prompt_editor_mode_switch_config(cfg)
+
+    class _SwitchPromptManagerStub(_PromptManagerStub):
+        PROMPT_KEYS = ("chat_system", "chat_grounding_rules", "chat_section_context_title")
+
+        def __init__(self) -> None:
+            super().__init__()
+            self._prompts["chat_section_context_title"] = "context-start"
+            self._defaults["chat_section_context_title"] = "context-default"
+
+    try:
+        reload_user_mode_config(cfg)
+        dialog = PromptEditorDialog(_SwitchPromptManagerStub(), user_mode="alpha")
+        first_editor = dialog._editors["chat_system"]
+        first_editor.setPlainText("changed-value")
+
+        assert dialog.windowTitle() == "Prompt Editor Alpha"
+        tabs_before = [tw.tabText(i) for tw in dialog.findChildren(QTabWidget) for i in range(tw.count())]
+        assert "Advanced" in tabs_before
+
+        dialog.set_user_mode("beta")
+
+        assert dialog.windowTitle() == "Prompt Editor Beta"
+        tabs_after = [tw.tabText(i) for tw in dialog.findChildren(QTabWidget) for i in range(tw.count())]
+        assert "Advanced" not in tabs_after
+        assert dialog._editors["chat_system"].toPlainText() == "changed-value"
     finally:
         reload_user_mode_config(USER_MODE_CONFIG_PATH)

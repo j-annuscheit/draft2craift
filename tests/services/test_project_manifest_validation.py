@@ -32,6 +32,7 @@ def test_load_project_rejects_missing_required_manifest_fields(tmp_path: Path):
         folder,
         {
             "version": 1,
+            "rag_config": {},
             "canvas": {"tabs": [], "current_tab": 0},
             "knowledge": {"files": []},
             "settings": {},
@@ -48,12 +49,35 @@ def test_load_project_rejects_missing_required_manifest_fields(tmp_path: Path):
     assert "Missing required field 'llm'" in manager.last_error
 
 
+def test_load_project_rejects_missing_required_rag_config(tmp_path: Path):
+    folder = tmp_path / "missing_rag_config_project"
+    _write_manifest(
+        folder,
+        {
+            "version": 1,
+            "canvas": {"tabs": [], "current_tab": 0},
+            "knowledge": {"files": []},
+            "settings": {},
+            "llm": {},
+            "ui": {},
+        },
+    )
+
+    manager = ProjectManager()
+    ok = manager.load_project(object(), str(folder))
+
+    assert ok is False
+    assert "Invalid project.json schema" in manager.last_error
+    assert "Missing required field 'rag_config'" in manager.last_error
+
+
 def test_load_project_rejects_wrong_nested_types(tmp_path: Path):
     folder = tmp_path / "wrong_types_project"
     _write_manifest(
         folder,
         {
             "version": 1,
+            "rag_config": {},
             "canvas": {"tabs": {}, "current_tab": 0},
             "knowledge": {"files": []},
             "settings": {},

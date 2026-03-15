@@ -5,7 +5,7 @@ import json
 import shutil
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, QSettings, QStandardPaths, QTimer
 from PySide6.QtWidgets import QMessageBox, QWidget
@@ -107,6 +107,38 @@ class AutosaveController(QObject):
             return
         # Lower bound prevents immediate back-to-back full snapshots while signals burst.
         self._full_timer.start(max(AUTOSAVE_FULL_MIN_DELAY_MS, int(delay_ms)))
+
+    def toggle_enabled(self, checked: bool) -> None:
+        enabled = bool(checked)
+        if enabled == self.enabled:
+            return
+        self.enabled = enabled
+        if enabled:
+            self.start_runtime()
+            self.schedule_full(delay_ms=150)
+            self._context.show_status(
+                "Autosave aktiviert (lokales Autosave-Projekt).",
+                3000,
+            )
+            return
+        self.stop_runtime()
+        self._reset_workspace()
+        self._context.show_status(
+            "Autosave deaktiviert. Lokales Autosave-Projekt wurde entfernt.",
+            3500,
+        )
+
+    def toggle_enabled_shortcut(self, *, action: object | None = None) -> None:
+        self.toggle_enabled(not bool(self.enabled))
+        if action is None:
+            return
+        blocker = getattr(action, "blockSignals", None)
+        set_checked = getattr(action, "setChecked", None)
+        if not callable(blocker) or not callable(set_checked):
+            return
+        blocked = blocker(True)
+        set_checked(bool(self.enabled))
+        blocker(blocked)
 
     def rewire_editors(self) -> None:
         if not self._enabled:
@@ -352,7 +384,7 @@ class AutosaveController(QObject):
         tabs_data = self._collect_canvas_tabs_data()
         extras = {}
         try:
-            extras = self._context.autosave_state_extras()
+            extras = self._autosave_state_extras()
         except Exception as exc:
             self._app_logger.warning(
                 "SYS",
@@ -384,6 +416,37 @@ class AutosaveController(QObject):
             "highlights": self._highlight_store_signature(),
         }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+    def _autosave_state_extras(self) -> dict[str, Any]:
+        """Gather non-canvas runtime state required for snapshot signatures."""
+        theme = ""
+        preview_margin: dict[str, object] = {}
+        preview_theme = ""
+        ctrl = self._context.theme_controller
+        if ctrl is not None:
+            try:
+                theme = str(ctrl.get_theme_id() or "")
+            except Exception as exc:
+                self._app_logger.warning("SYS", f"[AUTOSAVE] get_theme_id failed: {exc}")
+            try:
+                preview_margin = dict(ctrl.get_preview_page_margin_settings() or {})
+            except Exception as exc:
+                self._app_logger.warning(
+                    "SYS", f"[AUTOSAVE] get_preview_page_margin_settings failed: {exc}"
+                )
+            try:
+                preview_theme = str(ctrl.get_preview_theme_id() or "")
+            except Exception as exc:
+                self._app_logger.warning(
+                    "SYS", f"[AUTOSAVE] get_preview_theme_id failed: {exc}"
+                )
+        return {
+            "user_mode": self._context.get_user_mode(),
+            "theme": theme,
+            "imported_docs": sorted(self._context.file_registry.keys()),
+            "preview_page_margin": preview_margin,
+            "preview_theme": preview_theme,
+        }
 
     def _highlight_store_signature(self) -> dict[str, object]:
         """Return cheap change markers so highlight edits trigger full autosave."""

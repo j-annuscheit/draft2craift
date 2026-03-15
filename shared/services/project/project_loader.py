@@ -81,7 +81,7 @@ class ProjectLoader:
                 f"Unsupported project version: {version} (expected 1)."
             )
 
-        required_dict_fields = ("canvas", "knowledge", "settings", "llm", "ui")
+        required_dict_fields = ("rag_config", "canvas", "knowledge", "settings", "llm", "ui")
         for key in required_dict_fields:
             if key not in raw:
                 raise ProjectSchemaError(f"Missing required field '{key}'.")
@@ -104,6 +104,17 @@ class ProjectLoader:
                 raise ProjectSchemaError(
                     f"Field 'canvas.tabs[{idx}]' must be an object, got {type(tab_item).__name__}."
                 )
+            for field_name in ("title", "file_path", "canvas_file"):
+                field_value = tab_item.get(field_name)
+                if not isinstance(field_value, str):
+                    raise ProjectSchemaError(
+                        f"Field 'canvas.tabs[{idx}].{field_name}' must be string, got {type(field_value).__name__}."
+                    )
+            read_only = tab_item.get("read_only")
+            if not isinstance(read_only, bool):
+                raise ProjectSchemaError(
+                    f"Field 'canvas.tabs[{idx}].read_only' must be bool, got {type(read_only).__name__}."
+                )
         current_tab = canvas.get("current_tab")
         if current_tab is not None and not isinstance(current_tab, int):
             raise ProjectSchemaError(
@@ -123,6 +134,12 @@ class ProjectLoader:
                 raise ProjectSchemaError(
                     f"Field 'knowledge.files[{idx}]' must be an object, got {type(file_item).__name__}."
                 )
+            for field_name in ("display_name", "original_path", "knowledge_file"):
+                field_value = file_item.get(field_name)
+                if not isinstance(field_value, str):
+                    raise ProjectSchemaError(
+                        f"Field 'knowledge.files[{idx}].{field_name}' must be string, got {type(field_value).__name__}."
+                    )
 
         rag_results = raw.get("rag_results")
         if rag_results is not None:
@@ -140,12 +157,8 @@ class ProjectLoader:
 
     @staticmethod
     def _restore_rag_config(mw: Any, data: dict) -> None:
-        rag_cfg_data = data.get("rag_config", {})
-        try:
-            mw.rag_system.config = RAGConfig.from_dict(rag_cfg_data)
-        except Exception:
-            # Keep current defaults when fields do not match current schema.
-            return
+        rag_cfg_data = data["rag_config"]
+        mw.rag_system.config = RAGConfig.from_dict(rag_cfg_data)
 
     def _restore_knowledge_files(self, mw: Any, data: dict) -> None:
         # Block auto-reindex while restoring so background worker does not run.
@@ -159,11 +172,11 @@ class ProjectLoader:
         while viewer_tabs.count() > 0:
             viewer_tabs.removeTab(0)
 
-        for file_data in data.get("knowledge", {}).get("files", []):
-            display_name = file_data.get("display_name", "")
-            original_path = file_data.get("original_path", "")
-            knowledge_file = file_data.get("knowledge_file", "")
-            markdown = self._read_knowledge_markdown(file_data, knowledge_file)
+        for file_data in data["knowledge"]["files"]:
+            display_name = file_data["display_name"]
+            original_path = file_data["original_path"]
+            knowledge_file = file_data["knowledge_file"]
+            markdown = self._read_knowledge_markdown(knowledge_file)
 
             mw._file_registry[display_name] = (original_path, markdown)
             imported_files.add_file(display_name, markdown)
@@ -179,13 +192,9 @@ class ProjectLoader:
             except Exception:
                 pass
 
-    def _read_knowledge_markdown(self, file_data: dict, knowledge_file: str) -> str:
-        try:
-            knowledge_path = self._paths.resolve_knowledge_file(knowledge_file)
-            return knowledge_path.read_text(encoding="utf-8")
-        except Exception:
-            fallback = file_data.get("markdown", "")
-            return str(fallback or "")
+    def _read_knowledge_markdown(self, knowledge_file: str) -> str:
+        knowledge_path = self._paths.resolve_knowledge_file(knowledge_file)
+        return knowledge_path.read_text(encoding="utf-8")
 
     def _restore_rag_index(self, mw: Any) -> None:
         if not self._paths.rag_index.exists():
@@ -216,21 +225,16 @@ class ProjectLoader:
         while tab_widget.count() > 0:
             tab_widget.removeTab(0)
 
-        canvas_data = data.get("canvas", {})
-        referenced_canvas_files: set[str] = set()
-        for tab_data in canvas_data.get("tabs", []):
-            canvas_file = str(tab_data.get("canvas_file", "") or "")
-            if canvas_file:
-                referenced_canvas_files.add(canvas_file)
+        canvas_data = data["canvas"]
+        for tab_data in canvas_data["tabs"]:
+            canvas_file = tab_data["canvas_file"]
             content = self._read_canvas_content(canvas_file)
             mw.canvas.tabs.add_tab(
-                title=tab_data.get("title", "Draft"),
+                title=tab_data["title"],
                 content=content,
-                file_path=tab_data.get("file_path", ""),
-                read_only=tab_data.get("read_only", False),
+                file_path=tab_data["file_path"],
+                read_only=tab_data["read_only"],
             )
-
-        recovered_tabs = self._restore_orphaned_canvas_tabs(mw, referenced_canvas_files)
 
         if tab_widget.count() == 0:
             mw.canvas.tabs.add_tab()
@@ -239,112 +243,58 @@ class ProjectLoader:
             if 0 <= current < tab_widget.count():
                 tab_widget.setCurrentIndex(current)
 
-        if recovered_tabs > 0:
-            try:
-                status_bar = mw.statusBar()
-                if status_bar is not None:
-                    status_bar.showMessage(
-                        f"Zusätzliche Draft-Tabs wiederhergestellt: {recovered_tabs}",
-                        6000,
-                    )
-            except Exception:
-                pass
-
     def _read_canvas_content(self, canvas_file: str) -> str:
         if not canvas_file:
             return ""
-        try:
-            return self._paths.resolve_canvas_file(canvas_file).read_text(encoding="utf-8")
-        except Exception:
-            return ""
-
-    def _restore_orphaned_canvas_tabs(self, mw: Any, referenced_canvas_files: set[str]) -> int:
-        recovered_tabs = 0
-        if not self._paths.canvas.exists():
-            return recovered_tabs
-
-        for orphan in sorted(self._paths.canvas.glob("doc_*.md")):
-            if orphan.name in referenced_canvas_files:
-                continue
-            try:
-                content = orphan.read_text(encoding="utf-8")
-            except Exception:
-                continue
-            if not str(content or "").strip():
-                continue
-            mw.canvas.tabs.add_tab(
-                title=f"Wiederhergestellt {orphan.stem}",
-                content=content,
-                file_path="",
-                read_only=False,
-            )
-            recovered_tabs += 1
-
-        return recovered_tabs
+        return self._paths.resolve_canvas_file(canvas_file).read_text(encoding="utf-8")
 
     def _restore_chat_history(self, mw: Any) -> None:
         if not self._paths.chat_history.exists():
-            return
+            raise FileNotFoundError(f"No chat/history.json found in:\n{self._paths.base}")
 
-        try:
-            with open(self._paths.chat_history, "r", encoding="utf-8") as handle:
-                chat_history = json.load(handle)
-        except Exception:
-            return
+        with open(self._paths.chat_history, "r", encoding="utf-8") as handle:
+            chat_history = json.load(handle)
+        if not isinstance(chat_history, dict):
+            raise ProjectSchemaError("Field 'chat.history' must be an object.")
 
         history_widget = mw.chat_dock.history
-        if hasattr(history_widget, "import_sessions"):
-            history_widget.import_sessions(chat_history)
-            return
-
-        history_widget.clear_history()
-        if not isinstance(chat_history, list):
-            return
-        for entry in chat_history:
-            if not isinstance(entry, dict):
-                continue
-            history_widget.add_message(entry.get("role", ""), entry.get("content", ""))
+        history_widget.import_sessions(chat_history)
 
     def _restore_chunk_claim_cache(self, mw: Any) -> None:
-        importer = getattr(getattr(mw, "chat_dock", None), "import_chunk_claim_cache", None)
+        importer = getattr(mw.chat_dock, "import_chunk_claim_cache", None)
         if not callable(importer):
-            return
+            raise AttributeError("chat_dock.import_chunk_claim_cache is required.")
 
         payload: object = {}
         if self._paths.chat_chunk_claim_cache.exists():
-            try:
-                with open(self._paths.chat_chunk_claim_cache, "r", encoding="utf-8") as handle:
-                    payload = json.load(handle)
-            except Exception:
-                payload = {}
-        try:
-            importer(payload)
-        except Exception:
-            pass
+            with open(self._paths.chat_chunk_claim_cache, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        importer(payload)
 
     def _restore_log_entries(self, mw: Any) -> None:
         if not self._paths.log_entries.exists():
-            return
-        try:
-            with open(self._paths.log_entries, "r", encoding="utf-8") as handle:
-                log_entries = json.load(handle)
-        except Exception:
-            return
+            raise FileNotFoundError(f"No logs/entries.json found in:\n{self._paths.base}")
 
-        try:
-            mw.app_logger.clear()
-            for entry in log_entries:
-                mw.app_logger._entries.append(
-                    (
-                        entry["ts"],
-                        entry["level"],
-                        entry["category"],
-                        entry["message"],
-                    )
+        with open(self._paths.log_entries, "r", encoding="utf-8") as handle:
+            log_entries = json.load(handle)
+        if not isinstance(log_entries, list):
+            raise ProjectSchemaError("Field 'logs.entries' must be an array.")
+
+        mw.app_logger.clear()
+        for index, entry in enumerate(log_entries):
+            if not isinstance(entry, dict):
+                raise ProjectSchemaError(
+                    f"Field 'logs.entries[{index}]' must be an object, got {type(entry).__name__}."
                 )
-            mw.log_dock._rebuild_from_history()
-        except Exception:
-            pass
+            mw.app_logger._entries.append(
+                (
+                    entry["ts"],
+                    entry["level"],
+                    entry["category"],
+                    entry["message"],
+                )
+            )
+        mw.log_dock._rebuild_from_history()
 
     @staticmethod
     def _restore_rag_results(mw: Any, data: dict) -> None:
@@ -379,20 +329,16 @@ class ProjectLoader:
             mw.llm_manager.set_prompt_set(prompts)
 
         speech = settings.get("speech", {})
-        if hasattr(mw, "apply_speech_settings"):
-            mw.apply_speech_settings(speech)
+        mw.apply_speech_settings(speech)
 
         preview_page_margin = settings.get("preview_page_margin", {})
-        if hasattr(mw, "apply_preview_page_margin_settings"):
-            mw.apply_preview_page_margin_settings(preview_page_margin)
+        mw.apply_preview_page_margin_settings(preview_page_margin)
 
         preview_theme = settings.get("preview_theme", "classic")
-        if hasattr(mw, "apply_preview_theme_id"):
-            mw.apply_preview_theme_id(preview_theme, persist=True)
+        mw.apply_preview_theme_id(preview_theme, persist=True)
 
         theme = settings.get("theme", "dark")
-        if hasattr(mw, "apply_theme_id"):
-            mw.apply_theme_id(theme, persist=True)
+        mw.apply_theme_id(theme, persist=True)
 
     @staticmethod
     def _restore_llm_ui(mw: Any, data: dict) -> None:
@@ -401,7 +347,7 @@ class ProjectLoader:
 
         if "model_path" in llm_data:
             model_panel.model_path.setText(llm_data["model_path"])
-        if "model_backend" in llm_data and hasattr(model_panel, "set_model_backend"):
+        if "model_backend" in llm_data:
             model_panel.set_model_backend(str(llm_data["model_backend"] or "auto"))
         if "nli_model_id" in llm_data:
             model_panel.nli_model_id.setText(llm_data["nli_model_id"])
@@ -433,7 +379,7 @@ class ProjectLoader:
         if "window_state" in ui:
             mw.restoreState(QByteArray(base64.b64decode(ui["window_state"])))
 
-        if "user_mode" in ui and hasattr(mw, "set_user_mode"):
+        if "user_mode" in ui:
             mw.set_user_mode(ui["user_mode"], notify=False)
 
         if "log_enabled" in ui:

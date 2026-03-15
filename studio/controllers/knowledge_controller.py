@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QDialog, QMessageBox
 
 from studio.controllers.knowledge_ports import ChatDockPort, KnowledgeDockPort
 from studio.dialogs.window_manager import find_dialog_manager
+from studio.importer.dialog import FileImportDialog
 
 if TYPE_CHECKING:
     from shared.services.rag.orchestrator import RAGSystem
@@ -66,6 +67,68 @@ class KnowledgeController:
             action.triggered.connect(
                 lambda _checked=False, n=display_name: self.open_loaded_file(n)
             )
+
+    def open_import_dialog(self, *, feedback_service: object) -> None:
+        manager = find_dialog_manager(self._parent)
+        if manager is None:
+            return
+
+        def _create() -> FileImportDialog:
+            dialog = FileImportDialog(
+                self._parent,
+                user_mode=self._context.get_user_mode(),
+                feedback_service=feedback_service,
+            )
+            dialog.files_imported.connect(self.on_files_imported)
+            return dialog
+
+        existing = manager.get("import-dialog")
+        manager.show_dialog("import-dialog", _create)
+        if existing is not None:
+            self._context.show_status("Import-Fenster ist bereits geöffnet.", 2500)
+
+    def import_dialog_busy(self) -> bool:
+        manager = find_dialog_manager(self._parent)
+        if manager is None:
+            return False
+        dialog = manager.get("import-dialog")
+        if dialog is None:
+            return False
+        busy_check = getattr(dialog, "_has_running_background_worker", None)
+        if not callable(busy_check):
+            return False
+        try:
+            return bool(busy_check())
+        except Exception:
+            return False
+
+    def shutdown(
+        self,
+        *,
+        stop_timeout_ms: int = 5000,
+        terminate_timeout_ms: int = 2000,
+    ) -> bool:
+        """Stop the RAG worker thread safely during app shutdown."""
+        worker = getattr(self._knowledge_dock, "rag_worker", None)
+        if worker is None or not worker.isRunning():
+            return True
+        if worker.stop_and_wait(int(stop_timeout_ms)):
+            return True
+        self._app_logger.warning(
+            "SYS",
+            f"RAG worker did not stop within {int(stop_timeout_ms)}ms; terminating thread.",
+        )
+        worker.terminate()
+        if worker.wait(int(terminate_timeout_ms)):
+            return True
+        self._app_logger.error(
+            "SYS",
+            (
+                "RAG worker did not terminate within "
+                f"{int(terminate_timeout_ms)}ms; aborting shutdown."
+            ),
+        )
+        return False
 
     def open_loaded_file(self, display_name: str) -> None:
         entry = self._file_registry.get(str(display_name or ""))

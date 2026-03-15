@@ -2,10 +2,30 @@
 
 Diese Datei beschreibt, wie die Test-Pipelines im Projekt aufgebaut sind und wie neue Test-Cases korrekt erstellt werden.
 
-Stand der Doku: Codebasis vom 2026-03-10.
+Stand der Doku: Codebasis vom 2026-03-15.
 
 Fuer den manuellen End-to-End Testworkflow mit Checklisten siehe:
 `README_MANUAL_TESTING.md`
+
+## 1.1) Architektur-Guard-Tests (wichtig)
+
+Neben den Eval-Runnern gibt es Tests, die zentrale Architekturregeln absichern:
+
+- `tests/services/test_project_manifest_validation.py`  
+  Erzwingt strikte Manifest-Schema-Validierung beim Projekt-Load.
+- `tests/services/test_project_path_security.py`  
+  Erzwingt Pfad-Sicherheit (kein Traversal, keine Escape-Pfade).
+- `tests/studio/test_window_delegation_rule.py`  
+  Erzwingt die `window.py`-Delegationsregel (ausser `_init_*` und `closeEvent`).
+
+Schnelllauf fuer diese Guard-Tests:
+
+```bash
+PYTHONPATH=. pytest -q \
+  tests/services/test_project_manifest_validation.py \
+  tests/services/test_project_path_security.py \
+  tests/studio/test_window_delegation_rule.py
+```
 
 ## 1) Testarten im Projekt
 
@@ -215,7 +235,6 @@ Wichtige Felder:
 - Allgemein: `page_range`, `show_page_markers`
 - Bilder/Tabellen: `dpi`, `write_images`, `image_format`, `graphics_limit`, `table_strategy`
 - Header/Footer: `auto_hf_detect`, `hf_top_zone`, `hf_bottom_zone`, `hf_min_pages`, `hf_threshold`, `hf_max_pairs`
-- Legacy-Margins: `use_manual_margins`, `margin_top`, `margin_bottom`, `margin_left`, `margin_right`
 - Headings: `heading_mode`, `heading_h1_ratio`, `heading_h2_ratio`, `heading_h3_ratio`, `heading_bold_promotes`, `heading_color_promotes`, `heading_max_chars`
 - Reflow: `para_mode`, `para_sentence_end`, `para_join_hyphen`, `para_min_fill_ratio`
 

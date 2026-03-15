@@ -10,6 +10,7 @@ from shared.services.llm.manager import LLMManager
 from shared.services.project.manager import ProjectManager
 from shared.services.rag.orchestrator import RAGSystem
 from studio.app_context import AppContext
+from studio.controllers.user_mode_controller import UserModeController
 from studio.logger import AppLogger
 
 @dataclass(slots=True)
@@ -21,20 +22,19 @@ class ServiceBundle:
     llm_manager: LLMManager
     project_manager: ProjectManager
     file_registry: dict[str, tuple[str, str]]
-    user_mode: str
+    user_mode_ctrl: UserModeController
     app_settings: QSettings
     context: AppContext
 
 
-def init_services(window) -> ServiceBundle:
+def init_services(window, *, app_settings: QSettings) -> ServiceBundle:
     """Create long-lived services and the shared AppContext."""
     app_logger = AppLogger(enabled=True)
     rag_system = RAGSystem(logger=app_logger)
     llm_manager = LLMManager(logger=app_logger)
     file_registry: dict[str, tuple[str, str]] = {}
     project_manager = ProjectManager()
-    user_mode = default_user_mode()
-    app_settings = QSettings("draft2craift", "draft2craift")
+    user_mode_ctrl = UserModeController(default_user_mode())
     context = AppContext(
         window=window,
         app_logger=app_logger,
@@ -43,7 +43,7 @@ def init_services(window) -> ServiceBundle:
         project_manager=project_manager,
         app_settings=app_settings,
         file_registry=file_registry,
-        user_mode=user_mode,
+        get_user_mode=user_mode_ctrl.get_user_mode,
     )
     return ServiceBundle(
         app_logger=app_logger,
@@ -51,7 +51,7 @@ def init_services(window) -> ServiceBundle:
         llm_manager=llm_manager,
         project_manager=project_manager,
         file_registry=file_registry,
-        user_mode=user_mode,
+        user_mode_ctrl=user_mode_ctrl,
         app_settings=app_settings,
         context=context,
     )

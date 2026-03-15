@@ -9,13 +9,13 @@ def test_rag_config_defaults_are_stable():
     assert cfg.backend.use_tfidf is True
 
 
-def test_rag_config_accepts_legacy_flat_keys():
+def test_rag_config_requires_structured_overrides():
     cfg = RAGConfig.from_dict(
         {
-            "use_st": True,
-            "chunking_strategy": "section",
-            "top_k": 9,
-            "literal_llm_max_terms": 12,
+            "backend": {"use_st": True},
+            "chunking": {"strategy": "section"},
+            "selection": {"top_k": 9},
+            "literal": {"max_llm_terms": 12},
         }
     )
     assert cfg.backend.use_st is True

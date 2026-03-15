@@ -193,15 +193,13 @@ class ChatHistoryWidget(QWidget):
             )
         return {"current_tab": int(tabs.currentIndex()), "tabs": out_tabs}
 
-    def import_sessions(self, payload: dict | list) -> None:
+    def import_sessions(self, payload: dict) -> None:
         tabs = self._tabs
         if tabs is None:
             return
         current_idx = 0
         tabs_payload: list[dict] = []
-        if isinstance(payload, list):
-            tabs_payload = [{"title": "Chat 1", "view_mode": "both", "history": payload}]
-        elif isinstance(payload, dict):
+        if isinstance(payload, dict):
             current_idx = int(payload.get("current_tab", 0) or 0)
             raw_tabs = payload.get("tabs", [])
             if isinstance(raw_tabs, list):

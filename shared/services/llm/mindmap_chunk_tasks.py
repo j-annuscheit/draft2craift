@@ -64,15 +64,21 @@ def _generate_chunk_mindmap_sync(
 
     cfg = RAGConfig.from_dict(
         {
-            "use_tfidf": False,
-            "use_st": False,
-            "use_regex_search": False,
-            "use_hyde": False,
-            "chunk_size": size,
-            "chunk_overlap": overlap,
-            "chunking_strategy": strategy,
-            "include_headings": True,
-            "include_filename": False,
+            "backend": {
+                "use_tfidf": False,
+                "use_st": False,
+                "use_regex_search": False,
+            },
+            "hyde": {
+                "use_hyde": False,
+            },
+            "chunking": {
+                "chunk_size": size,
+                "chunk_overlap": overlap,
+                "strategy": strategy,
+                "include_headings": True,
+                "include_filename": False,
+            },
         }
     )
 
@@ -222,4 +228,3 @@ def _generate_chunk_mindmap_sync(
         "chunk_overlap": overlap,
         "truncated": truncated,
     }
-

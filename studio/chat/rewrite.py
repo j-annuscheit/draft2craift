@@ -37,13 +37,13 @@ def clean_rewrite_block(raw: str) -> str:
     return text
 
 
-def _extract_legacy_rewrite(response: str) -> str:
+def _extract_unwrapped_rewrite(response: str) -> str:
     """
-    Backward-compatible extraction for responses without CANVAS_REWRITE wrappers.
+    Extract a rewrite from common unwrapped markdown response patterns.
 
-    Accepts common legacy patterns like:
+    Accepts patterns like:
     - section headers (for example "Revised Text ...") + fenced code block
-    - localized legacy section headers + fenced code block
+    - localized section headers + fenced code block
     - first fenced block in the response
     """
     text = (response or "").strip()
@@ -76,7 +76,7 @@ def extract_canvas_rewrite(response: str, open_tag: str, close_tag: str) -> str:
     pattern = re.escape(open_tag) + r"\s*([\s\S]*?)\s*" + re.escape(close_tag)
     blocks = re.findall(pattern, response or "", flags=re.DOTALL)
     if not blocks:
-        return _extract_legacy_rewrite(response)
+        return _extract_unwrapped_rewrite(response)
 
     cleaned = [clean_rewrite_block(block) for block in blocks]
     cleaned = [value for value in cleaned if value]

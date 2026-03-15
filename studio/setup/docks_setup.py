@@ -31,12 +31,6 @@ def init_docks(ctx: AppContext, *, feedback_service) -> DockBundle:
     chat_dock.setObjectName("chat_dock")
     window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, chat_dock)
 
-    chat_dock.set_context_getter(window._build_llm_context)
-    chat_dock.set_canvas_selection_getter(window._canvas_selection_text)
-    chat_dock.set_selection_apply_handler(window._apply_llm_selection_rewrite)
-    chat_dock.set_fact_result_handler(window._open_fact_check_canvas)
-    chat_dock.set_glossary_request_handler(window._generate_glossary_from_llm_context)
-    chat_dock.set_mindmap_request_handler(window._generate_mindmap_from_llm_context)
     chat_dock.set_feedback_service(feedback_service)
     chat_dock.read_aloud_requested.connect(window._speak_chat_text)
     chat_dock.read_aloud_stop_requested.connect(window._stop_tts)

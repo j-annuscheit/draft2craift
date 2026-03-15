@@ -4,6 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from studio.app_context import AppContext
+from studio.chat.runtime_ports import (
+    ChatDockActionPorts,
+    ChatDockContextPorts,
+)
 from studio.controllers.autosave import AutosaveController
 from studio.controllers.canvas_controller import CanvasController
 from studio.controllers.chat_controller import ChatController
@@ -41,6 +45,9 @@ def init_controllers(ctx: AppContext) -> ControllerBundle:
         raise RuntimeError(
             "Controller setup requires initialized canvas and dock widgets."
         )
+    user_mode_ctrl = getattr(window, "_user_mode_ctrl", None)
+    if user_mode_ctrl is None:
+        raise RuntimeError("Controller setup requires user_mode controller to be bound.")
 
     autosave_ctrl = AutosaveController(
         parent=window,
@@ -78,6 +85,12 @@ def init_controllers(ctx: AppContext) -> ControllerBundle:
         knowledge_dock=knowledge_dock,
         resolve_imported_doc_content=ctx.resolve_imported_doc_content,
     )
+    chat_dock.bind_context_ports(
+        ChatDockContextPorts(
+            build_context=chat_controller.build_llm_context,
+            canvas_selection_text=chat_controller.canvas_selection_text,
+        )
+    )
     ctx.bind_chat_controller(chat_controller)
 
     speech_ctrl = SpeechController(
@@ -113,10 +126,22 @@ def init_controllers(ctx: AppContext) -> ControllerBundle:
             app_logger=ctx.app_logger,
             show_status=ctx.show_status,
             resolve_imported_doc_content=ctx.resolve_imported_doc_content,
-            set_status_feedback_payload=ctx.set_status_feedback_payload,
+            set_status_feedback_payload=user_mode_ctrl.set_status_feedback_payload,
             refresh_preview_overlays=theme_ctrl.refresh_all_preview_overlays,
             autosave_schedule_fn=ctx.schedule_autosave,
+            build_llm_context=chat_controller.build_llm_context,
+            get_user_mode=ctx.get_user_mode,
+            is_prompt_editor_allowed=user_mode_ctrl.is_prompt_editor_allowed,
+            dialog_manager=window.dialog_manager,
         ),
+    )
+    chat_dock.bind_action_ports(
+        ChatDockActionPorts(
+            apply_selection_rewrite=canvas.replace_selected_text,
+            open_fact_result=canvas_controller.open_fact_check_canvas,
+            generate_glossary=llm_tasks_ctrl.generate_glossary_from_llm_context,
+            generate_mindmap=llm_tasks_ctrl.generate_mindmap_from_llm_context,
+        )
     )
     find_replace_ctrl = FindReplaceController(
         parent_window=window,

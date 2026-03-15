@@ -92,16 +92,7 @@ class ProjectSaver:
             None,
         )
         imported_map: dict[str, str] = {}
-        if hasattr(mw, "knowledge_dock"):
-            getter = getattr(mw.knowledge_dock, "get_imported_documents", None)
-            if callable(getter):
-                try:
-                    snapshot = getter()
-                    if isinstance(snapshot, dict):
-                        imported_map = {str(k): str(v or "") for k, v in snapshot.items()}
-                except Exception:
-                    imported_map = {}
-        if not imported_map and imported_entries is not None:
+        if imported_entries is not None:
             getter = getattr(imported_entries, "get_all_documents", None)
             if callable(getter):
                 try:
@@ -122,16 +113,7 @@ class ProjectSaver:
 
         context_panel = getattr(getattr(mw, "chat_dock", None), "context_panel", None)
         context_docs: dict[str, str] = {}
-        if hasattr(mw, "chat_dock"):
-            getter = getattr(mw.chat_dock, "get_context_documents", None)
-            if callable(getter):
-                try:
-                    snapshot = getter()
-                    if isinstance(snapshot, dict):
-                        context_docs = {str(k): str(v or "") for k, v in snapshot.items()}
-                except Exception:
-                    context_docs = {}
-        if not context_docs and context_panel is not None:
+        if context_panel is not None:
             getter = getattr(context_panel, "get_all_documents", None)
             if callable(getter):
                 try:
@@ -217,13 +199,7 @@ class ProjectSaver:
 
     def _save_chat_history(self, mw: Any) -> None:
         history_widget = mw.chat_dock.history
-        if hasattr(history_widget, "export_sessions"):
-            history = history_widget.export_sessions()
-        else:
-            history = [
-                {"role": role, "content": content}
-                for role, content in history_widget.get_history()
-            ]
+        history = history_widget.export_sessions()
         self._write_json(self._paths.chat_history, history)
 
     def _save_chunk_claim_cache(self, mw: Any) -> None:
@@ -284,11 +260,7 @@ class ProjectSaver:
         model_panel = mw.chat_dock.model_panel
         llm_data = {
             "model_path": model_panel.model_path.text(),
-            "model_backend": (
-                model_panel.get_model_backend()
-                if hasattr(model_panel, "get_model_backend")
-                else "auto"
-            ),
+            "model_backend": model_panel.get_model_backend(),
             "nli_model_id": model_panel.nli_model_id.text(),
             "ctx_size": model_panel.ctx_spin.value(),
             "gpu_layers": model_panel.gpu_spin.value(),
@@ -309,18 +281,10 @@ class ProjectSaver:
             "rag_config": mw.rag_system.config.to_dict(),
             "settings": {
                 "prompts": mw.llm_manager.get_prompt_set(),
-                "speech": mw.get_speech_settings() if hasattr(mw, "get_speech_settings") else {},
-                "preview_page_margin": (
-                    mw.get_preview_page_margin_settings()
-                    if hasattr(mw, "get_preview_page_margin_settings")
-                    else {}
-                ),
-                "preview_theme": (
-                    mw.get_preview_theme_id()
-                    if hasattr(mw, "get_preview_theme_id")
-                    else "classic"
-                ),
-                "theme": mw.get_theme_id() if hasattr(mw, "get_theme_id") else "dark",
+                "speech": mw.get_speech_settings(),
+                "preview_page_margin": mw.get_preview_page_margin_settings(),
+                "preview_theme": mw.get_preview_theme_id(),
+                "theme": mw.get_theme_id(),
             },
             "llm": llm_data,
             "canvas": {

@@ -99,12 +99,12 @@ offline workflow.
 
 - Whisper dictation (`faster-whisper` + `sounddevice`)
 - Offline TTS with Piper (`piper-tts` + `onnxruntime` + `pathvalidate`)
-- Local fallback TTS engine (`pyttsx3`)
+- Alternative local TTS engine (`pyttsx3`)
 
 ### 8) Prompt and settings control
 
 - Fully editable prompts in `data/prompts/defaults.json`
-- Prompt groups: Chat, Fact-check, RAG, Advanced, Legacy
+- Prompt groups: Chat, Fact-check, RAG, Advanced
 - Prompt flow preview and reset options
 - Prompts/settings persist in project save files
 
@@ -140,6 +140,12 @@ Save/load includes:
 - prompt set
 - UI state/layout
 - generation/model parameters
+
+Load behavior is strict by design:
+
+- current project schema only (`version: 1`)
+- no backward-compatibility fallback for older project formats
+- path and schema violations fail fast during load
 
 ---
 

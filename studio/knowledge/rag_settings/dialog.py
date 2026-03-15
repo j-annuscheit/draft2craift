@@ -220,9 +220,9 @@ class RAGSettingsDialog(QDialog):
         llm_rerank_max_candidates = QSpinBox()
         llm_rerank_max_candidates.setRange(1, 50)
         llm_rerank_max_candidates.setToolTip(
-            "Legacy compatibility value. Per-hit reranking currently evaluates all hits."
+            "Reserved setting. Current per-hit reranking evaluates all hits."
         )
-        form.addRow("LLM max candidates (legacy):", llm_rerank_max_candidates)
+        form.addRow("LLM max candidates:", llm_rerank_max_candidates)
         widgets["llm_rerank_max_candidates"] = llm_rerank_max_candidates
 
         rerank_hint = QLabel(
@@ -594,13 +594,13 @@ class RAGSettingsDialog(QDialog):
             "selection",
             "llm_rerank_max_candidates",
             "rag.settings.selection.llm_rerank_max_candidates.label",
-            "LLM max candidates (legacy):",
+            "LLM max candidates:",
         )
         w["llm_rerank_max_candidates"].setToolTip(
             resolve_feature_label(
                 self._user_mode,
                 "rag.settings.selection.llm_rerank_max_candidates.tooltip",
-                "Legacy compatibility value. Per-hit reranking currently evaluates all hits.",
+                "Reserved setting. Current per-hit reranking evaluates all hits.",
             )
         )
         w["rerank_hint"].setText(

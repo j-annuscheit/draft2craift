@@ -75,38 +75,6 @@ class RerankConfig:
     max_candidates: int = 10
 
 
-_LEGACY_KEY_MAP: dict[str, tuple[str, str]] = {
-    "use_tfidf": ("backend", "use_tfidf"),
-    "use_st": ("backend", "use_st"),
-    "use_regex_search": ("backend", "use_regex_search"),
-    "st_model_name": ("backend", "st_model_name"),
-    "st_n_threads": ("backend", "st_n_threads"),
-    "chunk_size": ("chunking", "chunk_size"),
-    "chunk_overlap": ("chunking", "chunk_overlap"),
-    "chunking_strategy": ("chunking", "strategy"),
-    "include_headings": ("chunking", "include_headings"),
-    "include_filename": ("chunking", "include_filename"),
-    "use_hyde": ("hyde", "use_hyde"),
-    "hyde_min_words": ("hyde", "min_words"),
-    "hyde_tfidf_mode": ("hyde", "tfidf_mode"),
-    "hyde_st_mode": ("hyde", "st_mode"),
-    "hyde_st_hypotheses": ("hyde", "st_hypotheses"),
-    "hyde_use_doc_context": ("hyde", "use_doc_context"),
-    "extended_context": ("context", "enabled"),
-    "extended_context_before": ("context", "before_chars"),
-    "extended_context_after": ("context", "after_chars"),
-    "selection_mode": ("selection", "mode"),
-    "top_k": ("selection", "top_k"),
-    "score_threshold": ("selection", "score_threshold"),
-    "regex_max_results": ("literal", "max_results"),
-    "literal_use_llm_terms": ("literal", "use_llm_terms"),
-    "literal_llm_max_terms": ("literal", "max_llm_terms"),
-    "llm_rerank_enabled": ("rerank", "enabled"),
-    "llm_rerank_min_score": ("rerank", "min_score"),
-    "llm_rerank_max_candidates": ("rerank", "max_candidates"),
-}
-
-
 _SECTION_CLASSES = {
     "backend": BackendConfig,
     "chunking": ChunkingConfig,
@@ -117,42 +85,8 @@ _SECTION_CLASSES = {
     "rerank": RerankConfig,
 }
 
-
-_SECTION_FIELD_ALIASES: dict[str, dict[str, str]] = {
-    "chunking": {"chunking_strategy": "strategy"},
-    "hyde": {
-        "hyde_min_words": "min_words",
-        "hyde_tfidf_mode": "tfidf_mode",
-        "hyde_st_mode": "st_mode",
-        "hyde_st_hypotheses": "st_hypotheses",
-        "hyde_use_doc_context": "use_doc_context",
-    },
-    "context": {
-        "extended_context": "enabled",
-        "extended_context_before": "before_chars",
-        "extended_context_after": "after_chars",
-    },
-    "selection": {"selection_mode": "mode"},
-    "literal": {
-        "regex_max_results": "max_results",
-        "literal_use_llm_terms": "use_llm_terms",
-        "literal_llm_max_terms": "max_llm_terms",
-    },
-    "rerank": {
-        "llm_rerank_enabled": "enabled",
-        "llm_rerank_min_score": "min_score",
-        "llm_rerank_max_candidates": "max_candidates",
-    },
-}
-
-
 def _clone_section(section: Any) -> Any:
     return section.__class__(**asdict(section))
-
-
-def _normalise_field(section: str, field_name: str) -> str:
-    aliases = _SECTION_FIELD_ALIASES.get(section, {})
-    return aliases.get(field_name, field_name)
 
 
 @dataclass(slots=True)
@@ -183,9 +117,10 @@ class RAGConfig:
 
     def to_flat_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {}
-        for legacy_key, (section_name, field_name) in _LEGACY_KEY_MAP.items():
+        for section_name, cls in _SECTION_CLASSES.items():
             section = getattr(self, section_name)
-            result[legacy_key] = getattr(section, field_name)
+            for field_name in asdict(cls()).keys():
+                result[f"{section_name}.{field_name}"] = getattr(section, field_name)
         return result
 
     def with_overrides(self, overrides: dict[str, Any], *, strict: bool = True) -> "RAGConfig":
@@ -198,7 +133,7 @@ class RAGConfig:
                 current = getattr(cfg, section_name)
                 merged = asdict(current)
                 for raw_field, raw_value in value.items():
-                    field_name = _normalise_field(section_name, str(raw_field))
+                    field_name = str(raw_field)
                     if field_name not in merged:
                         if strict:
                             raise KeyError(f"Unknown RAGConfig key: {key}.{raw_field}")
@@ -207,18 +142,13 @@ class RAGConfig:
                 setattr(cfg, section_name, cls(**merged))
                 continue
 
-            if key in _LEGACY_KEY_MAP:
-                section_name, field_name = _LEGACY_KEY_MAP[key]
-                setattr(getattr(cfg, section_name), field_name, value)
-                continue
-
             if "." in str(key):
                 section_name, raw_field = str(key).split(".", 1)
                 if section_name not in _SECTION_CLASSES:
                     if strict:
                         raise KeyError(f"Unknown RAGConfig key: {key}")
                     continue
-                field_name = _normalise_field(section_name, raw_field)
+                field_name = raw_field
                 section = getattr(cfg, section_name)
                 if not hasattr(section, field_name):
                     if strict:

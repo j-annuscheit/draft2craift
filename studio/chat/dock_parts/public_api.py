@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 from .deps import *  # noqa: F403
+from studio.chat.runtime_ports import (
+    ChatDockActionPorts,
+    ChatDockContextPorts,
+)
 from studio.user_mode_bindings import (
     apply_combo_item_labels,
     apply_widget_placeholders,
@@ -45,32 +49,15 @@ def _preferred_context_height(self, total: int) -> int:
 def set_feedback_service(self, service: FeedbackService):
     self._feedback_service = service
 
-def set_context_getter(self, getter: Callable[[], dict]):
-    self._context_getter = getter
+def bind_context_ports(self, ports: ChatDockContextPorts) -> None:
+    self._context_getter = ports.build_context
+    self._canvas_selection_getter = ports.canvas_selection_text
 
-def set_canvas_selection_getter(self, getter: Callable[[], str] | None):
-    self._canvas_selection_getter = getter
-
-def set_selection_apply_handler(
-    self,
-    handler: Callable[[str, str, tuple[int, int] | None], tuple[bool, str]],
-):
-    self._selection_apply_handler = handler
-
-def set_fact_result_handler(self, handler: Callable[[str, str], tuple[bool, str]]):
-    self._fact_result_handler = handler
-
-def set_glossary_request_handler(
-    self,
-    handler: Callable[[dict, Callable[[bool, str], None]], tuple[bool, str]],
-):
-    self._glossary_request_handler = handler
-
-def set_mindmap_request_handler(
-    self,
-    handler: Callable[[dict, str, str, Callable[[bool, str], None]], tuple[bool, str]],
-):
-    self._mindmap_request_handler = handler
+def bind_action_ports(self, ports: ChatDockActionPorts) -> None:
+    self._selection_apply_handler = ports.apply_selection_rewrite
+    self._fact_result_handler = ports.open_fact_result
+    self._glossary_request_handler = ports.generate_glossary
+    self._mindmap_request_handler = ports.generate_mindmap
 
 def set_aux_task_running(self, running: bool):
     self._aux_generating = bool(running)
@@ -404,12 +391,8 @@ def toggle_model_panel(self) -> bool:
 
 __all__ = [
     "set_feedback_service",
-    "set_context_getter",
-    "set_canvas_selection_getter",
-    "set_selection_apply_handler",
-    "set_fact_result_handler",
-    "set_glossary_request_handler",
-    "set_mindmap_request_handler",
+    "bind_context_ports",
+    "bind_action_ports",
     "set_aux_task_running",
     "add_document",
     "remove_document",

@@ -191,3 +191,39 @@ class CanvasController:
             panel_scope=scope,
             tab_name=tab_name,
         )
+
+    def select_next_draft_tab(self) -> None:
+        tabs = self._canvas.tabs.tab_widget
+        count = int(tabs.count())
+        if count > 1:
+            tabs.setCurrentIndex((int(tabs.currentIndex()) + 1) % count)
+
+    def select_previous_draft_tab(self) -> None:
+        tabs = self._canvas.tabs.tab_widget
+        count = int(tabs.count())
+        if count > 1:
+            tabs.setCurrentIndex((int(tabs.currentIndex()) - 1) % count)
+
+    def open_fact_check_canvas(self, title_hint: str, content: str) -> tuple[bool, str]:
+        title = (
+            f"Fakten: {str(title_hint or '').strip()}"
+            if str(title_hint or "").strip()
+            else "Faktencheck"
+        )
+        try:
+            self._canvas.tabs.add_tab(title=title, content=content, read_only=True)
+            self._show_status("Faktencheck im Draft-Workspace geöffnet.", 4000)
+            return True, title
+        except Exception as exc:
+            _LOG.error(
+                "CanvasController failed to open fact-check tab '%s': %s",
+                title,
+                exc,
+                exc_info=True,
+            )
+            return False, str(exc)
+
+    def show_welcome_text(self, text: str) -> None:
+        panel = self._canvas.tabs.current_panel()
+        if panel:
+            panel.editor.setPlainText(str(text or ""))

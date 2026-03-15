@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import csv
 import dataclasses
+import inspect
 import json
 import logging
 import os
@@ -438,16 +439,14 @@ def _llm_generate(
         "stop": ["<|"],
         "stream": False,
     }
-    if int(seed) >= 0:
-        kwargs["seed"] = int(seed)
+    supports_seed = False
     try:
-        result = model(prompt, **kwargs)
-    except TypeError as exc:
-        # Compatibility fallback for bindings without per-call seed argument.
-        if "seed" not in str(exc):
-            raise
-        kwargs.pop("seed", None)
-        result = model(prompt, **kwargs)
+        supports_seed = "seed" in inspect.signature(model).parameters
+    except Exception:
+        supports_seed = False
+    if int(seed) >= 0 and supports_seed:
+        kwargs["seed"] = int(seed)
+    result = model(prompt, **kwargs)
     return str(result["choices"][0].get("text", "") or "")
 
 

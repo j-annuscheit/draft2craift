@@ -66,7 +66,6 @@ class PromptTemplateKeys:
     FACT_VERIFY_CHUNK_USER: Final[str] = "fact_verify_chunk_user"
     NLI_VERIFY_SYSTEM: Final[str] = "nli_verify_system"
     NLI_VERIFY_USER: Final[str] = "nli_verify_user"
-    FACT_CHECK_SYSTEM: Final[str] = "fact_check_system"
     HYDE_TFIDF_SYSTEM: Final[str] = "hyde_tfidf_system"
     HYDE_TFIDF_USER: Final[str] = "hyde_tfidf_user"
     HYDE_ST_SINGLE_SYSTEM: Final[str] = "hyde_st_single_system"
@@ -106,7 +105,6 @@ class PromptTemplateKeys:
         FACT_VERIFY_CHUNK_USER,
         NLI_VERIFY_SYSTEM,
         NLI_VERIFY_USER,
-        FACT_CHECK_SYSTEM,
         HYDE_TFIDF_SYSTEM,
         HYDE_TFIDF_USER,
         HYDE_ST_SINGLE_SYSTEM,

@@ -26,7 +26,7 @@ class ChatHistorySessionsTests(unittest.TestCase):
         self.assertEqual(tabs[1]["history"][0]["content"], "Antwort 2")
         widget.deleteLater()
 
-    def test_import_sessions_supports_new_and_legacy_format(self):
+    def test_import_sessions_supports_structured_format(self):
         widget = ChatHistoryWidget()
         payload = {
             "current_tab": 1,
@@ -50,15 +50,6 @@ class ChatHistorySessionsTests(unittest.TestCase):
         self.assertEqual(exported.get("current_tab"), 1)
         self.assertEqual(exported["tabs"][0]["title"], "A")
         self.assertEqual(exported["tabs"][1]["history"][0]["content"], "zwei")
-
-        legacy = [{"role": "user", "content": "legacy"}]
-        widget.import_sessions(legacy)
-        exported_legacy = widget.export_sessions()
-        self.assertEqual(len(exported_legacy.get("tabs", [])), 1)
-        self.assertEqual(
-            exported_legacy["tabs"][0]["history"][0]["content"],
-            "legacy",
-        )
         widget.deleteLater()
 
 

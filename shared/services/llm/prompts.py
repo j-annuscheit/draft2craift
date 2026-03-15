@@ -1,4 +1,4 @@
-"""Prompt template persistence and migration helpers."""
+"""Prompt template persistence helpers."""
 from __future__ import annotations
 
 import json
@@ -42,7 +42,7 @@ def dump_prompt_templates(path: Path, templates: dict[str, str]) -> None:
 
 
 class PromptTemplateRegistry:
-    """Holds default/custom prompt templates and applies legacy migrations."""
+    """Holds default/custom prompt templates."""
 
     def __init__(self, logger: Any = None, defaults_file: Path = DEFAULT_PROMPTS_FILE):
         self._log = logger
@@ -80,8 +80,6 @@ class PromptTemplateRegistry:
             value = str(prompts.get(key, "") or "").strip()
             if not value:
                 value = self._defaults[key]
-            else:
-                value = self._migrate_legacy_prompt_value(key, value)
             self._prompts[key] = value
 
     def render(
@@ -120,48 +118,3 @@ class PromptTemplateRegistry:
         if not defaults.get("chat_system", "").strip():
             defaults["chat_system"] = "Du bist ein hilfreicher Schreibassistent."
         return defaults
-
-    def _migrate_legacy_prompt_value(self, key: str, value: str) -> str:
-        candidate = str(value or "").strip()
-        if self._is_legacy_prompt_value(key, candidate):
-            upgraded = str(self._defaults.get(key, candidate) or "").strip()
-            if upgraded and upgraded != candidate:
-                if self._log:
-                    self._log.info(
-                        "LLM",
-                        f"Prompt-Migration: '{key}' wurde auf aktuellen Default angehoben.",
-                    )
-                return upgraded
-        return candidate
-
-    @staticmethod
-    def _is_legacy_prompt_value(key: str, candidate: str) -> bool:
-        text = str(candidate or "").strip()
-        if not text:
-            return False
-
-        if key == "mindmap_system":
-            return (
-                text.startswith("Du erstellst eine MindMap aus Kontext.")
-                and "Verbindliche Regeln:" not in text
-            )
-        if key == "mindmap_user":
-            return (
-                "Erstelle eine MindMap zur Frage: {query}" in text
-                and "Nutze nur diesen Kontext:" in text
-                and "Ausgabeformat streng:" in text
-                and "Arbeite intern in 3 Schritten:" not in text
-            )
-        if key == "graph_system":
-            return (
-                text.startswith("Du erstellst einen Wissensgraphen aus Kontext.")
-                and "Verbindliche Regeln:" not in text
-            )
-        if key == "graph_user":
-            return (
-                "Erstelle einen Wissensgraphen zur Frage: {query}" in text
-                and "Nutze nur diesen Kontext:" in text
-                and "Ausgabeformat" in text
-                and "Arbeite intern in 4 Schritten:" not in text
-            )
-        return False

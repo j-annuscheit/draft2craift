@@ -271,8 +271,7 @@ def _handle_highlight_click(self, global_pos: QPoint) -> bool:
             return True
         return True
 
-    # Backward compatibility for older free-text jump targets.
-    return self._jump_to_text(target_ref)
+    return False
 def _jump_to_highlight_id(self, target_id: str) -> bool:
     match = get_highlight_store().resolve_highlight_by_id(
         highlight_id=target_id,
@@ -292,25 +291,6 @@ def _jump_to_highlight_id(self, target_id: str) -> bool:
     self._view.setTextCursor(cursor)
     self._view.ensureCursorVisible()
     return True
-def _jump_to_text(self, needle: str) -> bool:
-    query = str(needle or "").strip()
-    if not query:
-        return False
-    cursor = self._view.textCursor()
-    start_pos = int(cursor.selectionEnd())
-    doc = self._view.document()
-
-    probe = QTextCursor(doc)
-    probe.setPosition(max(0, start_pos))
-    found = doc.find(query, probe)
-    if found.isNull():
-        found = doc.find(query)
-    if found.isNull():
-        return False
-    self._view.setTextCursor(found)
-    self._view.ensureCursorVisible()
-    return True
-
 __all__ = [
     "_open_highlight_context_menu",
     "_is_copy_action",
@@ -321,5 +301,4 @@ __all__ = [
     "_pick_jump_target",
     "_handle_highlight_click",
     "_jump_to_highlight_id",
-    "_jump_to_text",
 ]

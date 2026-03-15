@@ -235,20 +235,6 @@ def _synthesize_piper_to_wav(
     except RuntimeError as exc:
         err_text = str(exc)
         if (
-            "--sentence_silence" in err_text
-            and "unrecognized arguments" in err_text
-        ):
-            # Compatibility fallback for older piper CLI versions.
-            cmd_compat = list(cmd)
-            if "--sentence_silence" in cmd_compat:
-                idx = cmd_compat.index("--sentence_silence")
-                del cmd_compat[idx : idx + 2]
-            self._run_process(
-                cmd=cmd_compat,
-                stdin_text=f"{text}\n",
-            )
-            return
-        if (
             "No module named 'pathvalidate'" in err_text
             or 'No module named "pathvalidate"' in err_text
         ):

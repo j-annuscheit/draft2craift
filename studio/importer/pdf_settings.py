@@ -205,11 +205,6 @@ class PDFSettingsPanel(QScrollArea):
         s.hf_min_pages = self._hf_min_pages.value()
         s.hf_threshold = self._hf_threshold.value() / 100.0
         s.hf_max_pairs = self._hf_max_pairs.value()
-        s.use_manual_margins = False
-        s.margin_top = 0.0
-        s.margin_bottom = 0.0
-        s.margin_left = 0.0
-        s.margin_right = 0.0
 
         mode_text = self._heading_mode.currentText().split()[0]
         s.heading_mode = mode_text

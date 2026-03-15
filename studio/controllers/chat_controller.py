@@ -4,6 +4,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from PySide6.QtCore import Qt
+
 if TYPE_CHECKING:
     from studio.canvas.tabs import CanvasTabWidget
     from studio.chat.dock import ChatDock
@@ -87,6 +89,75 @@ class ChatController:
             return str(self._chat_dock.chat_tts_mode() or "off")
         except Exception:
             return "off"
+
+    def canvas_selection_text(self) -> str:
+        return str(self._canvas.get_selected_text(allow_cached=True) or "")
+
+    def on_model_loaded(
+        self,
+        success: bool,
+        message: str,
+        *,
+        set_model_label_text: Callable[[str], None],
+        set_model_status_success: Callable[[bool], None],
+        apply_status_label_styles: Callable[[], None],
+        rag_system: object,
+        llm_manager: object,
+    ) -> None:
+        set_model_label_text(str(message or ""))
+        set_model_status_success(bool(success))
+        apply_status_label_styles()
+        if not success:
+            return
+        rag_system.set_tfidf_query_expander(llm_manager.expand_query_tfidf_sync)
+        rag_system.set_st_query_expander(llm_manager.expand_query_st_sync)
+        rag_system.set_literal_query_expander(llm_manager.expand_query_literal_terms_sync)
+        rag_system.set_rag_reranker(llm_manager.rerank_rag_results_sync)
+
+    def focus_model_panel(self, *, sync_toggle_action: Callable[[], None]) -> None:
+        self._chat_dock.show()
+        self._chat_dock.raise_()
+        self._chat_dock.set_model_panel_visible(True)
+        sync_toggle_action()
+
+    def reset_layout(
+        self,
+        *,
+        add_dock_widget: Callable[[Qt.DockWidgetArea, object], None],
+        resize_docks: Callable[[list[object], list[int], Qt.Orientation], None],
+        sync_toggle_action: Callable[[], None],
+    ) -> None:
+        add_dock_widget(Qt.DockWidgetArea.LeftDockWidgetArea, self._knowledge_dock)
+        add_dock_widget(Qt.DockWidgetArea.RightDockWidgetArea, self._chat_dock)
+        self._knowledge_dock.show()
+        self._chat_dock.show()
+        self._chat_dock.set_model_panel_visible(True)
+        resize_docks(
+            [self._knowledge_dock, self._chat_dock],
+            [340, 380],
+            Qt.Orientation.Horizontal,
+        )
+        sync_toggle_action()
+
+    def set_model_controls_visible(
+        self,
+        visible: bool,
+        *,
+        sync_toggle_action: Callable[[], None],
+    ) -> None:
+        if bool(visible):
+            self._chat_dock.show()
+            self._chat_dock.raise_()
+        self._chat_dock.set_model_panel_visible(bool(visible))
+        sync_toggle_action()
+
+    def sync_model_controls_toggle_action(self, action: object | None) -> None:
+        if action is None:
+            return
+        checked = bool(self._chat_dock.isVisible() and self._chat_dock.is_model_panel_visible())
+        blocked = action.blockSignals(True)
+        action.setChecked(checked)
+        action.blockSignals(blocked)
 
     def refresh_context_bar(self) -> None:
         use_canvas, use_rag, docs = self._chat_dock.get_context_selection()
