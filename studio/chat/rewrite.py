@@ -42,7 +42,8 @@ def _extract_legacy_rewrite(response: str) -> str:
     Backward-compatible extraction for responses without CANVAS_REWRITE wrappers.
 
     Accepts common legacy patterns like:
-    - section headers ("Überarbeiteter Text ...") + fenced code block
+    - section headers (for example "Revised Text ...") + fenced code block
+    - localized legacy section headers + fenced code block
     - first fenced block in the response
     """
     text = (response or "").strip()

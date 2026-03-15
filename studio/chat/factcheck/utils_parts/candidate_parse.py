@@ -118,9 +118,9 @@ def parse_fact_candidates(response: str, target_text: str) -> list[str]:
         if len(clean_factcheck_cell(line)) >= 2
     ]
 
-    # Fakt = Satz. Satz-Splitting ist primär.
-    # Line-Fallback ergänzt nur zusätzliche bullet-/vollständige Zeilen,
-    # die im Satz-Splitting nicht bereits enthalten sind.
+    # Fact = sentence. Sentence splitting is the primary strategy.
+    # The line fallback only adds additional bullet/full lines
+    # that are not already covered by sentence splitting.
     if sentence_facts:
         merged = list(sentence_facts)
         for candidate in line_facts:
@@ -135,7 +135,7 @@ def parse_fact_candidates(response: str, target_text: str) -> list[str]:
     if line_facts:
         return _normalize_fact_list(line_facts)
 
-    # Fallback für sehr unstrukturierte Texte.
+    # Fallback for highly unstructured text.
     out: list[str] = []
     max_facts = suggest_fact_limit(target_text)
     for candidate in heuristic_fact_candidates_from_text(target_text):

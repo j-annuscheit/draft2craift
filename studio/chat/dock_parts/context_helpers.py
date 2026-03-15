@@ -7,7 +7,7 @@ def _collect_shared_context(self) -> dict:
     """
     Return one canonical context payload for chat + all side actions.
 
-    This guarantees that Chat, Faktencheck, Glossar and MindMap/Graph
+    This guarantees that Chat, fact-check, glossary, and MindMap/Graph
     all consume exactly the same selected context sources.
     """
     ctx: dict = {}
