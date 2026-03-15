@@ -24,6 +24,15 @@ from .helpers_text import (
 )
 from .helpers_backend import _resolve_tts_backend
 
+
+def _has_speakable_text(text: str) -> bool:
+    return any(ch.isalnum() for ch in str(text or ""))
+
+
+def _is_piper_no_audio_error(message: str) -> bool:
+    return "channels not specified" in str(message or "").casefold()
+
+
 def request_stop(self):
     self._stop_requested.set()
     with self._lock:
@@ -150,29 +159,41 @@ def _speak_piper(self, text: str):
     else:
         segments = [synth_text]
     segments = [part for part in segments if str(part or "").strip()]
+    segments = [part for part in segments if _has_speakable_text(part)]
     if not segments:
+        self.status.emit("TTS: Kein aussprechbarer Text erkannt.")
         return
 
     try:
         if len(segments) == 1:
-            self._synthesize_piper_to_wav(
+            if not self._synthesize_piper_to_wav(
                 text=segments[0],
                 model_path=model_path,
                 wav_path=wav_path,
                 sentence_pause_s=sentence_pause_s,
-            )
+            ):
+                self.status.emit("TTS: Kein Audio für den Text erzeugt.")
+                return
         else:
             for segment in segments:
                 if self._stop_requested.is_set():
                     return
                 seg_path = _new_temp_wav_path()
-                segment_paths.append(seg_path)
-                self._synthesize_piper_to_wav(
+                if not self._synthesize_piper_to_wav(
                     text=segment,
                     model_path=model_path,
                     wav_path=seg_path,
                     sentence_pause_s=sentence_pause_s,
-                )
+                ):
+                    try:
+                        os.remove(seg_path)
+                    except Exception:
+                        pass
+                    continue
+                segment_paths.append(seg_path)
+            if not segment_paths:
+                self.status.emit("TTS: Kein Audio für den Text erzeugt.")
+                return
             _concat_wav_files(
                 segment_paths,
                 wav_path,
@@ -207,7 +228,9 @@ def _synthesize_piper_to_wav(
     model_path: str,
     wav_path: str,
     sentence_pause_s: float,
-):
+) -> bool:
+    if not _has_speakable_text(text):
+        return False
     cmd = [
         "piper",
         "--model",
@@ -234,6 +257,8 @@ def _synthesize_piper_to_wav(
         )
     except RuntimeError as exc:
         err_text = str(exc)
+        if _is_piper_no_audio_error(err_text):
+            return False
         if (
             "No module named 'pathvalidate'" in err_text
             or 'No module named "pathvalidate"' in err_text
@@ -245,6 +270,7 @@ def _synthesize_piper_to_wav(
                 "  pip install pathvalidate"
             ) from exc
         raise
+    return True
 
 def _play_wav_file(self, wav_path: str):
     device = str(self._settings.tts_output_device or "").strip()
@@ -365,6 +391,8 @@ def _wait_after_chunk(self):
 __all__ = [
     "request_stop",
     "run",
+    "_has_speakable_text",
+    "_is_piper_no_audio_error",
     "_speak_command",
     "_speak_piper",
     "_synthesize_piper_to_wav",

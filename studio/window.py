@@ -135,6 +135,8 @@ class MainWindow(QMainWindow):
                     "try_sentence_transformers": self._try_sentence_transformers,
                     "open_rag_settings": self._open_rag_settings,
                     "open_speech_settings": self._open_speech_settings,
+                    "speak_active_workspace_text": self._speak_active_workspace_text,
+                    "stop_tts": self._stop_tts,
                     "start_whisper_dictation": self._start_whisper_dictation,
                     "stop_whisper_dictation": self._stop_whisper_dictation,
                     "on_dictation_running_changed": self._on_dictation_running_changed,
@@ -330,7 +332,9 @@ class MainWindow(QMainWindow):
     # ── Speech wrappers ───────────────────────────────────────────────
 
     def _speak_draft_text(self, text: str): self._speech_ctrl.speak_draft_text(text)
+    def _speak_selection_text(self, text: str): self._speech_ctrl.speak_selection_text(text)
     def _speak_chat_text(self, text: str): self._speech_ctrl.speak_chat_text(text)
+    def _speak_active_workspace_text(self): self._speech_ctrl.speak_active_workspace_text()
     def _stop_tts(self): self._speech_ctrl.stop_tts()
     def _start_whisper_dictation(self): self._speech_ctrl.start_whisper_dictation()
     def _stop_whisper_dictation(self): self._speech_ctrl.stop_whisper_dictation()

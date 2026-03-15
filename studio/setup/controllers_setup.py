@@ -96,6 +96,7 @@ def init_controllers(ctx: AppContext) -> ControllerBundle:
     speech_ctrl = SpeechController(
         parent=window,
         canvas=canvas,
+        knowledge_dock=knowledge_dock,
         chat_dock=chat_dock,
         app_logger=ctx.app_logger,
         app_settings=ctx.app_settings,

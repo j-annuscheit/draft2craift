@@ -242,8 +242,20 @@ class CanvasTabWidget(QWidget):
         if self._read_aloud_active:
             self.read_aloud_stop_requested.emit()
             return
-        text = self.get_current_text()
+        text = self._resolve_read_aloud_text()
         self.read_aloud_requested.emit(str(text or ""))
+
+    def _resolve_read_aloud_text(self) -> str:
+        selected = str(
+            self.get_selected_text(
+                allow_cached=True,
+                consume_cached=True,
+            )
+            or ""
+        ).strip()
+        if selected:
+            return selected
+        return str(self.get_current_text() or "").strip()
 
     def set_read_aloud_active(self, active: bool):
         self._read_aloud_active = bool(active)

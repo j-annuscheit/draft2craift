@@ -20,6 +20,9 @@ def connect_global_signals(window: Any) -> None:
     window.knowledge_dock.document_rename_requested.connect(window._rename_imported_document)
     window.knowledge_dock.rag_worker.index_complete.connect(window._on_rag_index_complete)
     window.chat_dock.tts_mode_changed.connect(window._speech_ctrl.on_chat_tts_mode_changed)
+    window.canvas.tabs.read_aloud_requested.connect(window._speak_selection_text)
+    window.knowledge_dock.doc_viewer.tabs.read_aloud_requested.connect(window._speak_selection_text)
+    window.knowledge_dock.rag_panel.tabs.read_aloud_requested.connect(window._speak_selection_text)
 
     try:
         window.chat_dock.history.content_changed.connect(window._on_chat_history_content_changed)

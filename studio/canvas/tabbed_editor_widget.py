@@ -28,6 +28,7 @@ class TabbedEditorWidget(QWidget):
     """
 
     tab_renamed = Signal(str, str)   # old_title, new_title
+    read_aloud_requested = Signal(str)
 
     def __init__(
         self,
@@ -102,6 +103,8 @@ class TabbedEditorWidget(QWidget):
             raise TypeError("Panel factory must return an object with '.editor'.")
         if hasattr(editor, "read_only_changed"):
             editor.read_only_changed.connect(self._refresh_tab_labels)
+        if hasattr(editor, "read_aloud_requested"):
+            editor.read_aloud_requested.connect(self._relay_read_aloud_text)
         if content:
             editor.setPlainText(content)
 
@@ -369,3 +372,8 @@ class TabbedEditorWidget(QWidget):
             btn_left = bar.tabButton(index, QTabBar.ButtonPosition.LeftSide)
             if btn_left is not None:
                 btn_left.setVisible(visible)
+
+    def _relay_read_aloud_text(self, text: str) -> None:
+        payload = str(text or "").strip()
+        if payload:
+            self.read_aloud_requested.emit(payload)

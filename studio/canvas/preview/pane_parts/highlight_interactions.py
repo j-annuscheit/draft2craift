@@ -59,7 +59,9 @@ def _open_highlight_context_menu(self, global_pos: QPoint):
         menu.addSeparator()
 
     create_actions: dict = {}
+    read_aloud_action = None
     if selected_text:
+        read_aloud_action = menu.addAction("🔊 Vorlesen")
         current_menu = menu.addMenu("Markieren (aktueller Tab)")
         all_tabs_menu = menu.addMenu("Markieren (alle Tabs)")
         for label, color in self._HIGHLIGHT_COLORS:
@@ -103,6 +105,12 @@ def _open_highlight_context_menu(self, global_pos: QPoint):
         # Normalize clipboard text so HTML copy never injects hidden chars
         # or paragraph separators into Markdown targets.
         self._copy_selection_to_clipboard()
+        return
+    if read_aloud_action is not None and picked is read_aloud_action:
+        editor = getattr(self, "_editor", None)
+        signal = getattr(editor, "read_aloud_requested", None)
+        if signal is not None and hasattr(signal, "emit"):
+            signal.emit(selected_text)
         return
 
     create_payload = create_actions.get(picked)

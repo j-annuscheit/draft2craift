@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, QSettings, Signal
-from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QWidget
 
 from shared.config.app_settings import SpeechSettings
 from shared.services.speech.tts import TextToSpeechManager
@@ -17,6 +17,7 @@ from studio.dialogs.window_manager import find_dialog_manager
 if TYPE_CHECKING:
     from studio.canvas.tabs import CanvasTabWidget
     from studio.chat.dock import ChatDock
+    from studio.knowledge.dock import KnowledgeDock
     from studio.logger import AppLogger
 
 
@@ -30,6 +31,7 @@ class SpeechController(QObject):
         *,
         parent: QObject,
         canvas: CanvasTabWidget,
+        knowledge_dock: KnowledgeDock,
         chat_dock: ChatDock,
         app_logger: AppLogger,
         app_settings: QSettings,
@@ -39,6 +41,7 @@ class SpeechController(QObject):
     ):
         super().__init__(parent)
         self._canvas = canvas
+        self._knowledge_dock = knowledge_dock
         self._chat_dock = chat_dock
         self._app_logger = app_logger
         self._app_settings = app_settings
@@ -51,11 +54,16 @@ class SpeechController(QObject):
         self._dictation_worker: WhisperDictationWorker | None = None
         self._dictation_target_panel: QWidget | None = None
         self._dictation_running: bool = False
+        self._last_workspace_panel: object | None = None
+        self._cached_workspace_selection_text: str = ""
 
         # Wire TTS signals
         self._tts_manager.status.connect(self._on_tts_status)
         self._tts_manager.error.connect(self._on_tts_error)
         self._tts_manager.speaking_changed.connect(self._on_tts_speaking_changed_internal)
+        app = QApplication.instance()
+        if app is not None:
+            app.focusChanged.connect(self._on_focus_changed)
 
     # ── Properties ────────────────────────────────────────────────────
 
@@ -168,10 +176,28 @@ class SpeechController(QObject):
             return
         self._tts_manager.speak(payload, interrupt=True)
 
+    def speak_selection_text(self, text: str) -> None:
+        payload = str(text or "").strip()
+        if not payload:
+            self._show_status("Keine Auswahl zum Vorlesen.", 2000)
+            return
+        self._tts_manager.speak(payload, interrupt=True)
+
     def speak_chat_text(self, text: str):
         payload = str(text or "").strip()
         if not payload:
             self._show_status("Keine Chat-Antwort zum Vorlesen.", 2000)
+            return
+        self._tts_manager.speak(payload, interrupt=True)
+
+    def speak_active_workspace_text(self) -> None:
+        """Read selected text or full active draft/viewer/rag pane."""
+        payload = self._resolve_active_workspace_tts_payload()
+        if not payload:
+            self._show_status(
+                "Keine Markierung oder Text im aktiven Draft/Viewer/RAG gefunden.",
+                2500,
+            )
             return
         self._tts_manager.speak(payload, interrupt=True)
 
@@ -277,7 +303,151 @@ class SpeechController(QObject):
                 return True
         return False
 
+    @staticmethod
+    def _widget_belongs_to(widget: QWidget | None, root: QWidget | None) -> bool:
+        current = widget
+        while current is not None:
+            if current is root:
+                return True
+            current = current.parentWidget()
+        return False
+
+    @staticmethod
+    def _normalize_qt_selected_text(value: str) -> str:
+        return (
+            str(value or "")
+            .replace("\u2029", "\n")
+            .replace("\u2028", "\n")
+            .strip()
+        )
+
+    def _resolve_knowledge_current_panel(self) -> object | None:
+        current = self._knowledge_dock.tab_widget.currentWidget()
+        if current is self._knowledge_dock.doc_viewer:
+            return self._knowledge_dock.doc_viewer.tabs.current_panel()
+        if current is self._knowledge_dock.rag_tab:
+            return self._knowledge_dock.rag_panel.tabs.current_panel()
+        return None
+
+    def _resolve_workspace_panel_from_widget(
+        self,
+        widget: QWidget | None,
+    ) -> object | None:
+        if self._widget_belongs_to(widget, self._canvas):
+            return self._canvas.tabs.current_panel()
+        if self._widget_belongs_to(widget, self._knowledge_dock):
+            return self._resolve_knowledge_current_panel()
+        return None
+
+    @staticmethod
+    def _panel_available(panel: object | None) -> bool:
+        if panel is None:
+            return False
+        try:
+            return getattr(panel, "editor", None) is not None
+        except RuntimeError:
+            return False
+
+    @classmethod
+    def _panel_selected_text(cls, panel: object | None) -> str:
+        if panel is None:
+            return ""
+        try:
+            preview_getter = getattr(panel, "get_preview_selected_text", None)
+            if callable(preview_getter):
+                selected = cls._normalize_qt_selected_text(preview_getter())
+                if selected:
+                    return selected
+            editor = getattr(panel, "editor", None)
+            if editor is None:
+                return ""
+            cursor = editor.textCursor()
+            return cls._normalize_qt_selected_text(cursor.selectedText())
+        except Exception:
+            return ""
+
+    @classmethod
+    def _panel_full_text(cls, panel: object | None) -> str:
+        if panel is None:
+            return ""
+        try:
+            editor = getattr(panel, "editor", None)
+            if editor is None:
+                return ""
+            getter = getattr(editor, "get_full_text", None)
+            if callable(getter):
+                return str(getter() or "").strip()
+            return str(editor.toPlainText() or "").strip()
+        except Exception:
+            return ""
+
+    def _resolve_active_workspace_tts_payload(self) -> str:
+        focus = QApplication.focusWidget()
+        panel = self._resolve_workspace_panel_from_widget(focus)
+        focus_in_workspace = self._panel_available(panel)
+        knowledge_panel = self._resolve_knowledge_current_panel()
+        canvas_panel = self._canvas.tabs.current_panel()
+
+        candidates: list[object] = []
+        for candidate in (
+            panel,
+            knowledge_panel,
+            canvas_panel,
+            self._last_workspace_panel,
+        ):
+            if candidate is None:
+                continue
+            if not self._panel_available(candidate):
+                continue
+            if any(existing is candidate for existing in candidates):
+                continue
+            candidates.append(candidate)
+
+        for candidate in candidates:
+            selected = self._panel_selected_text(candidate)
+            if not selected:
+                continue
+            self._last_workspace_panel = candidate
+            self._cached_workspace_selection_text = selected
+            return selected
+
+        if self._panel_available(panel):
+            self._last_workspace_panel = panel
+        elif self._panel_available(self._last_workspace_panel):
+            panel = self._last_workspace_panel
+        else:
+            panel = canvas_panel
+
+        if not focus_in_workspace and self._cached_workspace_selection_text:
+            cached = str(self._cached_workspace_selection_text or "").strip()
+            self._cached_workspace_selection_text = ""
+            if cached:
+                return cached
+        return self._panel_full_text(panel)
+
     # ── Signal slots ───────────────────────────────────────────────────
+
+    def _on_focus_changed(
+        self,
+        old: QWidget | None,
+        now: QWidget | None,
+    ) -> None:
+        previous_panel = self._resolve_workspace_panel_from_widget(old)
+        if self._panel_available(previous_panel):
+            self._last_workspace_panel = previous_panel
+            selected_before_blur = self._panel_selected_text(previous_panel)
+            if selected_before_blur:
+                self._cached_workspace_selection_text = selected_before_blur
+
+        panel = self._resolve_workspace_panel_from_widget(now)
+        if not self._panel_available(panel):
+            return
+        self._last_workspace_panel = panel
+        selected_now = self._panel_selected_text(panel)
+        if selected_now:
+            self._cached_workspace_selection_text = selected_now
+        else:
+            self._cached_workspace_selection_text = ""
 
     def on_chat_tts_mode_changed(self, mode: str):
         self._speech_settings.chat_tts_mode = str(mode or "off")

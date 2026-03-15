@@ -425,6 +425,20 @@ def build_menubar(inputs: MenuBuildInputs) -> MenuBuildResult:
     )
     _add_action(ai_menu, "RAG Settings…", "", _require_handler("open_rag_settings"), "menu.ai.rag_settings")
     _add_action(ai_menu, "Speech Settings…", "", _require_handler("open_speech_settings"), "menu.ai.speech_settings")
+    _add_action(
+        ai_menu,
+        "Read Active Selection/Line",
+        "",
+        _require_handler("speak_active_workspace_text"),
+        "menu.ai.read_active_workspace_text",
+    )
+    _add_action(
+        ai_menu,
+        "Stop Read Aloud",
+        "",
+        _require_handler("stop_tts"),
+        "menu.ai.stop_read_aloud",
+    )
     ai_menu.addSeparator()
     action_start_dictation = _add_action(
         ai_menu,

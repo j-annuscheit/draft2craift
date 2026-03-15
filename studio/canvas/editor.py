@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import QMimeData, Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QAction, QContextMenuEvent, QFont
 from PySide6.QtWidgets import QPlainTextEdit, QWidget
 
 from studio.canvas.editor_styles import editor_style
@@ -20,6 +20,7 @@ class MarkdownEditor(QPlainTextEdit):
     """
 
     read_only_changed = Signal(bool)
+    read_aloud_requested = Signal(str)
     _BASE_FONT_PT = 12.0
     _ZOOM_MIN = 60
     _ZOOM_MAX = 260
@@ -148,6 +149,27 @@ class MarkdownEditor(QPlainTextEdit):
 
     def get_full_text(self) -> str:
         return self.toPlainText()
+
+    @staticmethod
+    def _normalize_qt_selected_text(text: str) -> str:
+        return str(text or "").replace("\u2029", "\n").replace("\u2028", "\n").strip()
+
+    def _emit_read_aloud_selection(self) -> None:
+        selected = self._normalize_qt_selected_text(self.get_selected_text())
+        if not selected:
+            return
+        self.read_aloud_requested.emit(selected)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        menu = self.createStandardContextMenu()
+        selected = self._normalize_qt_selected_text(self.get_selected_text())
+        if selected:
+            menu.addSeparator()
+            read_aloud_action = QAction("🔊 Vorlesen", self)
+            read_aloud_action.triggered.connect(self._emit_read_aloud_selection)
+            menu.addAction(read_aloud_action)
+        menu.exec(event.globalPos())
+        menu.deleteLater()
 
     def load_file(self, path: str) -> bool:
         try:
