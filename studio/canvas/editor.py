@@ -7,6 +7,12 @@ from PySide6.QtCore import QMimeData, Qt, Signal
 from PySide6.QtGui import QAction, QContextMenuEvent, QFont
 from PySide6.QtWidgets import QPlainTextEdit, QWidget
 
+from shared.domain.user_mode import (
+    default_user_mode,
+    is_feature_visible,
+    normalize_user_mode,
+    resolve_feature_label,
+)
 from studio.canvas.editor_styles import editor_style
 from studio.canvas.highlighter import MarkdownHighlighter
 
@@ -25,10 +31,12 @@ class MarkdownEditor(QPlainTextEdit):
     _ZOOM_MIN = 60
     _ZOOM_MAX = 260
     _ZOOM_STEP = 10
+    _READ_ALOUD_FEATURE_KEY = "editor.context.read_aloud_selection"
 
     def __init__(self, parent: QWidget | None = None, read_only: bool = False):
         super().__init__(parent)
         self._font_size_pt = self._BASE_FONT_PT
+        self._user_mode = default_user_mode()
         self._setup_font()
         self.highlighter = MarkdownHighlighter(self.document())
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
@@ -160,12 +168,26 @@ class MarkdownEditor(QPlainTextEdit):
             return
         self.read_aloud_requested.emit(selected)
 
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
         menu = self.createStandardContextMenu()
         selected = self._normalize_qt_selected_text(self.get_selected_text())
-        if selected:
+        if selected and is_feature_visible(
+            self._user_mode,
+            self._READ_ALOUD_FEATURE_KEY,
+            default=True,
+        ):
             menu.addSeparator()
-            read_aloud_action = QAction("🔊 Vorlesen", self)
+            read_aloud_action = QAction(
+                resolve_feature_label(
+                    self._user_mode,
+                    self._READ_ALOUD_FEATURE_KEY,
+                    "🔊 Vorlesen",
+                ),
+                self,
+            )
             read_aloud_action.triggered.connect(self._emit_read_aloud_selection)
             menu.addAction(read_aloud_action)
         menu.exec(event.globalPos())

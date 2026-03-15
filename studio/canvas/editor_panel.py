@@ -112,6 +112,9 @@ class EditorPanel(QWidget):
 
     def set_user_mode(self, mode: str) -> None:
         self._user_mode = normalize_user_mode(mode)
+        editor_mode_setter = getattr(self.editor, "set_user_mode", None)
+        if callable(editor_mode_setter):
+            editor_mode_setter(self._user_mode)
         self._sync_lock_btn()
 
     def _toggle_lock(self):

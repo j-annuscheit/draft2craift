@@ -427,7 +427,7 @@ def build_menubar(inputs: MenuBuildInputs) -> MenuBuildResult:
     _add_action(ai_menu, "Speech Settings…", "", _require_handler("open_speech_settings"), "menu.ai.speech_settings")
     _add_action(
         ai_menu,
-        "Read Active Selection/Line",
+        "Read Active Selection/Document",
         "",
         _require_handler("speak_active_workspace_text"),
         "menu.ai.read_active_workspace_text",

@@ -60,8 +60,18 @@ def _open_highlight_context_menu(self, global_pos: QPoint):
 
     create_actions: dict = {}
     read_aloud_action = None
-    if selected_text:
-        read_aloud_action = menu.addAction("🔊 Vorlesen")
+    if selected_text and is_feature_visible(
+        getattr(self, "_user_mode", ""),
+        "editor.context.read_aloud_selection",
+        default=True,
+    ):
+        read_aloud_action = menu.addAction(
+            resolve_feature_label(
+                getattr(self, "_user_mode", ""),
+                "editor.context.read_aloud_selection",
+                "🔊 Vorlesen",
+            )
+        )
         current_menu = menu.addMenu("Markieren (aktueller Tab)")
         all_tabs_menu = menu.addMenu("Markieren (alle Tabs)")
         for label, color in self._HIGHLIGHT_COLORS:

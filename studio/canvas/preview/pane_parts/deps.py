@@ -44,7 +44,11 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
-from shared.domain.user_mode import normalize_user_mode, resolve_feature_label
+from shared.domain.user_mode import (
+    is_feature_visible,
+    normalize_user_mode,
+    resolve_feature_label,
+)
 from shared.services.highlights.store import HighlightMatch, get_highlight_store
 
 from ...graph.renderer import (
