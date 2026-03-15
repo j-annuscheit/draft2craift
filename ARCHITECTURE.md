@@ -42,11 +42,14 @@ canvas2/
 UI. It is importable in isolation (e.g. for unit tests, eval scripts, or a
 future headless server mode).
 
-**Allowed Qt usage in `shared/`:** `RAGSystem` (inherits `QObject`, emits
-signals) and `LLMManager` (same) are the intentional exceptions. They use Qt's
-signal/slot mechanism because background worker threads (`RAGWorker`,
-`LLMWorker`) are `QThread` subclasses. This is the *only* Qt allowed in
-`shared/`. No `QWidget`, no `QDialog`, no `QMainWindow` anywhere in `shared/`.
+**Allowed Qt usage in `shared/`:** Qt is used in worker/service boundaries where
+signal/slot threading is required:
+- `shared/services/rag/*` (`RAGSystem`, `RAGWorker`)
+- `shared/services/llm/*` (`LLMManager`, `LLMWorker`)
+- `shared/services/speech/*` (TTS/STT workers and managers)
+- `shared/services/project/project_loader.py` (`QByteArray` for persisted UI state restore)
+
+`shared/` must still avoid UI widgets (`QWidget`, `QDialog`, `QMainWindow`).
 
 ### Layer 2 — `studio/`
 
@@ -74,7 +77,9 @@ a declared dependency (e.g. `rag/` uses `llm/manager.py` for query expansion).
 ```
 canvas2/
 ├── shared/
-│   ├── config/                  # QSettings key constants (no logic)
+│   ├── config/                  # Runtime config models, path helpers, QSettings key registry
+│   │   ├── app_settings.py      # Typed settings models (SpeechSettings, AppSettings)
+│   │   ├── paths.py             # Platform-aware app data path helpers
 │   │   └── setting_keys.py      # All persistent setting keys, grouped by domain
 │   ├── domain/                  # Pure data — frozen dataclasses, Enum, TypedDict
 │   │   ├── document.py          # DocumentRef, DocumentContent
@@ -87,12 +92,12 @@ canvas2/
 │   │   ├── prompt.py            # PromptTemplate
 │   │   ├── rag.py               # RagChunk, RagQuery, RagResult
 │   │   ├── testcase.py          # TestCase (eval harness)
-│   │   └── user_mode.py         # USER_MODE_SIMPLE / PLUS / EXPERT constants
+│   │   └── user_mode.py         # Config-driven profiles, visibility + label resolution
 │   └── services/
 │       ├── feedback/            # Feedback persistence
-│       ├── highlights/          # Highlight store (per-session)
+│       ├── highlights/          # Highlight store (project/autosave scoped)
 │       ├── importer/            # PDF / DOCX → Markdown conversion
-│       ├── llm/                 # LLM inference (manager, worker, prompt tasks)
+│       ├── llm/                 # LLM inference (manager, worker, backend adapters, prompt tasks)
 │       ├── project/             # Project save / load / path security
 │       ├── rag/                 # Indexing, search, chunking, config
 │       └── speech/              # TTS (Piper) and STT (Whisper)
@@ -100,11 +105,12 @@ canvas2/
 ├── studio/
 │   ├── app.py                   # QApplication bootstrap, theme bootstrap
 │   ├── main.py                  # CLI entry point (27 lines)
-│   ├── window.py                # MainWindow — orchestration, ≤ 600 lines target
+│   ├── window.py                # MainWindow — orchestration hub
 │   ├── app_context.py           # AppContext mediator (see §6)
 │   ├── logger.py                # AppLogger + LogDock
 │   ├── menubar.py               # Menu construction (called once from window.__init__)
 │   ├── theme.py                 # Theme helpers
+│   ├── user_mode_bindings.py    # Declarative helpers for profile-driven widget wiring
 │   ├── setup/                   # Bootstrap pipeline (no business logic)
 │   │   ├── services_setup.py    # Creates services + AppContext
 │   │   ├── docks_setup.py       # Creates dock widgets, initial signal wiring
@@ -119,8 +125,8 @@ canvas2/
 │   └── importer/                # File import dialog + workers
 │
 ├── tests/                       # pytest tests (mirrors source tree layout)
-├── eval/                        # Offline evaluation scripts (not in wheel)
-├── data/                        # Static data: welcome.md, about.md, shortcuts.md
+├── eval/                        # Offline evaluation scripts (currently packaged too)
+├── data/                        # Runtime-editable defaults (welcome/about texts, user_modes/*.toml)
 ├── docs/                        # Human-readable documentation
 └── pyproject.toml               # Build config, dependencies, entry points
 ```
@@ -190,13 +196,42 @@ but never a NUL byte.
 | `token_received` | `str` | streaming token |
 | `generation_complete` | `str` | full output |
 | `error_occurred` | `str` | error message |
-| `model_loaded` | `(bool, str)` | success + path/error |
+| `model_loaded` | `(bool, str)` | success + backend/model status |
 | `nli_model_loaded` | `(bool, str)` | NLI model status |
 | `is_generating` | `bool` | generation state toggle |
 
-`LLMWorker(QThread)` owns the `llama_cpp.Llama` instance. It must not be
-accessed from any other thread. Token streaming goes via `token_received`
+`LLMWorker(QThread)` owns the active `BaseLLMBackend` instance
+(`shared/services/llm/backends/`). Token streaming goes via `token_received`
 signal to the main thread.
+
+### Backend Abstraction
+
+LLM inference is backend-modular:
+- `BaseLLMBackend` defines the stable runtime contract (`load_model`,
+  `generate_once`, `generate_stream`, `count_tokens`, `context_window`,
+  `prepare_prompt`).
+- Built-in backends:
+  - `LlamaCppBackend` for local `.gguf/.bin` models.
+  - `TransformersBackend` for Hugging Face `transformers` model ids/URLs.
+- `factory.py` resolves backend choice from user setting (`auto|llama_cpp|transformers`)
+  and model reference.
+- `LLMManager` and task modules must call backend-agnostic helper methods;
+  no task may access backend-native model objects directly.
+- Prompt formatting and tokenization must be backend-owned. Runtime code passes
+  prompt text to the backend; each backend decides whether/how to transform it
+  (for example chat-template rendering in `transformers`) before token counting
+  or generation.
+- No new compatibility shims for deprecated internals (for example
+  `LLMWorker._model` or manager-level `_nli_*` proxy fields). Tests must target
+  public APIs or the active backend object directly.
+
+### Adding a New Backend
+
+To add another provider (e.g. vLLM, ONNX Runtime, REST API wrapper):
+1. Implement `BaseLLMBackend` in a new module under `shared/services/llm/backends/`.
+2. Register it in `factory.py` (choice normalization + creation).
+3. Do **not** change chat/controller business logic; only backend wiring/factory.
+4. Add service tests that cover load + generate + stop behavior for the new backend.
 
 ---
 
@@ -272,7 +307,7 @@ signals.
 | `ZoomController` | `zoom_ctrl.py` | Editor zoom, view mode (markdown/preview/both) |
 | `CanvasController` | `canvas_controller.py` | Export, focus detection for canvas/dock selection |
 | `FindReplaceController` | `find_replace_ctrl.py` | Non-modal find/replace across all panels |
-| `LLMSideTaskController` | `llm_tasks.py` | Glossary, mind-map, summarization tasks |
+| `LLMSideTaskController` | `llm_tasks.py` | Glossary, mind-map/graph/chunk-map tasks |
 | `FeedbackController` | `feedback_ctrl.py` | Feedback UI, freeform dialog, stats |
 
 ### Controller Rules
@@ -338,6 +373,139 @@ needs. So the order is: FeedbackBar → Docks → LLMSideTaskController. If you
 need a new controller that requires a UI widget created before docks exist,
 bind that widget to `ctx` in its creation step, not in `_init_docks`.
 
+### Profile-Driven UI Rules
+
+User profiles are runtime-configured via `data/user_modes/*.toml` (not hard-coded).
+`shared/domain/user_mode.py` is the single resolver API used by UI code.
+
+#### A. Source-of-truth contract (MUST)
+
+- A profile is exactly one TOML file: `data/user_modes/<mode_id>.toml`.
+- Canonical profile id is the filename stem; `id` in TOML must match it.
+- Exactly one profile must declare `default_profile=true`.
+- Every profile must define all required sections:
+  `visibility`, `labels`, `literal_labels`, `literal_tooltips`.
+- Key sets across profiles must stay aligned; add/remove keys consistently in all
+  profile files.
+- `validate_user_mode_config()` must pass in tests/CI.
+
+#### B. Runtime API contract (MUST)
+
+- Use `is_feature_visible(mode, "feature.key", default=...)` for all visibility
+  gates (menus, actions, buttons, dialogs, advanced settings fields).
+- Use `resolve_feature_label(mode, "feature.key", default)` for profile-specific
+  labels; use `feature.key.tooltip` for hover text overrides.
+- For hard-coded UI literals that are not key-bound, use profile literal maps
+  (`literal_labels`, `literal_tooltips`) via
+  `studio/profile_text_overrides.py`.
+- Prefer declarative bindings over repeated imperative
+  `setText()/setToolTip()/setVisible()` blocks:
+  `studio/user_mode_bindings.py` (`apply_widget_texts`,
+  `apply_widget_tooltips`, `apply_widget_visibility`, `apply_form_row_*`,
+  `apply_combo_item_labels`).
+- Runtime `QMessageBox` text must remain profile-overridable via
+  `install_qmessagebox_literal_overrides()`.
+
+#### Example: profile-controlled button
+
+TOML keys in profile files:
+
+```toml
+# data/user_modes/simple.toml
+[visibility]
+"example.actions.generate_summary" = false
+
+[labels]
+"example.actions.generate_summary" = "Generate Summary"
+"example.actions.generate_summary.tooltip" = "Create a summary from the current context."
+```
+
+```toml
+# data/user_modes/plus.toml
+[visibility]
+"example.actions.generate_summary" = true
+
+[labels]
+"example.actions.generate_summary" = "Generate Summary"
+"example.actions.generate_summary.tooltip" = "Create a summary from the current context."
+```
+
+Widget wiring (no `if mode == "simple"` branching):
+
+```python
+from PySide6.QtWidgets import QPushButton
+
+from shared.domain.user_mode import normalize_user_mode
+from studio.user_mode_bindings import (
+    apply_widget_texts,
+    apply_widget_tooltips,
+    apply_widget_visibility,
+)
+
+self.generate_summary_btn = QPushButton("Generate Summary")
+
+def set_user_mode(self, mode: str) -> None:
+    self._user_mode = normalize_user_mode(mode)
+    apply_widget_visibility(
+        self._user_mode,
+        (
+            (self.generate_summary_btn, "example.actions.generate_summary", True),
+        ),
+    )
+    apply_widget_texts(
+        self._user_mode,
+        (
+            (self.generate_summary_btn, "example.actions.generate_summary", "Generate Summary"),
+        ),
+    )
+    apply_widget_tooltips(
+        self._user_mode,
+        (
+            (
+                self.generate_summary_btn,
+                "example.actions.generate_summary.tooltip",
+                "Create a summary from the current context.",
+            ),
+        ),
+    )
+```
+
+#### C. Main-window propagation contract (MUST)
+
+- `MainWindow.set_user_mode()` is the only orchestration point for mode changes.
+- It must continue to:
+  - normalize the incoming mode,
+  - update runtime context state,
+  - propagate to canvas/docks/open dialogs,
+  - apply key-based bindings and literal overrides,
+  - sync mode menu checks and status label.
+- Any new modeless dialog must implement `set_user_mode(mode: str)` so the
+  propagation path remains complete.
+
+#### D. Persistence contract (MUST)
+
+- User mode must round-trip through project persistence in `project.json`
+  (`ui.user_mode`) and be restored by `ProjectLoader`.
+- Autosave restore must recover user mode because it loads the autosave project
+  through the same project loader path.
+- Unknown/legacy mode values must normalize safely to `default_user_mode()`.
+- Global `QSettings` is not the source of truth for user mode selection.
+  Persistent user mode state is project/autosave scoped.
+
+#### E. Key design and allowed patterns
+
+- Prefer stable key namespaces:
+  `canvas.toolbar.*`, `canvas.preview.button.*`, `knowledge.tab.*`,
+  `rag.results.*`, `prompt_editor.*`, `importer.dialog.*`,
+  `importer.pdf.viewer.*`, `importer.pdf.group.*`,
+  `importer.pdf.general.*`, `importer.pdf.tables.*`,
+  `importer.pdf.header_footer.*`, `importer.pdf.heading.*`,
+  `importer.pdf.paragraph.*`, `glossary.editor.*`, `feedback.*`.
+- Prefer key-based checks over rank-based or hard-coded branching.
+  `mode_rank()` is legacy and should not be used for new UI gating.
+- Avoid direct string branching like `if mode == "simple"` in UI code unless it
+  is an explicit, documented compatibility shim.
+
 ---
 
 ## 9. Signal/Slot Rules
@@ -375,7 +543,7 @@ thread. Never update a QWidget directly from a background thread.
 ```
 Main Thread (Qt event loop)
 │
-├── LLMWorker (QThread)          — owns llama_cpp.Llama; streams tokens via signals
+├── LLMWorker (QThread)          — owns active BaseLLMBackend; streams tokens via signals
 │
 ├── RAGWorker (QThread)          — queue-based; indexing + search + ST model load
 │   └── RAGSystem (RLock)        — all RAGSystem methods are thread-safe
@@ -410,7 +578,7 @@ Main Thread (Qt event loop)
 │   ├── doc_0001.md          # Canvas tab 1 content
 │   └── ...
 ├── knowledge/
-│   ├── imported_0000.md     # Imported document 0
+│   ├── doc_0000.md          # Imported document 0 (persisted markdown)
 │   └── ...
 ├── rag/
 │   ├── index.pkl            # Pickled TF-IDF index + metadata
@@ -420,8 +588,33 @@ Main Thread (Qt event loop)
 │   └── chunk_claim_cache.json  # Fact-check claim cache
 ├── logs/
 │   └── entries.json         # Debug log entries
-└── project.json             # Manifest (schema_version, file list, metadata)
+├── highlights.json          # Highlight/glossary store for this project
+└── project.json             # Manifest (`version`, file list, metadata)
 ```
+
+### Archive Format (`.d2c`)
+
+Project persistence supports both folder-based projects and compressed archives:
+- Export creates a standard ZIP archive with `.d2c` extension that contains the
+  full project folder contents at archive root.
+- Import accepts `.d2c` archives (and ZIP-compatible content), validates ZIP
+  integrity and required project structure (`project.json`, `canvas/`,
+  `knowledge/`, `rag/`, `chat/`, `logs/`), then extracts to a managed workspace
+  before running `ProjectLoader`.
+- ZIP path traversal is blocked during validation/extraction (no absolute paths,
+  no `..`, no drive-style prefixes).
+- `ProjectLoader` expects current manifest fields only (for example
+  `llm.nli_model_id`, `settings.prompts`); deprecated aliases are not mapped.
+
+### Manifest UI contract
+
+- `project.json` must preserve UI profile state in `ui.user_mode`.
+- Save path: `ProjectSaver` writes `ui.user_mode` from `MainWindow.user_mode`.
+- Load path: `ProjectLoader` restores `ui.user_mode` through
+  `MainWindow.set_user_mode(..., notify=False)`.
+- Because autosave restore uses `ProjectLoader` on the autosave workspace,
+  user mode restoration must behave identically for manual project load and
+  crash-recovery restore.
 
 ### Path Security
 
@@ -451,8 +644,9 @@ Key groups:
 | `RAGSettingsKeys` | RAG pipeline | `rag/chunking_strategy`, `rag/top_k` |
 
 QSettings organisation/application strings: `"draft2craift"` / `"draft2craift"`.
-One `QSettings` instance is created in `services_setup.py` and passed through
-`AppContext`. Do not create additional `QSettings` instances.
+Primary runtime settings are created in `services_setup.py` and passed through
+`AppContext`. One additional bootstrap instance exists in `studio/app.py` to
+apply the UI theme before `MainWindow` is constructed.
 
 ---
 
@@ -478,8 +672,8 @@ tests/
 ```
 
 **Mocking:**
-- Use `unittest.mock.create_autospec(SomeClass, instance=True, spec_set=True)`.
-- Never write hand-crafted stub classes (class `_FooStub`). They go stale.
+- Prefer `unittest.mock.create_autospec(SomeClass, instance=True, spec_set=True)`.
+- Avoid adding new hand-crafted stub classes (`_FooStub`); migrate legacy stubs opportunistically.
 - For dock dependencies, mock against the Port protocol:
   `MagicMock(spec=KnowledgeDockPort)`.
 
@@ -529,7 +723,16 @@ Use this list to verify that new code is conformant.
 
 ### Settings rules
 - [ ] No QSettings key written as a string literal outside `setting_keys.py`
-- [ ] No second `QSettings("draft2craift", "draft2craift")` instance created
+- [ ] Additional `QSettings` instances are avoided in runtime code (bootstrap in `studio/app.py` is allowed)
+
+### User-mode rules
+- [ ] New UI behavior is gated via profile keys (`is_feature_visible` /
+      `resolve_feature_label`) rather than hard-coded mode branching
+- [ ] New profile keys are added consistently to all `data/user_modes/*.toml`
+      files and `validate_user_mode_config()` remains clean
+- [ ] New modeless dialogs implement `set_user_mode(mode: str)` and are
+      compatible with main-window propagation
+- [ ] Project save/load keeps `ui.user_mode` round-trip intact
 
 ### Project path rules
 - [ ] All file I/O within a project folder goes through `ProjectPaths`
@@ -541,7 +744,7 @@ Use this list to verify that new code is conformant.
       `platformdirs.user_data_dir()` (in `shared/`)
 
 ### Testing rules
-- [ ] No hand-crafted stub class; use `create_autospec(spec_set=True)`
+- [ ] New tests prefer autospec/spec-set mocks; no new long-lived hand-crafted stubs
 - [ ] New controller has at least one test in `tests/studio/`
 
 ---
@@ -553,15 +756,20 @@ data/
 ├── about.md          # "About" page shown in the preview panel
 ├── shortcuts.md      # Keyboard shortcuts reference page
 ├── welcome.md        # First-run welcome page
+├── user_modes/       # Profile catalog (*.toml) for visibility/labels/literals
 └── prompts/
     └── defaults.json # Default LLM prompt templates shipped with the app
 ```
 
 **Rules:**
-- Files are read-only at runtime via `_read_data_file(name)` in `window.py`.
+- Runtime code may read from `data/` (for example via `_read_data_file()` in
+  `window.py` and profile loading in `shared/domain/user_mode.py`), but must not
+  write back into repository data files.
 - `prompts/defaults.json` is the fallback when no user-customised prompts exist;
-  user edits are stored in `QStandardPaths.AppDataLocation`, never back into
+  runtime user edits are stored in `QStandardPaths.AppDataLocation`, never in
   `data/`.
+- `user_modes/*.toml` is the canonical profile catalog used by
+  `shared/domain/user_mode.py`.
 - Do not add binary assets, images, or model weights here — only plain text and
   JSON.
 
@@ -609,7 +817,7 @@ tests/
 ### Conventions
 
 - **Mirror structure:** every `studio/foo.py` has tests in `tests/studio/test_foo.py`; every `shared/services/bar.py` has tests in `tests/services/test_bar.py`.
-- **No hand-crafted stubs:** use `unittest.mock.create_autospec(SomeClass, spec_set=True)` for mocks.
+- **Prefer autospec mocks:** use `unittest.mock.create_autospec(SomeClass, spec_set=True)` for new tests; migrate legacy stubs over time.
 - **Offscreen Qt:** all `tests/studio/` tests rely on the `_qt_offscreen` autouse fixture; never create a real display.
 - **No network / model I/O:** tests must not download models or call external APIs; mock `LLMManager` and `RAGSystem` at the boundary.
 - **Run:** `pytest tests/` from the repository root. No special flags required.
@@ -640,16 +848,16 @@ eval/
 ### Invocation pattern
 
 ```bash
-python -m eval.rag_eval --suite data/eval_suites/rag_basic.json \
-       --output-dir runs/ --run-name exp-01
-python -m eval.rag_sweep --suite data/eval_suites/rag_basic.json
+python -m eval.rag_eval --suite eval/examples/rag_suite.example.json \
+       --output-dir runs/rag_eval --run-name exp-01
+python -m eval.rag_sweep --suite eval/examples/rag_sweep.example.json
 ```
 
-All scripts write results as JSONL to `--output-dir` (default `eval_runs/`).
+All scripts write results as JSONL to `--output-dir` (defaults are tool-specific under `runs/`).
 
 ### Rules
 
-- **Not in the wheel:** `eval/` is excluded from the installable package (see `pyproject.toml` `[tool.hatch.build]`). Run scripts only from the repo root.
+- **Packaging status:** `eval/` is currently included in the wheel (see `pyproject.toml` `[tool.hatch.build.targets.wheel]`). It is still intended for repo/tooling workflows.
 - **Shared utilities live in `eval/shared/`**, never duplicated across scripts.
 - **No Qt imports** in `eval/` — these are pure CLI tools; GUI display is handled by `test_studio/`.
 - Metrics from `eval/shared/metrics.py` are the canonical implementations; do not recompute precision/recall/F1 inline.
@@ -663,8 +871,8 @@ test_studio/
 ├── main.py          # Entry point: `python test_studio/main.py`
 ├── app.py           # Main PySide6 window (TestStudioApp)
 ├── models.py        # Qt data models (SuiteRunModel, RunCompareModel)
+├── components/      # Data loading, metrics, runner/process helpers
 └── view/            # Reusable view widgets
-    └── components/  # Smaller composable UI components
 ```
 
 **Purpose:** GUI dashboard for loading, running, and comparing `eval/` suite
@@ -719,6 +927,7 @@ These patterns look like violations but are intentional and must not be
 | Pattern | Location | Reason |
 |---------|----------|--------|
 | `QObject` / `QThread` in `shared/` | `rag/orchestrator.py`, `rag/worker.py`, `llm/manager.py`, `llm/worker.py`, speech workers | Signal/slot threading requires Qt base classes |
+| `QByteArray` in `shared/services/project` | `project_loader.py` | Restores persisted window state bytes during project load |
 | `set_context_getter` etc. on `ChatDock` | `docks_setup.py` | Legacy callback wiring; acceptable until signal migration |
 | `_apply_runtime_settings()` called from `window.py` | `_connect_global_signals` | Private method call across layers; tracked as tech debt |
 | `getattr(..., None)` defensive access | `AppContext.autosave_*` methods | Guards against partially-initialised state during startup |
