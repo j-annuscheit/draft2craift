@@ -40,8 +40,8 @@ class DocumentViewerPanel(QWidget):
                 show_toolbar=True,
                 lock_toggle_enabled=False,
                 allow_preview_editing=True,
-                show_markdown_by_default=True,
-                show_preview_by_default=False,
+                show_markdown_by_default=False,
+                show_preview_by_default=True,
                 highlight_scope="viewer",
             ),
         )
