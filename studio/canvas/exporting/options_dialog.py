@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QLabel,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from shared.domain.user_mode import (
     default_user_mode,
+    is_feature_visible,
     normalize_user_mode,
     resolve_feature_label,
 )
@@ -39,6 +41,7 @@ class ExportOptionsDialog(QDialog):
         self._font_label = None
         self._font_size_label = None
         self._line_spacing_label = None
+        self._multi_column_base_text = ""
         self.setModal(True)
         self.resize(460, 260)
 
@@ -96,10 +99,14 @@ class ExportOptionsDialog(QDialog):
         root.addLayout(form)
 
         self.multi_column_cb = QCheckBox("Multi-Column Export (2 Spalten)")
+        self._multi_column_hint = QLabel("")
+        self._multi_column_hint.setWordWrap(True)
+        self._multi_column_hint.setVisible(False)
         self.highlights_cb = QCheckBox("Markierungen uebernehmen")
         self.comments_cb = QCheckBox("Kommentare uebernehmen")
 
         root.addWidget(self.multi_column_cb)
+        root.addWidget(self._multi_column_hint)
         root.addWidget(self.highlights_cb)
         root.addWidget(self.comments_cb)
 
@@ -111,6 +118,9 @@ class ExportOptionsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         self._buttons = buttons
         root.addWidget(buttons)
+        self.format_combo.currentIndexChanged.connect(
+            self._sync_multi_column_availability
+        )
         self.set_user_mode(self._user_mode)
 
     def _label(self, key: str, default: str) -> str:
@@ -143,11 +153,28 @@ class ExportOptionsDialog(QDialog):
                 idx_word,
                 self._label("export.options.option.format.word", "Word (DOCX)"),
             )
-        self.multi_column_cb.setText(
-            self._label(
-                "export.options.checkbox.multi_column",
-                "Multi-Column Export (2 Spalten)",
+        self._multi_column_base_text = self._label(
+            "export.options.checkbox.multi_column",
+            "Multi-Column Export (2 Spalten)",
+        )
+        self.multi_column_cb.setText(self._multi_column_base_text)
+        self.multi_column_cb.setVisible(
+            bool(
+                is_feature_visible(
+                    self._user_mode,
+                    "export.options.checkbox.multi_column",
+                    default=True,
+                )
             )
+        )
+        self._multi_column_hint.setText(
+            self._label(
+                "export.options.checkbox.multi_column.disabled_note",
+                "Hinweis: 2-spaltig ist für PDF derzeit nicht verfügbar.",
+            )
+        )
+        self._multi_column_hint.setStyleSheet(
+            "color: #B35A5A; font-size: 11px; font-style: italic;"
         )
         self.highlights_cb.setText(
             self._label(
@@ -167,12 +194,48 @@ class ExportOptionsDialog(QDialog):
         cancel_btn = self._buttons.button(QDialogButtonBox.StandardButton.Cancel)
         if cancel_btn is not None:
             cancel_btn.setText(self._label("export.options.button.cancel", "Cancel"))
+        self._sync_multi_column_availability()
+
+    def _sync_multi_column_availability(self) -> None:
+        fmt = str(self.format_combo.currentData() or "pdf").strip().lower()
+        if fmt == "word":
+            self.multi_column_cb.setText(self._multi_column_base_text)
+            self.multi_column_cb.setEnabled(True)
+            self.multi_column_cb.setStyleSheet("")
+            self.multi_column_cb.setToolTip(
+                self._label(
+                    "export.options.checkbox.multi_column.tooltip.word",
+                    "Enable 2-column layout for DOCX export.",
+                )
+            )
+            self._multi_column_hint.setVisible(False)
+            return
+        self.multi_column_cb.setChecked(False)
+        self.multi_column_cb.setText(
+            self._label(
+                "export.options.checkbox.multi_column.disabled_label",
+                f"{self._multi_column_base_text} - nur DOCX",
+            )
+        )
+        self.multi_column_cb.setEnabled(False)
+        self.multi_column_cb.setStyleSheet(
+            "QCheckBox { color: #7F7F7F; font-style: italic; text-decoration: line-through; }"
+            "QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid #666; "
+            "background-color: #2C2C2C; }"
+        )
+        self.multi_column_cb.setToolTip(
+            self._label(
+                "export.options.checkbox.multi_column.tooltip.pdf_disabled",
+                "2-column layout is only available for Word (DOCX) export.",
+            )
+        )
+        self._multi_column_hint.setHidden(self.multi_column_cb.isHidden())
 
     def options(self) -> ExportOptions:
         fmt = str(self.format_combo.currentData() or "pdf").strip().lower()
         return ExportOptions(
             output_format="word" if fmt == "word" else "pdf",
-            multi_column=self.multi_column_cb.isChecked(),
+            multi_column=bool(fmt == "word" and self.multi_column_cb.isChecked()),
             include_highlights=self.highlights_cb.isChecked(),
             include_comments=self.comments_cb.isChecked(),
             font_name=self.font_combo.currentText().strip() or "Calibri",
