@@ -316,8 +316,14 @@ def _build_prompt(
 
     parts.append(f"\n<|user|>\n{user_message}")
     parts.append("\n<|assistant|>\n")
-
-    return "".join(parts)
+    prompt = "".join(parts)
+    resolver = getattr(self, "_resolve_project_variables_text", None)
+    if callable(resolver):
+        try:
+            return str(resolver(prompt) or "")
+        except Exception:
+            return prompt
+    return prompt
 
 def _inject_canvas_target_markers(
     draft_text: str,
@@ -341,4 +347,3 @@ def _inject_canvas_target_markers(
     return marked, True
 
 # ── Context-window guard ───────────────────────────────────────────────────
-

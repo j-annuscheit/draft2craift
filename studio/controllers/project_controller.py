@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable
 
-from PySide6.QtWidgets import QFileDialog, QMessageBox, QWidget
+from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox, QWidget
 
 from shared.services.project.project_archive import ensure_archive_extension
 
@@ -120,6 +120,26 @@ class ProjectController:
         self._context.rewire_autosave_editors()
         self._context.schedule_autosave(250)
         self._context.show_status(f"Project imported from: {archive_path}", 5000)
+        return True
+
+    def open_project_variables_dialog(self) -> bool:
+        from studio.project.variables_dialog import ProjectVariablesDialog
+
+        getter = getattr(self._window, "get_project_variables", None)
+        current_variables = getter() if callable(getter) else {}
+        dialog = ProjectVariablesDialog(
+            variables=current_variables,
+            user_mode=self._context.get_user_mode(),
+            parent=self._window,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+
+        setter = getattr(self._window, "set_project_variables", None)
+        if callable(setter):
+            setter(dialog.variables(), notify=False)
+        self._context.show_status("Project variables updated.", 3500)
+        self._context.schedule_autosave(250)
         return True
 
     def _run_load_with_autosave_guard(

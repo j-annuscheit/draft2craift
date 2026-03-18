@@ -23,6 +23,10 @@ from PySide6.QtWidgets import (
 from shared.domain.user_mode import (
     user_mode_label,
 )
+from shared.services.project.project_variables import (
+    normalize_project_variables,
+    resolve_project_variables_text,
+)
 from studio.canvas.preview.pane import CanvasPreviewPane
 from studio.canvas.tabs import CanvasTabWidget
 from studio.controllers.feedback_ctrl import FeedbackController
@@ -82,6 +86,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         install_qmessagebox_literal_overrides()
         self._dialog_manager = DialogWindowManager(self)
+        self._project_variables: dict[str, str] = {}
         self._bootstrap_app_settings = app_settings
         self._init_services()
         self._init_early_controllers()
@@ -128,6 +133,7 @@ class MainWindow(QMainWindow):
                     "open_freeform_feedback": self._open_freeform_feedback,
                     "open_feedback_stats": self._open_feedback_stats,
                     "open_feedback_settings": self._open_feedback_settings,
+                    "open_project_variables": self._open_project_variables,
                     "focus_model_panel": self._focus_model_panel,
                     "edit_system_prompt": self._edit_system_prompt,
                     "generate_glossary_from_context": self._generate_glossary_from_context,
@@ -190,6 +196,9 @@ class MainWindow(QMainWindow):
         self.app_logger = services.app_logger
         self.rag_system = services.rag_system
         self.llm_manager = services.llm_manager
+        llm_setter = getattr(self.llm_manager, "set_project_variables_getter", None)
+        if callable(llm_setter):
+            llm_setter(self.get_project_variables)
         self._project_manager = services.project_manager
         self._file_registry = services.file_registry
         self._user_mode_ctrl = services.user_mode_ctrl
@@ -322,6 +331,19 @@ class MainWindow(QMainWindow):
     def apply_preview_theme_id(self, theme_id: object, *, persist: bool = True): self._theme_ctrl.apply_preview_theme_id(theme_id, persist=persist)
     def get_speech_settings(self) -> dict: return self._speech_ctrl.get_speech_settings()
     def apply_speech_settings(self, raw: object): self._speech_ctrl.apply_speech_settings(raw)
+    def get_project_variables(self) -> dict[str, str]:
+        return dict(self._project_variables)
+    def set_project_variables(self, raw: object, *, notify: bool = True) -> None:
+        self._project_variables = normalize_project_variables(raw)
+        if notify:
+            bar = self.statusBar()
+            if bar is not None:
+                bar.showMessage("Project variables updated.", 3000)
+    def resolve_project_variables_text(self, text: object) -> str:
+        return resolve_project_variables_text(
+            text,
+            self._project_variables,
+        ).text
     @property
     def dialog_manager(self) -> DialogWindowManager: return self._dialog_manager
 
@@ -417,6 +439,7 @@ class MainWindow(QMainWindow):
     def _load_project(self) -> bool: return self._project_controller.load_project()
     def _export_project_archive(self) -> bool: return self._project_controller.export_project_archive()
     def _import_project_archive(self) -> bool: return self._project_controller.import_project_archive()
+    def _open_project_variables(self): self._project_controller.open_project_variables_dialog()
     def _open_import_dialog(self): self._knowledge_controller.open_import_dialog(feedback_service=self._feedback_ctrl.service)
 
     def _import_dialog_busy(self) -> bool: return self._knowledge_controller.import_dialog_busy()

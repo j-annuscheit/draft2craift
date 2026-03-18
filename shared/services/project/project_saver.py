@@ -9,6 +9,7 @@ from typing import Any
 
 from shared.services.highlights.store import get_highlight_store
 from shared.services.highlights.store_storage import save_store_data
+from shared.services.project.project_variables import normalize_project_variables
 
 from .project_paths import ProjectPaths
 
@@ -275,10 +276,20 @@ class ProjectSaver:
 
         geometry_b64 = base64.b64encode(mw.saveGeometry().data()).decode()
         state_b64 = base64.b64encode(mw.saveState().data()).decode()
+        project_variables_getter = getattr(mw, "get_project_variables", None)
+        project_variables = {}
+        if callable(project_variables_getter):
+            try:
+                project_variables = normalize_project_variables(
+                    project_variables_getter()
+                )
+            except Exception:
+                project_variables = {}
 
         return {
             "version": 1,
             "rag_config": mw.rag_system.config.to_dict(),
+            "project_variables": project_variables,
             "settings": {
                 "prompts": mw.llm_manager.get_prompt_set(),
                 "speech": mw.get_speech_settings(),

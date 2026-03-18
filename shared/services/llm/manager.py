@@ -14,6 +14,7 @@ Two classes:
 from __future__ import annotations
 
 from collections import OrderedDict
+from collections.abc import Callable, Mapping
 import functools
 import os
 import re
@@ -74,6 +75,10 @@ from shared.services.llm.chat_context_runtime import (
     _parse_forbidden_chars as _parse_forbidden_chars_fn,
 )
 from shared.services.llm.worker import LLMWorker
+from shared.services.project.project_variables import (
+    normalize_project_variables,
+    resolve_project_variables_text,
+)
 
 CANVAS_REWRITE_OPEN = "[[CANVAS_REWRITE]]"
 CANVAS_REWRITE_CLOSE = "[[/CANVAS_REWRITE]]"
@@ -155,10 +160,16 @@ class LLMManager(QObject):
     _QUERY_CACHE_MISS = object()
     _QUERY_CACHE_MAX = 128
 
-    def __init__(self, logger: Any = None, parent: QObject | None = None):
+    def __init__(
+        self,
+        logger: Any = None,
+        parent: QObject | None = None,
+        project_variables_getter: Callable[[], Mapping[str, object]] | None = None,
+    ):
         super().__init__(parent)
         self._log    = logger
         self.worker  = LLMWorker()
+        self._project_variables_getter = project_variables_getter
         self._nli_backend = NLIBackend(
             logger=self._log,
             prompt_renderer=self._render_prompt_template,
@@ -293,7 +304,8 @@ class LLMManager(QObject):
         replacements: dict[str, str] | None = None,
     ) -> str:
         """Render editable prompt templates with {placeholder} substitution."""
-        return self._prompt_registry.render(key, replacements)
+        rendered = self._prompt_registry.render(key, replacements)
+        return self._resolve_project_variables_text(rendered)
 
     def render_prompt_template(
         self,
@@ -302,6 +314,27 @@ class LLMManager(QObject):
     ) -> str:
         """Public wrapper used by UI elements to render editable prompt templates."""
         return self._render_prompt_template(key, replacements)
+
+    def set_project_variables_getter(
+        self,
+        getter: Callable[[], Mapping[str, object]] | None,
+    ) -> None:
+        self._project_variables_getter = getter
+
+    def _current_project_variables(self) -> dict[str, str]:
+        getter = self._project_variables_getter
+        if not callable(getter):
+            return {}
+        try:
+            return normalize_project_variables(getter())
+        except Exception:
+            return {}
+
+    def _resolve_project_variables_text(self, text: object) -> str:
+        variables = self._current_project_variables()
+        if not variables:
+            return str(text or "")
+        return resolve_project_variables_text(text, variables).text
 
     def _log_llm_io(
         self,
@@ -329,8 +362,9 @@ class LLMManager(QObject):
         repeat_penalty: float,
         stop_tokens: list[str] | None = None,
     ) -> str:
+        resolved_prompt = self._resolve_project_variables_text(prompt)
         return self.worker.run_completion_sync(
-            prompt,
+            resolved_prompt,
             max_tokens=int(max_tokens),
             temperature=float(temperature),
             top_p=float(top_p),
@@ -350,8 +384,9 @@ class LLMManager(QObject):
         stop_tokens: list[str] | None = None,
         stop_requested=None,
     ):
+        resolved_prompt = self._resolve_project_variables_text(prompt)
         return self.worker.iter_completion_sync(
-            prompt,
+            resolved_prompt,
             max_tokens=int(max_tokens),
             temperature=float(temperature),
             top_p=float(top_p),

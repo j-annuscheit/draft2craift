@@ -7,6 +7,10 @@ from typing import TYPE_CHECKING
 from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox, QWidget
 
 from shared.domain.user_mode import normalize_user_mode, resolve_feature_label
+from shared.services.project.project_variables import (
+    resolve_project_variables_from_object,
+    resolve_project_variables_text,
+)
 from .exporting import ExportOptions, ExportOptionsDialog, write_docx, write_pdf
 
 if TYPE_CHECKING:
@@ -117,6 +121,28 @@ class CanvasFileActions:
         scope = str(panel_scope or "draft").strip().lower() or "draft"
         resolved_tab_name = str(tab_name or self._tab_name_for_panel(panel) or "").strip()
         markdown_text = str(editor.toPlainText() or "")
+        project_variables = resolve_project_variables_from_object(self._parent)
+        resolution = resolve_project_variables_text(markdown_text, project_variables)
+        markdown_text = resolution.text
+        if resolution.missing_keys:
+            missing_preview = ", ".join(resolution.missing_keys[:3]) + (
+                "..." if len(resolution.missing_keys) > 3 else ""
+            )
+            warning_template = self._label(
+                "project.variables.warning.missing.template",
+                "Some project variables were not found: {keys}",
+            )
+            try:
+                warning_message = warning_template.format(keys=missing_preview)
+            except Exception:
+                warning_message = (
+                    "Some project variables were not found: "
+                    f"{missing_preview}"
+                )
+            self._show_nonblocking_status(
+                warning_message,
+                timeout_ms=4500,
+            )
 
         try:
             if is_word:
@@ -202,3 +228,21 @@ class CanvasFileActions:
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         return dialog.options()
+
+    def _show_nonblocking_status(self, message: str, *, timeout_ms: int = 3500) -> None:
+        current = self._parent
+        visited: set[int] = set()
+        while current is not None:
+            marker = id(current)
+            if marker in visited:
+                break
+            visited.add(marker)
+
+            status_fn = getattr(current, "statusBar", None)
+            if callable(status_fn):
+                status_bar = status_fn()
+                if status_bar is not None and hasattr(status_bar, "showMessage"):
+                    status_bar.showMessage(str(message or ""), int(timeout_ms))
+                    return
+            parent_fn = getattr(current, "parent", None)
+            current = parent_fn() if callable(parent_fn) else None

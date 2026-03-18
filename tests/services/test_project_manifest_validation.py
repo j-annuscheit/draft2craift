@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from shared.services.project.manager import ProjectManager
+from shared.services.project.project_loader import ProjectLoader, ProjectSchemaError
 
 
 def _write_manifest(folder: Path, payload: object) -> None:
@@ -92,3 +93,37 @@ def test_load_project_rejects_wrong_nested_types(tmp_path: Path):
     assert ok is False
     assert "Invalid project.json schema" in manager.last_error
     assert "canvas.tabs" in manager.last_error
+
+
+def test_validate_manifest_accepts_project_variables_dict() -> None:
+    raw = {
+        "version": 1,
+        "rag_config": {},
+        "canvas": {"tabs": [], "current_tab": 0},
+        "knowledge": {"files": []},
+        "settings": {},
+        "llm": {},
+        "ui": {},
+        "project_variables": {"applicant_name": "Alice"},
+    }
+    validated = ProjectLoader._validate_manifest(raw)
+    assert validated.get("project_variables") == {"applicant_name": "Alice"}
+
+
+def test_validate_manifest_rejects_non_string_project_variable_value() -> None:
+    raw = {
+        "version": 1,
+        "rag_config": {},
+        "canvas": {"tabs": [], "current_tab": 0},
+        "knowledge": {"files": []},
+        "settings": {},
+        "llm": {},
+        "ui": {},
+        "project_variables": {"applicant_name": 123},
+    }
+    try:
+        ProjectLoader._validate_manifest(raw)
+    except ProjectSchemaError as exc:
+        assert "project_variables.applicant_name" in str(exc)
+    else:
+        raise AssertionError("Expected ProjectSchemaError")

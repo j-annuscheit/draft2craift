@@ -363,6 +363,13 @@ def build_menubar(inputs: MenuBuildInputs) -> MenuBuildResult:
     act_autosave.triggered.connect(_require_handler("toggle_autosave_enabled"))
     _bind_action(act_autosave, "menu.settings.autosave_toggle", "Autosave-Projekt aktivieren")
     settings_menu.addAction(act_autosave)
+    _add_action(
+        settings_menu,
+        "Project Variables…",
+        "",
+        _require_handler("open_project_variables"),
+        "menu.settings.project_variables",
+    )
 
     settings_menu.addSeparator()
     _add_action(

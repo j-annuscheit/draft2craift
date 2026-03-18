@@ -9,6 +9,7 @@ from typing import Any
 from PySide6.QtCore import QByteArray
 
 from shared.services.highlights.store import get_highlight_store
+from shared.services.project.project_variables import normalize_project_variables
 from shared.services.rag.config import RAGConfig
 
 from .project_paths import ProjectPaths
@@ -27,6 +28,7 @@ class ProjectLoader:
     def load(self, mw: Any) -> None:
         data = self._read_manifest()
 
+        self._restore_project_variables(mw, data)
         self._restore_highlights(mw)
         self._restore_rag_config(mw, data)
         self._restore_knowledge_files(mw, data)
@@ -90,6 +92,22 @@ class ProjectLoader:
                 raise ProjectSchemaError(
                     f"Field '{key}' must be an object, got {type(value).__name__}."
                 )
+
+        project_variables = raw.get("project_variables")
+        if project_variables is not None and not isinstance(project_variables, dict):
+            raise ProjectSchemaError(
+                "Field 'project_variables' must be an object when present."
+            )
+        if isinstance(project_variables, dict):
+            for key, value in project_variables.items():
+                if not isinstance(key, str):
+                    raise ProjectSchemaError(
+                        "Field 'project_variables' must use string keys."
+                    )
+                if not isinstance(value, str):
+                    raise ProjectSchemaError(
+                        f"Field 'project_variables.{key}' must be string, got {type(value).__name__}."
+                    )
 
         canvas = raw["canvas"]
         if "tabs" not in canvas:
@@ -159,6 +177,14 @@ class ProjectLoader:
     def _restore_rag_config(mw: Any, data: dict) -> None:
         rag_cfg_data = data["rag_config"]
         mw.rag_system.config = RAGConfig.from_dict(rag_cfg_data)
+
+    @staticmethod
+    def _restore_project_variables(mw: Any, data: dict) -> None:
+        setter = getattr(mw, "set_project_variables", None)
+        if not callable(setter):
+            return
+        variables = normalize_project_variables(data.get("project_variables", {}))
+        setter(variables, notify=False)
 
     def _restore_knowledge_files(self, mw: Any, data: dict) -> None:
         # Block auto-reindex while restoring so background worker does not run.
