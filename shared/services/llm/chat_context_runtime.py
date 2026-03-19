@@ -6,6 +6,20 @@ import re
 import time
 
 _COMMA_NEWLINE_SPLIT_RE = re.compile(r"[,\n]+")
+_THINK_OPEN_TAG = "<think>"
+_THINK_CLOSE_TAG = "</think>"
+_THINK_BLOCK_RE = re.compile(r"<think>[\s\S]*?</think>", flags=re.IGNORECASE)
+_THINK_OPEN_TAIL_RE = re.compile(r"<think>[\s\S]*$", flags=re.IGNORECASE)
+_IMPLICIT_THINK_MARKERS = (
+    "i need to",
+    "let me",
+    "the user asked",
+    "i should",
+    "i will",
+    "ich sollte",
+    "lass mich",
+    "der nutzer hat",
+)
 
 
 def _n_ctx(self) -> int:
@@ -192,19 +206,200 @@ def _apply_forbidden_filter(self, text: str) -> str:
         return text
     return "".join(ch for ch in text if ch not in self._forbidden_chars)
 
+
+def _hide_think_blocks_enabled(self) -> bool:
+    configured = getattr(self, "_hide_think_blocks", None)
+    if configured is not None:
+        return bool(configured)
+    show = str(os.environ.get("D2C_SHOW_THINK_BLOCKS", "")).strip().casefold() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    return not show
+
+
+def _assume_implicit_think_prefix(self) -> bool:
+    forced = str(os.environ.get("D2C_ASSUME_IMPLICIT_THINK", "")).strip().casefold()
+    if forced in {"1", "true", "yes", "on"}:
+        return True
+    if forced in {"0", "false", "no", "off"}:
+        return False
+
+    worker = getattr(self, "worker", None)
+    backend = getattr(worker, "_backend", None) if worker is not None else None
+    model_ref = str(getattr(backend, "model_ref", "") or "").casefold()
+    backend_id = str(getattr(backend, "backend_id", "") or "").casefold()
+    return ("nemotron" in model_ref) and (backend_id == "transformers")
+
+
+def _strip_think_blocks_full(text: str) -> str:
+    value = str(text or "")
+    if not value:
+        return ""
+    lower = value.casefold()
+    close_idx = lower.find(_THINK_CLOSE_TAG)
+    open_idx = lower.find(_THINK_OPEN_TAG)
+    if close_idx >= 0 and (open_idx < 0 or open_idx > close_idx):
+        value = value[close_idx + len(_THINK_CLOSE_TAG):]
+    value = _THINK_BLOCK_RE.sub("", value)
+    value = _THINK_OPEN_TAIL_RE.sub("", value)
+    return value
+
+
+def _extract_think_fallback(text: str) -> str:
+    value = str(text or "")
+    if not value:
+        return ""
+    lower = value.casefold()
+    close_idx = lower.find(_THINK_CLOSE_TAG)
+    open_idx = lower.find(_THINK_OPEN_TAG)
+    if close_idx >= 0 and (open_idx < 0 or open_idx > close_idx):
+        return value[:close_idx]
+    if open_idx >= 0 and close_idx > open_idx:
+        return value[open_idx + len(_THINK_OPEN_TAG):close_idx]
+    if open_idx >= 0:
+        return value[open_idx + len(_THINK_OPEN_TAG):]
+    return ""
+
+
+def _looks_like_implicit_think_payload(text: str) -> bool:
+    raw = str(text or "").strip()
+    if not raw:
+        return False
+    lowered = raw.casefold()
+    return any(marker in lowered for marker in _IMPLICIT_THINK_MARKERS)
+
+
+def _split_think_stream(
+    self,
+    text: str,
+    *,
+    flush: bool = False,
+) -> tuple[str, str]:
+    if not _hide_think_blocks_enabled(self):
+        return str(text or ""), ""
+
+    incoming = str(text or "")
+    pending = str(getattr(self, "_think_stream_pending", "") or "")
+    inside = bool(getattr(self, "_think_stream_inside", False))
+    implicit_prefix = bool(getattr(self, "_think_stream_implicit_prefix", False))
+    data = pending + incoming
+    if not data and not flush:
+        return "", ""
+
+    visible_parts: list[str] = []
+    think_parts: list[str] = []
+    i = 0
+    lower_data = data.casefold()
+    open_tag = _THINK_OPEN_TAG
+    close_tag = _THINK_CLOSE_TAG
+
+    while i < len(data):
+        if inside:
+            end_idx = lower_data.find(close_tag, i)
+            if end_idx < 0:
+                if flush:
+                    if implicit_prefix:
+                        tail = data[i:]
+                        if _looks_like_implicit_think_payload(tail):
+                            think_parts.append(tail)
+                        else:
+                            visible_parts.append(tail)
+                    else:
+                        think_parts.append(data[i:])
+                    setattr(self, "_think_stream_inside", False)
+                    setattr(self, "_think_stream_implicit_prefix", False)
+                    setattr(self, "_think_stream_pending", "")
+                    return "".join(visible_parts), "".join(think_parts)
+                keep_from = max(i, len(data) - len(close_tag) + 1)
+                if implicit_prefix:
+                    keep_from = i
+                think_parts.append(data[i:keep_from])
+                setattr(self, "_think_stream_inside", True)
+                setattr(self, "_think_stream_implicit_prefix", implicit_prefix)
+                setattr(self, "_think_stream_pending", data[keep_from:])
+                return "".join(visible_parts), "".join(think_parts)
+            think_parts.append(data[i:end_idx])
+            inside = False
+            implicit_prefix = False
+            i = end_idx + len(close_tag)
+            continue
+
+        start_idx = lower_data.find(open_tag, i)
+        if start_idx < 0:
+            if flush:
+                visible_parts.append(data[i:])
+                setattr(self, "_think_stream_inside", False)
+                setattr(self, "_think_stream_implicit_prefix", False)
+                setattr(self, "_think_stream_pending", "")
+                return "".join(visible_parts), "".join(think_parts)
+            keep_from = max(i, len(data) - len(open_tag) + 1)
+            visible_parts.append(data[i:keep_from])
+            setattr(self, "_think_stream_inside", False)
+            setattr(self, "_think_stream_implicit_prefix", False)
+            setattr(self, "_think_stream_pending", data[keep_from:])
+            return "".join(visible_parts), "".join(think_parts)
+
+        visible_parts.append(data[i:start_idx])
+        inside = True
+        implicit_prefix = False
+        i = start_idx + len(open_tag)
+
+    setattr(self, "_think_stream_inside", inside)
+    setattr(self, "_think_stream_implicit_prefix", implicit_prefix)
+    setattr(self, "_think_stream_pending", "")
+    return "".join(visible_parts), "".join(think_parts)
+
+
+def _emit_thinking_delta(self, delta: str) -> None:
+    text = str(delta or "")
+    if not text:
+        return
+    current = str(getattr(self, "_last_think_text", "") or "")
+    setattr(self, "_last_think_text", f"{current}{text}")
+    signal = getattr(self, "thinking_received", None)
+    if signal is not None and hasattr(signal, "emit"):
+        try:
+            signal.emit(text)
+        except Exception:
+            pass
+
+
 # ── Worker signal interceptors ─────────────────────────────────────────────
 
 def _on_token(self, token: str):
     self._token_count += 1
-    filtered = self._apply_forbidden_filter(token)
+    visible, think_delta = _split_think_stream(self, str(token or ""), flush=False)
+    _emit_thinking_delta(self, think_delta)
+    filtered = self._apply_forbidden_filter(visible)
     if filtered:
         self.token_received.emit(filtered)
 
 def _on_complete(self, response: str):
-    filtered_response = self._apply_forbidden_filter(response)
+    raw_response = str(response or "")
+    tail_visible, tail_think = _split_think_stream(self, "", flush=True)
+    _emit_thinking_delta(self, tail_think)
+
+    tail_filtered = self._apply_forbidden_filter(tail_visible)
+    if tail_filtered:
+        self.token_received.emit(tail_filtered)
+
+    think_payload = str(getattr(self, "_last_think_text", "") or "").strip()
+    if not think_payload:
+        think_payload = str(_extract_think_fallback(raw_response) or "").strip()
+        setattr(self, "_last_think_text", think_payload)
+
+    without_think = (
+        _strip_think_blocks_full(raw_response)
+        if _hide_think_blocks_enabled(self)
+        else raw_response
+    )
+    filtered_response = self._apply_forbidden_filter(without_think)
     elapsed = time.perf_counter() - self._gen_start
     if self._log:
-        removed_chars = max(0, len(response) - len(filtered_response))
+        removed_chars = max(0, len(raw_response) - len(filtered_response))
         tok_s = self._token_count / elapsed if elapsed > 0 else 0.0
         self._log.info(
             "LLM",
@@ -215,13 +410,17 @@ def _on_complete(self, response: str):
         )
         if removed_chars > 0:
             self._log.info("LLM", f"Removed {removed_chars} forbidden characters.")
-        self._log.debug("LLM", f"Full response:\n{filtered_response}")
+        if think_payload:
+            self._log.debug("LLM", f"Thinking (hidden from chat):\n{think_payload}")
+        self._log.debug("LLM", f"Full response (raw):\n{raw_response}")
+        self._log.debug("LLM", f"Visible response:\n{filtered_response}")
     self.is_generating.emit(False)
     self.generation_complete.emit(filtered_response)
 
 def _on_error(self, message: str):
     if self._log:
         self._log.error("LLM", f"Error: {message}")
+    self.is_generating.emit(False)
     self.error_occurred.emit(message)
 
 def _on_model_loaded(self, success: bool, message: str):

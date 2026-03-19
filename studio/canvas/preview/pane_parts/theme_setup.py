@@ -36,6 +36,7 @@ def __init__(
     self._tab_switcher: Callable[[str], bool] | None = None
     self._rendered_highlights: list[_RenderedHighlight] = []
     self._hovered_highlight_id = ""
+    self._link_tooltips: dict[str, str] = {}
     self._last_rendered_markdown: str | None = None
     self._structured_graph_spec: GraphSpec | None = None
     self._structured_graph_signature = ""

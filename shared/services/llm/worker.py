@@ -50,6 +50,7 @@ class LLMWorker(QThread):
         n_threads: int = 0,
         embedding: bool = False,
         flash_attn: bool = True,
+        trust_remote_code: bool = False,
         backend: str = BACKEND_AUTO,
     ) -> None:
         self._task = "load"
@@ -61,6 +62,7 @@ class LLMWorker(QThread):
             "n_threads": int(n_threads),
             "embedding": bool(embedding),
             "flash_attn": bool(flash_attn),
+            "trust_remote_code": bool(trust_remote_code),
         }
         if not self.isRunning():
             self.start()
@@ -177,11 +179,7 @@ class LLMWorker(QThread):
             )
             success, message = backend.load_model(
                 self._model_path,
-                n_ctx=int(self._load_params.get("n_ctx", 4096) or 4096),
-                n_gpu_layers=int(self._load_params.get("n_gpu_layers", 0) or 0),
-                n_threads=int(self._load_params.get("n_threads", 0) or 0),
-                embedding=bool(self._load_params.get("embedding", False)),
-                flash_attn=bool(self._load_params.get("flash_attn", True)),
+                **self._resolved_load_kwargs(),
             )
             if not success:
                 self._release_loaded_model()
@@ -197,6 +195,17 @@ class LLMWorker(QThread):
         except Exception as exc:
             self._release_loaded_model()
             self.model_loaded.emit(False, f"Load failed: {exc}")
+
+    def _resolved_load_kwargs(self) -> dict[str, Any]:
+        params = dict(self._load_params or {})
+        return {
+            "n_ctx": int(params.get("n_ctx", 4096) or 4096),
+            "n_gpu_layers": int(params.get("n_gpu_layers", 0) or 0),
+            "n_threads": int(params.get("n_threads", 0) or 0),
+            "embedding": bool(params.get("embedding", False)),
+            "flash_attn": bool(params.get("flash_attn", True)),
+            "trust_remote_code": bool(params.get("trust_remote_code", False)),
+        }
 
     def _release_loaded_model(self) -> None:
         backend = self._backend
@@ -224,6 +233,11 @@ class LLMWorker(QThread):
             full = ""
             buf = ""
             emitted = False
+            suppress_output = False
+            stop_requested_by_worker = False
+
+            def _stop_requested() -> bool:
+                return bool(self._stop) or stop_requested_by_worker
 
             for token in backend.generate_stream(
                 self._prompt,
@@ -233,10 +247,11 @@ class LLMWorker(QThread):
                 repeat_penalty=float(run_params.get("repeat_penalty", 1.1)),
                 stop=list(run_params.get("stop", ["<|"])),
                 forbidden_chars=self._forbidden_chars,
-                stop_requested=lambda: bool(self._stop),
+                stop_requested=_stop_requested,
             ):
                 if self._stop:
-                    break
+                    suppress_output = True
+                    continue
 
                 buf += str(token or "")
                 if stop_marker in buf:
@@ -245,7 +260,13 @@ class LLMWorker(QThread):
                         full += safe
                         emitted = True
                         self.token_received.emit(safe)
-                    break
+                    buf = ""
+                    suppress_output = True
+                    stop_requested_by_worker = True
+                    continue
+
+                if suppress_output:
+                    continue
 
                 if len(buf) > keep_suffix:
                     emit_now = buf[:-keep_suffix]
@@ -256,19 +277,11 @@ class LLMWorker(QThread):
                     buf = buf[-keep_suffix:]
 
             else:
-                if buf:
+                if buf and (not suppress_output):
                     full += buf
                     emitted = True
                     self.token_received.emit(buf)
                 return full, emitted
-
-            if self._stop:
-                return full, emitted
-            if buf and stop_marker not in buf:
-                full += buf
-                emitted = True
-                self.token_received.emit(buf)
-            return full, emitted
 
         emitted = False
         try:

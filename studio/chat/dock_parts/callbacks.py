@@ -3,15 +3,45 @@ from __future__ import annotations
 
 from .deps import *  # noqa: F403
 
+def _should_skip_stream_output(self) -> bool:
+    return bool(
+        self._pending_fact_check
+        or bool(getattr(self, "_pending_chunk_claim_precompute", False))
+    )
+
 def _on_token(self, token: str):
-    if self._pending_fact_check or bool(getattr(self, "_pending_chunk_claim_precompute", False)):
+    if _should_skip_stream_output(self):
         return
     self.history.append_token(token)
 
+
+def _on_thinking_token(self, token: str):
+    if _should_skip_stream_output(self):
+        return
+    append_think = getattr(self.history, "append_streaming_thinking_token", None)
+    if callable(append_think):
+        append_think(token)
+
+
 def _on_complete(self, response: str):
+    think_text = ""
+    llm = getattr(self, "llm", None)
+    if llm is not None:
+        getter = getattr(llm, "last_think_text", None)
+        if callable(getter):
+            try:
+                think_text = str(getter() or "")
+            except Exception:
+                think_text = ""
     if self._history_stream_open:
         self.history.finish_streaming()
         self._history_stream_open = False
+        attach_think = getattr(self.history, "attach_last_assistant_thinking", None)
+        if callable(attach_think):
+            try:
+                attach_think(think_text)
+            except Exception:
+                pass
     if self._pending_fact_check:
         self._handle_fact_pipeline_complete(response)
         if not self._pending_fact_check:
@@ -267,6 +297,7 @@ def _apply_busy_state(self):
 
 __all__ = [
     "_on_token",
+    "_on_thinking_token",
     "_on_complete",
     "_play_last_answer",
     "_on_chat_tts_combo_changed",

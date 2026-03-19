@@ -52,6 +52,23 @@ def configure_highlights(
     self._tab_name_getter = tab_name_getter
     self._tab_switcher = tab_switcher
     self.schedule_update()
+
+
+def set_link_tooltips(self, mapping: dict[str, str] | None):
+    clean: dict[str, str] = {}
+    for raw_href, raw_tip in dict(mapping or {}).items():
+        href = str(raw_href or "").strip()
+        if not href:
+            continue
+        tip = str(raw_tip or "").strip()
+        if not tip:
+            continue
+        clean[href] = tip
+    self._link_tooltips = clean
+
+
+def clear_link_tooltips(self):
+    self._link_tooltips = {}
 def set_enabled(self, enabled: bool):
     self.setVisible(bool(enabled))
     if not enabled:
@@ -138,6 +155,8 @@ def disconnect_copy_available(self, slot) -> bool:
 __all__ = [
     "bind_editor",
     "configure_highlights",
+    "set_link_tooltips",
+    "clear_link_tooltips",
     "set_enabled",
     "showEvent",
     "set_allow_editing",

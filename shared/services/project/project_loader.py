@@ -383,6 +383,10 @@ class ProjectLoader:
             model_panel.gpu_spin.setValue(llm_data["gpu_layers"])
         if "threads" in llm_data:
             model_panel.threads_spin.setValue(llm_data["threads"])
+        if "trust_remote_code" in llm_data:
+            model_panel.trust_remote_code_cb.setChecked(
+                bool(llm_data["trust_remote_code"])
+            )
         if "max_tokens" in llm_data:
             model_panel.max_tokens_spin.setValue(llm_data["max_tokens"])
         if "temperature" in llm_data:

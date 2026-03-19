@@ -1,7 +1,7 @@
 """Tabbed chat history widget."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QTextCursor
@@ -11,6 +11,9 @@ from studio.canvas.file_actions import CanvasFileActions
 from studio.canvas.split_view import MarkdownSplitPanel
 from studio.feedback.bar import FeedbackBar
 
+_THINKING_LABEL = "Thinking"
+_THINK_LINK_PREFIX = "d2c://think/"
+
 
 @dataclass(slots=True)
 class HistorySession:
@@ -19,6 +22,10 @@ class HistorySession:
     history: list[tuple[str, str]]
     feedback_bar: FeedbackBar | None = None
     streaming: bool = False
+    think_by_message: dict[int, str] = field(default_factory=dict)
+    think_link_by_message: dict[int, str] = field(default_factory=dict)
+    think_link_tooltips: dict[str, str] = field(default_factory=dict)
+    think_marker_counter: int = 0
 
 
 def _append_text(session: HistorySession, text: str) -> None:
@@ -37,6 +44,12 @@ def _scroll_bottom(session: HistorySession) -> None:
     panel = session.display
     QTimer.singleShot(0, panel.scroll_to_bottom)
     QTimer.singleShot(160, panel.scroll_to_bottom)
+
+
+def _sync_think_tooltips(session: HistorySession) -> None:
+    setter = getattr(session.display, "set_preview_link_tooltips", None)
+    if callable(setter):
+        setter(dict(session.think_link_tooltips))
 
 
 class ChatHistoryWidget(QWidget):
@@ -95,6 +108,7 @@ class ChatHistoryWidget(QWidget):
         page_layout.addWidget(feedback_bar)
         session = HistorySession(page=page, display=display, history=[], feedback_bar=feedback_bar)
         self._sessions[page] = session
+        _sync_think_tooltips(session)
         feedback_bar.feedback_submitted.connect(
             lambda sentiment, tags, note, sess=session: self._on_bar_feedback(sess, sentiment, tags, note)
         )
@@ -148,6 +162,29 @@ class ChatHistoryWidget(QWidget):
             role, existing = session.history[-1]
             session.history[-1] = (role, existing + token)
 
+    def append_streaming_thinking_token(self, token: str) -> None:
+        session = self._stream_session() or self._active_session()
+        if session is None or not session.streaming or not session.history:
+            return
+        chunk = str(token or "")
+        if not chunk:
+            return
+        idx = len(session.history) - 1
+        role, _content = session.history[idx]
+        if str(role or "").strip().lower() != "assistant":
+            return
+
+        existing = str(session.think_by_message.get(idx, "") or "")
+        updated = f"{existing}{chunk}"
+        if not self._set_message_thinking(
+            session,
+            message_index=idx,
+            payload=updated,
+            append_marker=True,
+        ):
+            return
+        _scroll_bottom(session)
+
     def finish_streaming(self) -> None:
         session = self._stream_session() or self._active_session()
         if session is None:
@@ -157,6 +194,72 @@ class ChatHistoryWidget(QWidget):
         _scroll_bottom(session)
         if self._stream_page is session.page:
             self._stream_page = None
+        self.content_changed.emit()
+
+    def _next_think_link(self, session: HistorySession) -> str:
+        session.think_marker_counter += 1
+        return f"{_THINK_LINK_PREFIX}{session.think_marker_counter}"
+
+    def _is_assistant_message(self, session: HistorySession, message_index: int) -> bool:
+        if message_index < 0 or message_index >= len(session.history):
+            return False
+        role, _content = session.history[message_index]
+        return str(role or "").strip().lower() == "assistant"
+
+    def _ensure_think_link(
+        self,
+        session: HistorySession,
+        *,
+        message_index: int,
+        append_marker: bool,
+    ) -> str:
+        link = str(session.think_link_by_message.get(message_index, "") or "").strip()
+        if link:
+            return link
+        link = self._next_think_link(session)
+        session.think_link_by_message[message_index] = link
+        if append_marker:
+            _append_text(session, f"[{_THINKING_LABEL}]({link})\n\n")
+        return link
+
+    def _set_message_thinking(
+        self,
+        session: HistorySession,
+        *,
+        message_index: int,
+        payload: str,
+        append_marker: bool,
+    ) -> bool:
+        raw = str(payload or "")
+        if not raw.strip():
+            return False
+        if not self._is_assistant_message(session, message_index):
+            return False
+        link = self._ensure_think_link(
+            session,
+            message_index=message_index,
+            append_marker=append_marker,
+        )
+        if not link:
+            return False
+        session.think_by_message[message_index] = raw
+        session.think_link_tooltips[link] = raw
+        _sync_think_tooltips(session)
+        return True
+
+    def attach_last_assistant_thinking(self, thinking: str) -> None:
+        session = self._stream_session() or self._active_session()
+        if session is None or not session.history:
+            return
+        idx = len(session.history) - 1
+        if not self._set_message_thinking(
+            session,
+            message_index=idx,
+            payload=thinking,
+            append_marker=True,
+        ):
+            return
+        _scroll_bottom(session)
         self.content_changed.emit()
 
     def get_history(self) -> list[tuple[str, str]]:
@@ -232,11 +335,18 @@ class ChatHistoryWidget(QWidget):
             session = self._sessions.get(page)
             if session is None:
                 continue
+            message_rows: list[dict[str, str]] = []
+            for msg_index, (role, content) in enumerate(session.history):
+                row = {"role": str(role or ""), "content": str(content or "")}
+                think = str(session.think_by_message.get(msg_index, "") or "").strip()
+                if think and str(role or "").strip().lower() == "assistant":
+                    row["think"] = think
+                message_rows.append(row)
             out_tabs.append(
                 {
                     "title": str(tabs.tabText(i) or f"Chat {i + 1}"),
                     "view_mode": str(session.display.view_mode() or "both"),
-                    "history": [{"role": str(r or ""), "content": str(c or "")} for r, c in session.history],
+                    "history": message_rows,
                 }
             )
         return {"current_tab": int(tabs.currentIndex()), "tabs": out_tabs}
@@ -283,6 +393,15 @@ class ChatHistoryWidget(QWidget):
                     continue
                 session.history.append((role, content))
                 _append_message(session, role, content)
+                think = str(entry.get("think", "") or "").strip()
+                msg_idx = len(session.history) - 1
+                if think and str(role).strip().lower() == "assistant":
+                    self._set_message_thinking(
+                        session,
+                        message_index=msg_idx,
+                        payload=think,
+                        append_marker=True,
+                    )
             _scroll_bottom(session)
         if tabs.count() <= 0:
             self.add_tab("Chat 1")
@@ -312,6 +431,10 @@ class ChatHistoryWidget(QWidget):
             return
         session.history.clear()
         session.streaming = False
+        session.think_by_message.clear()
+        session.think_link_by_message.clear()
+        session.think_link_tooltips.clear()
+        _sync_think_tooltips(session)
         session.display.clear_text()
         if self._stream_page is session.page:
             self._stream_page = None

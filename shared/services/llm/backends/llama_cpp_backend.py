@@ -35,7 +35,9 @@ class LlamaCppBackend(BaseLLMBackend):
         n_threads: int = 0,
         embedding: bool = False,
         flash_attn: bool = True,
+        trust_remote_code: bool = False,
     ) -> tuple[bool, str]:
+        _ = trust_remote_code
         self.unload_model()
         self._model_ref = str(model_ref or "")
         self._load_params = {

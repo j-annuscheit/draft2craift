@@ -152,6 +152,16 @@ class MarkdownSplitPanel(QWidget):
             self._preview.request_preserve_view_state()
         self._preview.schedule_update()
 
+    def set_preview_link_tooltips(self, mapping: dict[str, str] | None):
+        setter = getattr(self._preview, "set_link_tooltips", None)
+        if callable(setter):
+            setter(mapping)
+
+    def clear_preview_link_tooltips(self):
+        clearer = getattr(self._preview, "clear_link_tooltips", None)
+        if callable(clearer):
+            clearer()
+
     def _ensure_preview_visible_for_jump(self) -> None:
         if self._preview_visible:
             return

@@ -1,17 +1,52 @@
 """Qt application bootstrap for Writing Studio."""
 from __future__ import annotations
 
+import ctypes
 import faulthandler
 import os
 import sys
 from pathlib import Path
-
-from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication
+from typing import TYPE_CHECKING
 
 from shared.config.setting_keys import ThemeSettingsKeys
-from studio.theme import apply_theme
-from studio.window import MainWindow
+
+if TYPE_CHECKING:
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QApplication
+
+
+def _prefer_system_libstdcpp_for_torch_extensions() -> None:
+    """Preload a system libstdc++ that provides newer CXXABI symbols.
+
+    This avoids runtime import failures for CUDA extensions (for example
+    ``causal_conv1d_cuda`` used by Mamba models) when Qt loads an older
+    conda-provided ``libstdc++.so.6`` first.
+    """
+    if not sys.platform.startswith("linux"):
+        return
+    if str(os.environ.get("D2C_DISABLE_SYSTEM_LIBSTDCXX", "")).strip().casefold() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return
+
+    candidates = (
+        "/usr/lib/x86_64-linux-gnu/libstdc++.so.6",
+        "/lib/x86_64-linux-gnu/libstdc++.so.6",
+    )
+    mode = int(getattr(os, "RTLD_GLOBAL", 0) | getattr(os, "RTLD_NOW", 0))
+    for path in candidates:
+        if not os.path.exists(path):
+            continue
+        try:
+            lib = ctypes.CDLL(path, mode=mode)
+            getattr(lib, "__cxa_call_terminate")
+        except Exception:
+            continue
+        os.environ.setdefault("D2C_PRELOADED_LIBSTDCXX", path)
+        return
 
 
 def _enable_fault_logging() -> None:
@@ -29,7 +64,12 @@ def _enable_fault_logging() -> None:
             pass
 
 
-def create_application(argv: list[str] | None = None) -> QApplication:
+def create_application(argv: list[str] | None = None) -> "QApplication":
+    _prefer_system_libstdcpp_for_torch_extensions()
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QApplication
+    from studio.theme import apply_theme
+
     os.environ.setdefault("QT_AUTO_SCREEN_SCALE_FACTOR", "1")
     _enable_fault_logging()
     app = QApplication(argv if argv is not None else sys.argv)
@@ -45,6 +85,9 @@ def create_application(argv: list[str] | None = None) -> QApplication:
 
 def run(argv: list[str] | None = None) -> int:
     app = create_application(argv)
+    from PySide6.QtCore import QSettings
+    from studio.window import MainWindow
+
     settings = getattr(app, "_draft2craift_settings", None)
     if not isinstance(settings, QSettings):
         raise RuntimeError("Application settings are not initialized.")

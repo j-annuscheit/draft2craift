@@ -48,6 +48,7 @@ def _make_main_window_stub():
         ctx_spin=_SpinField(4096),
         gpu_spin=_SpinField(0),
         threads_spin=_SpinField(4),
+        trust_remote_code_cb=_BoolCheck(False),
         max_tokens_spin=_SpinField(512),
         temp_spin=_SpinField(0.2),
         top_p_spin=_SpinField(0.95),

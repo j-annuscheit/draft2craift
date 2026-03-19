@@ -291,6 +291,7 @@ def _connect_signals(self):
     self.llm.model_loaded.connect(self.model_panel.on_model_loaded)
     self.llm.nli_model_loaded.connect(self.model_panel.on_nli_model_loaded)
     self.llm.token_received.connect(self._on_token)
+    self.llm.thinking_received.connect(self._on_thinking_token)
     self.llm.generation_complete.connect(self._on_complete)
     self.llm.error_occurred.connect(self._on_error)
     self.llm.is_generating.connect(self._on_generating)

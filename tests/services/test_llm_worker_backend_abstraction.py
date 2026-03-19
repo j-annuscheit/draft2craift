@@ -132,3 +132,77 @@ def test_worker_streams_tokens_through_backend(monkeypatch):
 
     assert streamed == ["A", "B", "C"]
     assert completed == ["ABC"]
+
+
+def test_worker_requests_backend_stop_after_detected_stop_marker(monkeypatch):
+    class _StopAwareBackend(_FakeBackend):
+        def __init__(self):
+            super().__init__("transformers", stream_tokens=["Hi", "<|", "ignored", "tail"])
+            self.stop_checks: list[bool] = []
+
+        def generate_stream(
+            self,
+            prompt: str,
+            *,
+            max_tokens: int,
+            temperature: float,
+            top_p: float,
+            repeat_penalty: float,
+            stop: list[str] | None = None,
+            forbidden_chars: tuple[str, ...] = (),
+            stop_requested: Callable[[], bool] | None = None,
+        ):
+            _ = (
+                prompt,
+                max_tokens,
+                temperature,
+                top_p,
+                repeat_penalty,
+                stop,
+                forbidden_chars,
+            )
+            should_stop = stop_requested or (lambda: False)
+            for token in self._stream_tokens:
+                current = bool(should_stop())
+                self.stop_checks.append(current)
+                if current:
+                    break
+                yield token
+            self.stop_checks.append(bool(should_stop()))
+
+    created: list[_StopAwareBackend] = []
+
+    def _fake_create_backend(model_ref: str, requested_backend: str | None = None):
+        _ = model_ref, requested_backend
+        backend = _StopAwareBackend()
+        created.append(backend)
+        return backend
+
+    monkeypatch.setattr(worker_module, "create_backend", _fake_create_backend)
+    worker = LLMWorker()
+    worker._model_path = "distilgpt2"
+    worker._requested_backend = "auto"
+    worker._load_params = {"n_ctx": 1024}
+    worker._do_load()
+
+    streamed: list[str] = []
+    completed: list[str] = []
+    worker.token_received.connect(streamed.append)
+    worker.generation_complete.connect(completed.append)
+
+    worker._prompt = "frage"
+    worker._gen_params = {
+        "max_tokens": 32,
+        "temperature": 0.2,
+        "top_p": 0.9,
+        "repeat_penalty": 1.0,
+        "stop": ["<|"],
+    }
+    worker._forbidden_chars = ()
+    worker._stop = False
+    worker._do_generate()
+
+    backend = created[-1]
+    assert completed == ["Hi"]
+    assert "".join(streamed) == "Hi"
+    assert any(backend.stop_checks)

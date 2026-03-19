@@ -61,6 +61,7 @@ from shared.services.llm.chat_prompt_flow import (
     stop as _stop_fn,
 )
 from shared.services.llm.chat_context_runtime import (
+    _assume_implicit_think_prefix as _assume_implicit_think_prefix_fn,
     _apply_forbidden_filter as _apply_forbidden_filter_fn,
     _check_context as _check_context_fn,
     _check_prompt_window as _check_prompt_window_fn,
@@ -137,6 +138,7 @@ class LLMManager(QObject):
     """
 
     token_received      = Signal(str)
+    thinking_received   = Signal(str)
     generation_complete = Signal(str)
     error_occurred      = Signal(str)
     model_loaded        = Signal(bool, str)
@@ -191,6 +193,13 @@ class LLMManager(QObject):
         self._gen_start: float = 0.0
         self._token_count: int = 0
         self._forbidden_chars: set[str] = set()
+        self._hide_think_blocks: bool = str(
+            os.environ.get("D2C_SHOW_THINK_BLOCKS", "")
+        ).strip().casefold() not in {"1", "true", "yes", "on"}
+        self._think_stream_pending: str = ""
+        self._think_stream_inside: bool = False
+        self._think_stream_implicit_prefix: bool = False
+        self._last_think_text: str = ""
 
         # Wire worker signals through interceptors for logging
         self.worker.token_received.connect(self._on_token)
@@ -207,6 +216,7 @@ class LLMManager(QObject):
         n_gpu_layers: int = 0,
         n_threads: int = 0,
         flash_attn: bool = True,
+        trust_remote_code: bool = False,
         backend: str = BACKEND_AUTO,
     ):
         self._clear_query_expansion_cache()
@@ -218,6 +228,7 @@ class LLMManager(QObject):
                 f"Loading model: {basename}"
                 f"  |  n_ctx={n_ctx}  gpu_layers={n_gpu_layers}"
                 f"  threads={threads}  flash_attn={bool(flash_attn)}"
+                f"  trust_remote_code={bool(trust_remote_code)}"
                 f"  backend={str(backend or BACKEND_AUTO)}",
             )
         self.worker.load_model(
@@ -226,6 +237,7 @@ class LLMManager(QObject):
             n_gpu_layers=n_gpu_layers,
             n_threads=n_threads,
             flash_attn=flash_attn,
+            trust_remote_code=trust_remote_code,
             backend=str(backend or BACKEND_AUTO),
         )
 
@@ -237,6 +249,9 @@ class LLMManager(QObject):
 
     def context_window(self) -> int:
         return int(self.worker.context_window(4096))
+
+    def last_think_text(self) -> str:
+        return str(getattr(self, "_last_think_text", "") or "")
 
     def load_nli_model(
         self,
@@ -471,6 +486,7 @@ class LLMManager(QObject):
     _check_prompt_window = _check_prompt_window_fn
     _decode_forbidden_token = classmethod(_decode_forbidden_token_fn)
     _parse_forbidden_chars = classmethod(_parse_forbidden_chars_fn)
+    _assume_implicit_think_prefix = _assume_implicit_think_prefix_fn
     _apply_forbidden_filter = _apply_forbidden_filter_fn
     _on_token = _on_token_fn
     _on_complete = _on_complete_fn

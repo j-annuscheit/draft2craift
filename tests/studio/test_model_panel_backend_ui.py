@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from shared.domain.user_mode import USER_MODE_PLUS
+from shared.domain.user_mode import USER_MODE_EXPERT, USER_MODE_PLUS
 from shared.services.llm.backends import (
     BACKEND_AUTO,
     BACKEND_LLAMA_CPP,
@@ -105,3 +105,38 @@ def test_browse_uses_file_dialog_for_llama_backend(qt_app, monkeypatch):
     assert calls["directory"] == 0
     assert calls["file"] == 1
     assert panel.model_path.text() == "/tmp/model.gguf"
+
+
+def test_trust_remote_code_visibility_depends_on_mode_and_backend(qt_app):
+    _ = qt_app
+    panel = ModelLoadPanel()
+
+    panel.set_user_mode(USER_MODE_PLUS)
+    panel.set_model_backend(BACKEND_TRANSFORMERS)
+    assert _row_hidden(panel, panel.trust_remote_code_cb) is True
+
+    panel.set_user_mode(USER_MODE_EXPERT)
+    panel.set_model_backend(BACKEND_LLAMA_CPP)
+    assert _row_hidden(panel, panel.trust_remote_code_cb) is True
+
+    panel.set_model_backend(BACKEND_TRANSFORMERS)
+    assert _row_hidden(panel, panel.trust_remote_code_cb) is False
+
+
+def test_request_load_emits_trust_remote_code_flag(qt_app):
+    _ = qt_app
+    panel = ModelLoadPanel()
+    panel.set_user_mode(USER_MODE_EXPERT)
+    panel.set_model_backend(BACKEND_TRANSFORMERS)
+    panel.model_path.setText("distilgpt2")
+    panel.trust_remote_code_cb.setChecked(True)
+
+    calls: list[tuple[str, dict]] = []
+    panel.load_requested.connect(lambda path, params: calls.append((path, dict(params))))
+
+    panel._request_load()
+
+    assert calls
+    path, params = calls[-1]
+    assert path == "distilgpt2"
+    assert params["trust_remote_code"] is True

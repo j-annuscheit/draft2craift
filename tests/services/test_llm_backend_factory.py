@@ -53,9 +53,15 @@ def test_llm_manager_forwards_backend_choice_to_worker():
     manager = LLMManager()
     manager.worker.load_model = Mock()
 
-    manager.load_model("distilgpt2", backend=BACKEND_TRANSFORMERS, n_threads=2)
+    manager.load_model(
+        "distilgpt2",
+        backend=BACKEND_TRANSFORMERS,
+        n_threads=2,
+        trust_remote_code=True,
+    )
 
     manager.worker.load_model.assert_called_once()
     kwargs = manager.worker.load_model.call_args.kwargs
     assert kwargs["backend"] == BACKEND_TRANSFORMERS
     assert kwargs["n_threads"] == 2
+    assert kwargs["trust_remote_code"] is True

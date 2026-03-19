@@ -6,6 +6,7 @@ import os
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -53,6 +54,7 @@ class ModelLoadPanel(QWidget):
         self._show_ctx_tokens = True
         self._show_gpu_layers = True
         self._show_threads = False
+        self._show_trust_remote_code = False
         self._setup_ui()
 
     def _setup_ui(self):
@@ -128,6 +130,14 @@ class ModelLoadPanel(QWidget):
         self.threads_spin.setRange(1, 64)
         self.threads_spin.setValue(min(os.cpu_count() or 4, 8))
         self._model_form.addRow("Threads:", self.threads_spin)
+
+        self.trust_remote_code_cb = QCheckBox()
+        self.trust_remote_code_cb.setChecked(False)
+        self.trust_remote_code_cb.setToolTip(
+            "Allows execution of custom Python code from the model repository "
+            "(transformers trust_remote_code). Only enable for trusted models."
+        )
+        self._model_form.addRow("Trust remote code:", self.trust_remote_code_cb)
 
         layout.addLayout(self._model_form)
 
@@ -352,9 +362,18 @@ class ModelLoadPanel(QWidget):
             BACKEND_LLAMA_CPP,
         }
         show_threads = bool(self._show_threads)
+        show_trust_remote_code = bool(self._show_trust_remote_code) and backend in {
+            BACKEND_AUTO,
+            BACKEND_TRANSFORMERS,
+        }
         set_form_row_visible(self._model_form, self.ctx_spin, show_ctx)
         set_form_row_visible(self._model_form, self.gpu_spin, show_gpu)
         set_form_row_visible(self._model_form, self.threads_spin, show_threads)
+        set_form_row_visible(
+            self._model_form,
+            self.trust_remote_code_cb,
+            show_trust_remote_code,
+        )
 
     def _browse(self):
         backend = self.get_model_backend()
@@ -384,6 +403,7 @@ class ModelLoadPanel(QWidget):
             "n_ctx": self.ctx_spin.value(),
             "n_gpu_layers": self.gpu_spin.value(),
             "n_threads": self.threads_spin.value(),
+            "trust_remote_code": bool(self.trust_remote_code_cb.isChecked()),
             "backend": self.get_model_backend(),
         }
         self.load_btn.setEnabled(False)
@@ -483,6 +503,11 @@ class ModelLoadPanel(QWidget):
             "chat.model.load.threads",
             default=False,
         )
+        self._show_trust_remote_code = feature_visible(
+            self._user_mode,
+            "chat.model.load.trust_remote_code",
+            default=False,
+        )
 
         apply_form_row_visibility(
             self._user_mode,
@@ -571,6 +596,11 @@ class ModelLoadPanel(QWidget):
                     self.threads_spin,
                     "chat.model.load.threads",
                     "Threads:",
+                ),
+                (
+                    self.trust_remote_code_cb,
+                    "chat.model.load.trust_remote_code",
+                    "Trust remote code:",
                 ),
             ),
         )

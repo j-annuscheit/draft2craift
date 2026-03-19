@@ -223,6 +223,21 @@ def _apply_highlight_edit_action(
             self.schedule_update()
 def _update_hover_tooltip(self, global_pos: QPoint):
     vp_pos = self._view.viewport().mapFromGlobal(global_pos)
+    href = str(self._view.anchorAt(vp_pos) or "").strip()
+    link_tips = dict(getattr(self, "_link_tooltips", {}) or {})
+    link_tip = str(link_tips.get(href, "") or "").strip() if href else ""
+    if link_tip:
+        hover_id = f"link:{href}"
+        if self._hovered_highlight_id == hover_id:
+            return
+        self._hovered_highlight_id = hover_id
+        QToolTip.showText(
+            global_pos,
+            self._tooltip_text(link_tip),
+            self._view.viewport(),
+        )
+        return
+
     cursor = self._view.cursorForPosition(vp_pos)
     span = self._span_at_position(cursor.position())
     if span is None or not span.hover_text:

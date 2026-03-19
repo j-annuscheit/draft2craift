@@ -28,6 +28,7 @@ class BaseLLMBackend(ABC):
         n_threads: int = 0,
         embedding: bool = False,
         flash_attn: bool = True,
+        trust_remote_code: bool = False,
     ) -> tuple[bool, str]:
         """Load model and return ``(success, status_message)``."""
 

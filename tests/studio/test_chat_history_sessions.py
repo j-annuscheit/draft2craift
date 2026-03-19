@@ -84,6 +84,66 @@ class ChatHistorySessionsTests(unittest.TestCase):
         self.assertEqual(widget.current_tab_title(), "Zweiter Chat")
         widget.deleteLater()
 
+    def test_attach_last_assistant_thinking_exports_metadata(self):
+        widget = ChatHistoryWidget()
+        widget.begin_streaming("assistant")
+        widget.append_token("Antwort")
+        widget.finish_streaming()
+        widget.attach_last_assistant_thinking("internal chain")
+
+        payload = widget.export_sessions()
+        row = payload["tabs"][0]["history"][-1]
+        self.assertEqual(row["content"], "Antwort")
+        self.assertEqual(row.get("think"), "internal chain")
+        widget.deleteLater()
+
+    def test_import_sessions_restores_thinking_hover_metadata(self):
+        widget = ChatHistoryWidget()
+        payload = {
+            "current_tab": 0,
+            "tabs": [
+                {
+                    "title": "A",
+                    "view_mode": "preview",
+                    "history": [
+                        {
+                            "role": "assistant",
+                            "content": "sichtbar",
+                            "think": "intern",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        widget.import_sessions(payload)
+        exported = widget.export_sessions()
+        self.assertEqual(exported["tabs"][0]["history"][0].get("think"), "intern")
+        panel = widget.current_panel()
+        preview = getattr(panel, "_preview", None) if panel is not None else None
+        link_tips = dict(getattr(preview, "_link_tooltips", {}) or {})
+        self.assertEqual(len(link_tips), 1)
+        self.assertEqual(next(iter(link_tips.values())), "intern")
+        widget.deleteLater()
+
+    def test_streaming_thinking_marker_is_inserted_before_visible_answer(self):
+        widget = ChatHistoryWidget()
+        widget.begin_streaming("assistant")
+        widget.append_streaming_thinking_token("denken")
+        widget.append_token("Antwort")
+        widget.finish_streaming()
+
+        panel = widget.current_panel()
+        text = panel.editor.toPlainText() if panel is not None else ""
+        self.assertIn("Thinking", text)
+        self.assertIn("Antwort", text)
+        self.assertLess(text.find("Thinking"), text.find("Antwort"))
+
+        payload = widget.export_sessions()
+        row = payload["tabs"][0]["history"][-1]
+        self.assertEqual(row.get("think"), "denken")
+        widget.deleteLater()
+
 
 if __name__ == "__main__":
     unittest.main()

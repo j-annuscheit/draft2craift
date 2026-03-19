@@ -89,7 +89,15 @@ def send_message(
 
     self._gen_start   = time.perf_counter()
     self._token_count = 0
+    self._last_think_text = ""
     self._forbidden_chars = self._parse_forbidden_chars(forbidden_chars)
+    self._think_stream_pending = ""
+    implicit_think_prefix = bool(
+        self._hide_think_blocks
+        and self._assume_implicit_think_prefix()
+    )
+    self._think_stream_inside = implicit_think_prefix
+    self._think_stream_implicit_prefix = implicit_think_prefix
     if self._log and self._forbidden_chars:
         self._log.debug(
             "LLM",

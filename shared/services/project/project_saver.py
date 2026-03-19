@@ -266,6 +266,7 @@ class ProjectSaver:
             "ctx_size": model_panel.ctx_spin.value(),
             "gpu_layers": model_panel.gpu_spin.value(),
             "threads": model_panel.threads_spin.value(),
+            "trust_remote_code": bool(model_panel.trust_remote_code_cb.isChecked()),
             "max_tokens": model_panel.max_tokens_spin.value(),
             "temperature": model_panel.temp_spin.value(),
             "top_p": model_panel.top_p_spin.value(),
