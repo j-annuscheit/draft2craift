@@ -14,6 +14,11 @@ def _row_hidden(panel: ModelLoadPanel, field) -> bool:
     return bool(field.isHidden()) or bool(label is not None and label.isHidden())
 
 
+def _gen_row_hidden(panel: ModelLoadPanel, field) -> bool:
+    label = panel._gen_form.labelForField(field)
+    return bool(field.isHidden()) or bool(label is not None and label.isHidden())
+
+
 def test_backend_switch_updates_hint_placeholder_and_gpu_visibility(qt_app):
     _ = qt_app
     panel = ModelLoadPanel()
@@ -140,3 +145,84 @@ def test_request_load_emits_trust_remote_code_flag(qt_app):
     path, params = calls[-1]
     assert path == "distilgpt2"
     assert params["trust_remote_code"] is True
+
+
+def test_generation_style_slider_applies_sampling_presets(qt_app):
+    _ = qt_app
+    panel = ModelLoadPanel()
+
+    panel.generation_style_slider.setValue(0)
+    assert panel.temp_spin.value() == 0.20
+    assert panel.top_p_spin.value() == 0.85
+    assert panel.repeat_penalty_spin.value() == 1.15
+
+    panel.generation_style_slider.setValue(2)
+    assert panel.temp_spin.value() == 1.00
+    assert panel.top_p_spin.value() == 0.98
+    assert panel.repeat_penalty_spin.value() == 1.00
+
+
+def test_generation_style_slider_syncs_from_manual_sampling_values(qt_app):
+    _ = qt_app
+    panel = ModelLoadPanel()
+
+    panel.temp_spin.setValue(1.00)
+    panel.top_p_spin.setValue(0.98)
+    panel.repeat_penalty_spin.setValue(1.00)
+    assert panel.generation_style_slider.value() == 2
+
+    panel.temp_spin.setValue(0.20)
+    panel.top_p_spin.setValue(0.85)
+    panel.repeat_penalty_spin.setValue(1.15)
+    assert panel.generation_style_slider.value() == 0
+
+
+def test_generation_style_visibility_is_user_mode_driven(qt_app):
+    _ = qt_app
+    panel = ModelLoadPanel()
+
+    panel.set_user_mode("easy_eng")
+    assert _gen_row_hidden(panel, panel.generation_style_widget) is False
+    assert _gen_row_hidden(panel, panel.temp_spin) is True
+
+    panel.set_user_mode(USER_MODE_EXPERT)
+    assert _gen_row_hidden(panel, panel.generation_style_widget) is False
+    assert _gen_row_hidden(panel, panel.temp_spin) is False
+
+
+def test_context_profile_slider_applies_context_presets(qt_app):
+    _ = qt_app
+    panel = ModelLoadPanel()
+
+    panel.context_profile_slider.setValue(0)
+    assert panel.ctx_spin.value() == 2048
+
+    panel.context_profile_slider.setValue(1)
+    assert panel.ctx_spin.value() == 4096
+
+    panel.context_profile_slider.setValue(2)
+    assert panel.ctx_spin.value() == 8192
+
+
+def test_context_profile_slider_syncs_from_manual_context_value(qt_app):
+    _ = qt_app
+    panel = ModelLoadPanel()
+
+    panel.ctx_spin.setValue(8192)
+    assert panel.context_profile_slider.value() == 2
+
+    panel.ctx_spin.setValue(2048)
+    assert panel.context_profile_slider.value() == 0
+
+
+def test_context_profile_visibility_is_user_mode_driven(qt_app):
+    _ = qt_app
+    panel = ModelLoadPanel()
+
+    panel.set_user_mode("easy_eng")
+    assert _row_hidden(panel, panel.context_profile_widget) is False
+    assert _row_hidden(panel, panel.ctx_spin) is True
+
+    panel.set_user_mode(USER_MODE_EXPERT)
+    assert _row_hidden(panel, panel.context_profile_widget) is False
+    assert _row_hidden(panel, panel.ctx_spin) is False

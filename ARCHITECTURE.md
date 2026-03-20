@@ -104,6 +104,7 @@ canvas2/
 │   │   ├── highlight.py         # HighlightSpan, HighlightEntry
 │   │   ├── prompt.py            # PromptTemplate
 │   │   ├── rag.py               # RagChunk, RagQuery, RagResult
+│   │   ├── slider_presets.py    # Data-driven Presets für UI-Slider (LLM/RAG)
 │   │   ├── testcase.py          # TestCase (Eval-Harness)
 │   │   └── user_mode.py         # Config-getriebene Profile, Sichtbarkeits- und Label-Auflösung
 │   └── services/
@@ -140,7 +141,7 @@ canvas2/
 │
 ├── tests/                       # pytest-Tests (spiegelt Source-Tree-Layout)
 ├── eval/                        # Offline-Evaluation-Skripte
-├── data/                        # Laufzeit-editierbare Defaults (welcome/about, user_modes/*.toml)
+├── data/                        # Laufzeit-editierbare Defaults (welcome/about, user_modes/*.toml, slider_presets.toml)
 ├── docs/                        # Menschenlesbare Dokumentation
 └── pyproject.toml               # Build-Config, Abhängigkeiten, Entry-Points
 ```

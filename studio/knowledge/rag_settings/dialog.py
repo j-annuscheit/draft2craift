@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import os
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QHBoxLayout,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -13,6 +15,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QLabel,
     QLineEdit,
+    QSlider,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -24,6 +27,7 @@ from shared.domain.user_mode import (
     normalize_user_mode,
     resolve_feature_label,
 )
+from shared.domain.slider_presets import rag_scope_presets, rag_speed_quality_presets
 from shared.services.rag.config import RAGConfig
 
 from .config_bridge import (
@@ -49,6 +53,33 @@ _MODE_HINT_DEFAULTS = {
     "plus": "Plus-Modus: zusätzliche, aber überschaubare Einstellungen.",
     "expert": "Experte-Modus: vollständige Kontrolle über alle RAG-Parameter.",
 }
+_GREEN_SLIDER_STYLE = """
+QSlider::groove:horizontal {
+    height: 6px;
+    background: palette(midlight);
+    border-radius: 3px;
+}
+QSlider::sub-page:horizontal {
+    background: #2ea043;
+    border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    background: #2ea043;
+    border: 1px solid #1f7a33;
+    width: 14px;
+    margin: -5px 0;
+    border-radius: 7px;
+}
+QSlider::handle:horizontal:hover {
+    background: #3fb950;
+}
+"""
+
+_RAG_SCOPE_PRESETS: tuple[dict[str, object], ...] = rag_scope_presets()
+_RAG_SPEED_QUALITY_PRESETS: tuple[dict[str, object], ...] = rag_speed_quality_presets()
+
+_RAG_SCOPE_FIELDS = tuple(_RAG_SCOPE_PRESETS[0].keys())
+_RAG_SPEED_QUALITY_FIELDS = tuple(_RAG_SPEED_QUALITY_PRESETS[0].keys())
 
 
 class RAGSettingsDialog(QDialog):
@@ -63,6 +94,7 @@ class RAGSettingsDialog(QDialog):
         self._show_rerank_min_score = False
         self._show_bm25_k1 = True
         self._show_bm25_b = True
+        self._syncing_simple_profiles = False
         self._controls = self._build_ui()
         self._connect_signals()
         self._load(config)
@@ -209,6 +241,114 @@ class RAGSettingsDialog(QDialog):
     def _build_selection_group(self, root, groups, forms, widgets) -> None:
         form = add_group(root, groups, forms, "selection", "Result Selection")
 
+        scope_slider = QSlider(Qt.Orientation.Horizontal)
+        scope_slider.setRange(0, 2)
+        scope_slider.setSingleStep(1)
+        scope_slider.setPageStep(1)
+        scope_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        scope_slider.setTickInterval(1)
+        scope_slider.setValue(1)
+        scope_slider.setStyleSheet(_GREEN_SLIDER_STYLE)
+        scope_slider.setToolTip(
+            "Steuert, wie umfangreich die gefundenen Ergebnisse ausfallen.\n"
+            "Setzt Auswahlgrenzen und Kontextumfang automatisch."
+        )
+        scope_mark_compact = QLabel("Kompakt")
+        scope_mark_balanced = QLabel("Ausgewogen")
+        scope_mark_extensive = QLabel("Umfangreich")
+        for mark in (
+            scope_mark_compact,
+            scope_mark_balanced,
+            scope_mark_extensive,
+        ):
+            mark.setStyleSheet("color: palette(placeholder-text); font-size: 9px;")
+
+        scope_marks_row = QHBoxLayout()
+        scope_marks_row.setContentsMargins(0, 0, 0, 0)
+        scope_marks_row.setSpacing(4)
+        scope_marks_row.addWidget(
+            scope_mark_compact,
+            1,
+            Qt.AlignmentFlag.AlignLeft,
+        )
+        scope_marks_row.addWidget(
+            scope_mark_balanced,
+            1,
+            Qt.AlignmentFlag.AlignHCenter,
+        )
+        scope_marks_row.addWidget(
+            scope_mark_extensive,
+            1,
+            Qt.AlignmentFlag.AlignRight,
+        )
+
+        scope_widget = QWidget()
+        scope_layout = QVBoxLayout(scope_widget)
+        scope_layout.setContentsMargins(0, 0, 0, 0)
+        scope_layout.setSpacing(1)
+        scope_layout.addWidget(scope_slider)
+        scope_layout.addLayout(scope_marks_row)
+        form.addRow("Ergebnisumfang:", scope_widget)
+        widgets["scope_profile_widget"] = scope_widget
+        widgets["scope_profile_slider"] = scope_slider
+        widgets["scope_profile_mark_compact"] = scope_mark_compact
+        widgets["scope_profile_mark_balanced"] = scope_mark_balanced
+        widgets["scope_profile_mark_extensive"] = scope_mark_extensive
+
+        speed_slider = QSlider(Qt.Orientation.Horizontal)
+        speed_slider.setRange(0, 2)
+        speed_slider.setSingleStep(1)
+        speed_slider.setPageStep(1)
+        speed_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        speed_slider.setTickInterval(1)
+        speed_slider.setValue(1)
+        speed_slider.setStyleSheet(_GREEN_SLIDER_STYLE)
+        speed_slider.setToolTip(
+            "Steuert den Fokus zwischen Antwortgeschwindigkeit und Antwortqualitaet.\n"
+            "Setzt HyDE und Reranking automatisch."
+        )
+        speed_mark_fast = QLabel("Schnell")
+        speed_mark_balanced = QLabel("Ausgewogen")
+        speed_mark_quality = QLabel("Qualitaet")
+        for mark in (
+            speed_mark_fast,
+            speed_mark_balanced,
+            speed_mark_quality,
+        ):
+            mark.setStyleSheet("color: palette(placeholder-text); font-size: 9px;")
+
+        speed_marks_row = QHBoxLayout()
+        speed_marks_row.setContentsMargins(0, 0, 0, 0)
+        speed_marks_row.setSpacing(4)
+        speed_marks_row.addWidget(
+            speed_mark_fast,
+            1,
+            Qt.AlignmentFlag.AlignLeft,
+        )
+        speed_marks_row.addWidget(
+            speed_mark_balanced,
+            1,
+            Qt.AlignmentFlag.AlignHCenter,
+        )
+        speed_marks_row.addWidget(
+            speed_mark_quality,
+            1,
+            Qt.AlignmentFlag.AlignRight,
+        )
+
+        speed_widget = QWidget()
+        speed_layout = QVBoxLayout(speed_widget)
+        speed_layout.setContentsMargins(0, 0, 0, 0)
+        speed_layout.setSpacing(1)
+        speed_layout.addWidget(speed_slider)
+        speed_layout.addLayout(speed_marks_row)
+        form.addRow("Geschwindigkeit vs Qualitaet:", speed_widget)
+        widgets["speed_profile_widget"] = speed_widget
+        widgets["speed_profile_slider"] = speed_slider
+        widgets["speed_profile_mark_fast"] = speed_mark_fast
+        widgets["speed_profile_mark_balanced"] = speed_mark_balanced
+        widgets["speed_profile_mark_quality"] = speed_mark_quality
+
         selection_mode = QComboBox()
         selection_mode.addItems(["top_k", "threshold", "top_k_threshold"])
         form.addRow("Mode:", selection_mode)
@@ -306,6 +446,14 @@ class RAGSettingsDialog(QDialog):
         )
         widgets["literal_use_llm_terms"].toggled.connect(self._update_literal_visibility)  # type: ignore[attr-defined]
         widgets["llm_rerank_enabled"].toggled.connect(self._update_rerank_visibility)  # type: ignore[attr-defined]
+        widgets["scope_profile_slider"].valueChanged.connect(  # type: ignore[attr-defined]
+            self._on_scope_profile_slider_changed
+        )
+        widgets["speed_profile_slider"].valueChanged.connect(  # type: ignore[attr-defined]
+            self._on_speed_profile_slider_changed
+        )
+        self._connect_scope_profile_sync_signals()
+        self._connect_speed_profile_sync_signals()
 
     def _sync_dynamic_state(self) -> None:
         self._update_lexical_visibility()
@@ -313,6 +461,8 @@ class RAGSettingsDialog(QDialog):
         self._update_rerank_visibility()
         self._update_hyde_visibility()
         self._validate_backends()
+        self._sync_scope_profile_from_controls()
+        self._sync_speed_profile_from_controls()
 
     def _validate_backends(self) -> None:
         w = self._controls.widgets
@@ -363,6 +513,134 @@ class RAGSettingsDialog(QDialog):
         enabled = w["llm_rerank_enabled"].isChecked()  # type: ignore[attr-defined]
         w["llm_rerank_min_score"].setEnabled(enabled and bool(self._show_rerank_min_score))
         w["llm_rerank_max_candidates"].setEnabled(False)
+
+    def _connect_slider_sync_signals(
+        self,
+        fields: tuple[str, ...],
+        sync_callback,
+    ) -> None:
+        w = self._controls.widgets
+        for key in fields:
+            widget = w.get(key)
+            if widget is None:
+                continue
+            if isinstance(widget, QCheckBox):
+                widget.toggled.connect(lambda _checked: sync_callback())
+                continue
+            if isinstance(widget, QComboBox):
+                widget.currentTextChanged.connect(lambda _text: sync_callback())
+                continue
+            if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                widget.valueChanged.connect(lambda _value: sync_callback())
+
+    def _connect_scope_profile_sync_signals(self) -> None:
+        self._connect_slider_sync_signals(
+            _RAG_SCOPE_FIELDS,
+            self._sync_scope_profile_from_controls,
+        )
+
+    def _connect_speed_profile_sync_signals(self) -> None:
+        self._connect_slider_sync_signals(
+            _RAG_SPEED_QUALITY_FIELDS,
+            self._sync_speed_profile_from_controls,
+        )
+
+    def _set_widget_value(self, key: str, value: object) -> None:
+        widget = self._controls.widgets.get(key)
+        if widget is None:
+            return
+        if isinstance(widget, QCheckBox):
+            widget.setChecked(bool(value))
+            return
+        if isinstance(widget, QComboBox):
+            target = str(value or "")
+            index = widget.findText(target)
+            if index >= 0:
+                widget.setCurrentIndex(index)
+            return
+        if isinstance(widget, QSpinBox):
+            widget.setValue(int(value))
+            return
+        if isinstance(widget, QDoubleSpinBox):
+            widget.setValue(float(value))
+
+    def _apply_preset(self, preset: dict[str, object]) -> None:
+        if self._syncing_simple_profiles:
+            return
+        self._syncing_simple_profiles = True
+        try:
+            for key, value in preset.items():
+                self._set_widget_value(key, value)
+            self._sync_dynamic_state()
+        finally:
+            self._syncing_simple_profiles = False
+
+    def _on_scope_profile_slider_changed(self, profile_index: int) -> None:
+        idx = max(0, min(2, int(profile_index)))
+        self._apply_preset(_RAG_SCOPE_PRESETS[idx])
+
+    def _on_speed_profile_slider_changed(self, profile_index: int) -> None:
+        idx = max(0, min(2, int(profile_index)))
+        self._apply_preset(_RAG_SPEED_QUALITY_PRESETS[idx])
+
+    def _profile_distance(self, preset: dict[str, object], fields: tuple[str, ...]) -> float:
+        distance = 0.0
+        for key in fields:
+            if key not in preset:
+                continue
+            expected = preset[key]
+            widget = self._controls.widgets.get(key)
+            if widget is None:
+                continue
+            if isinstance(widget, QCheckBox):
+                distance += 0.0 if widget.isChecked() == bool(expected) else 1.0
+                continue
+            if isinstance(widget, QComboBox):
+                distance += 0.0 if str(widget.currentText()) == str(expected) else 1.0
+                continue
+            if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                span = max(float(widget.maximum() - widget.minimum()), 1.0)
+                current = float(widget.value())
+                target = float(expected)
+                distance += abs(current - target) / span
+        return distance
+
+    def _nearest_profile_index(
+        self,
+        presets: tuple[dict[str, object], ...],
+        fields: tuple[str, ...],
+    ) -> int:
+        distances: list[tuple[float, int]] = []
+        for idx, preset in enumerate(presets):
+            distances.append((self._profile_distance(preset, fields), idx))
+        distances.sort(key=lambda item: (item[0], item[1]))
+        return int(distances[0][1])
+
+    def _sync_scope_profile_from_controls(self) -> None:
+        if self._syncing_simple_profiles:
+            return
+        slider = self._controls.widgets.get("scope_profile_slider")
+        if not isinstance(slider, QSlider):
+            return
+        idx = self._nearest_profile_index(_RAG_SCOPE_PRESETS, _RAG_SCOPE_FIELDS)
+        self._syncing_simple_profiles = True
+        try:
+            slider.setValue(idx)
+        finally:
+            self._syncing_simple_profiles = False
+
+    def _sync_speed_profile_from_controls(self) -> None:
+        if self._syncing_simple_profiles:
+            return
+        slider = self._controls.widgets.get("speed_profile_slider")
+        if not isinstance(slider, QSlider):
+            return
+        idx = self._nearest_profile_index(_RAG_SPEED_QUALITY_PRESETS, _RAG_SPEED_QUALITY_FIELDS)
+        self._syncing_simple_profiles = True
+        try:
+            slider.setValue(idx)
+        finally:
+            self._syncing_simple_profiles = False
 
     def _load(self, cfg: RAGConfig) -> None:
         load_config_into_controls(self._controls, cfg)
@@ -639,6 +917,76 @@ class RAGSettingsDialog(QDialog):
 
         self._set_form_row_label(
             "selection",
+            "scope_profile_widget",
+            "rag.settings.selection.scope_profile.label",
+            "Ergebnisumfang:",
+        )
+        w["scope_profile_slider"].setToolTip(  # type: ignore[attr-defined]
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.selection.scope_profile.tooltip",
+                "Steuert, wie umfangreich die gefundenen Ergebnisse ausfallen.\n"
+                "Setzt Auswahlgrenzen und Kontextumfang automatisch.",
+            )
+        )
+        w["scope_profile_mark_compact"].setText(  # type: ignore[attr-defined]
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.selection.scope_profile.compact",
+                "Kompakt",
+            )
+        )
+        w["scope_profile_mark_balanced"].setText(  # type: ignore[attr-defined]
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.selection.scope_profile.balanced",
+                "Ausgewogen",
+            )
+        )
+        w["scope_profile_mark_extensive"].setText(  # type: ignore[attr-defined]
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.selection.scope_profile.extensive",
+                "Umfangreich",
+            )
+        )
+        self._set_form_row_label(
+            "selection",
+            "speed_profile_widget",
+            "rag.settings.selection.speed_profile.label",
+            "Geschwindigkeit vs Qualitaet:",
+        )
+        w["speed_profile_slider"].setToolTip(  # type: ignore[attr-defined]
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.selection.speed_profile.tooltip",
+                "Steuert den Fokus zwischen Antwortgeschwindigkeit und Antwortqualitaet.\n"
+                "Setzt HyDE und Reranking automatisch.",
+            )
+        )
+        w["speed_profile_mark_fast"].setText(  # type: ignore[attr-defined]
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.selection.speed_profile.fast",
+                "Schnell",
+            )
+        )
+        w["speed_profile_mark_balanced"].setText(  # type: ignore[attr-defined]
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.selection.speed_profile.balanced",
+                "Ausgewogen",
+            )
+        )
+        w["speed_profile_mark_quality"].setText(  # type: ignore[attr-defined]
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.selection.speed_profile.quality",
+                "Qualitaet",
+            )
+        )
+        self._set_form_row_label(
+            "selection",
             "selection_mode",
             "rag.settings.selection.mode.label",
             "Mode:",
@@ -900,6 +1248,16 @@ class RAGSettingsDialog(QDialog):
             is_feature_visible(self._user_mode, "rag.settings.extended.after", default=True),
         )
 
+        _set_form_row_visible(
+            f["selection"],
+            w["scope_profile_widget"],
+            is_feature_visible(self._user_mode, "rag.settings.selection.scope_profile", default=True),
+        )
+        _set_form_row_visible(
+            f["selection"],
+            w["speed_profile_widget"],
+            is_feature_visible(self._user_mode, "rag.settings.selection.speed_profile", default=True),
+        )
         _set_form_row_visible(
             f["selection"],
             w["selection_mode"],

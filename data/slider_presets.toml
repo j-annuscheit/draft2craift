@@ -1,0 +1,92 @@
+# Data-driven slider presets for beginner-friendly controls.
+# All sliders currently expect exactly 3 steps.
+
+[[chat.generation_style]]
+temperature = 0.20
+top_p = 0.85
+repeat_penalty = 1.15
+
+[[chat.generation_style]]
+temperature = 0.70
+top_p = 0.90
+repeat_penalty = 1.10
+
+[[chat.generation_style]]
+temperature = 1.00
+top_p = 0.98
+repeat_penalty = 1.00
+
+[[chat.context_length]]
+context_tokens = 2048
+
+[[chat.context_length]]
+context_tokens = 4096
+
+[[chat.context_length]]
+context_tokens = 8192
+
+[[rag.scope]]
+extended_context = false
+ext_before = 300
+ext_after = 300
+selection_mode = "top_k_threshold"
+top_k = 3
+threshold = 0.10
+regex_max = 2
+
+[[rag.scope]]
+extended_context = false
+ext_before = 500
+ext_after = 500
+selection_mode = "top_k_threshold"
+top_k = 5
+threshold = 0.05
+regex_max = 3
+
+[[rag.scope]]
+extended_context = true
+ext_before = 800
+ext_after = 800
+selection_mode = "top_k"
+top_k = 8
+threshold = 0.0
+regex_max = 6
+
+[[rag.speed_quality]]
+use_hyde = false
+hyde_min_words = 6
+hyde_tfidf_mode = "keywords"
+hyde_st_mode = "passage"
+hyde_st_hypotheses = 3
+hyde_use_doc_context = false
+literal_use_llm_terms = false
+literal_llm_max_terms = 8
+llm_rerank_enabled = false
+llm_rerank_min_score = 0.45
+llm_rerank_max_candidates = 8
+
+[[rag.speed_quality]]
+use_hyde = true
+hyde_min_words = 5
+hyde_tfidf_mode = "keywords"
+hyde_st_mode = "passage"
+hyde_st_hypotheses = 3
+hyde_use_doc_context = false
+literal_use_llm_terms = false
+literal_llm_max_terms = 8
+llm_rerank_enabled = false
+llm_rerank_min_score = 0.45
+llm_rerank_max_candidates = 10
+
+[[rag.speed_quality]]
+use_hyde = true
+hyde_min_words = 3
+hyde_tfidf_mode = "passage"
+hyde_st_mode = "multi_passage"
+hyde_st_hypotheses = 4
+hyde_use_doc_context = true
+literal_use_llm_terms = true
+literal_llm_max_terms = 12
+llm_rerank_enabled = true
+llm_rerank_min_score = 0.35
+llm_rerank_max_candidates = 16
