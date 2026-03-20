@@ -74,7 +74,7 @@ offline workflow.
 
 ### 4) RAG engine
 
-- Backends: TF-IDF (built-in), sentence-transformers (optional), literal search
+- Backends: lexical (`tfidf` or `bm25`), sentence-transformers (optional), literal search
 - Chunking modes: `sliding_window`, `section`, `recursive`
 - Optional HyDE, literal term expansion, and LLM reranking
 - RAG debug history with per-backend details and warnings
@@ -143,7 +143,7 @@ Save/load includes:
 
 Load behavior is strict by design:
 
-- current project schema only (`version: 1`)
+- current project schema only (`version: 2`)
 - no backward-compatibility fallback for older project formats
 - path and schema violations fail fast during load
 

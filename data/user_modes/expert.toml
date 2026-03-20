@@ -103,6 +103,9 @@ default_profile = false
 "rag.settings.backends.st_model" = true
 "rag.settings.backends.st_n_threads" = true
 "rag.settings.backends.use_tfidf" = true
+"rag.settings.backends.lexical_mode" = true
+"rag.settings.backends.bm25_k1" = true
+"rag.settings.backends.bm25_b" = true
 "rag.settings.chunking.include_filename" = true
 "rag.settings.chunking.include_headings" = true
 "rag.settings.chunking.overlap" = true
@@ -559,7 +562,13 @@ default_profile = false
 "rag.settings.backends.st_n_threads.tooltip" = "CPU-Threads für PyTorch/sentence-transformers.\n0 = alle verfügbaren Kerne nutzen (empfohlen)."
 "rag.settings.backends.use_regex.label" = "Literal Search (Regex/Substrings)"
 "rag.settings.backends.use_st.label" = "Sentence-Transformers"
-"rag.settings.backends.use_tfidf.label" = "TF-IDF  (always available)"
+"rag.settings.backends.use_tfidf.label" = "Lexical Search (TF-IDF/BM25)"
+"rag.settings.backends.lexical_mode.label" = "  Lexical mode:"
+"rag.settings.backends.lexical_mode.tooltip" = "Select lexical ranking backend.\ntfidf = weighted term relevance, bm25 = Okapi BM25."
+"rag.settings.backends.bm25_k1.label" = "  BM25 k1:"
+"rag.settings.backends.bm25_k1.tooltip" = "BM25 TF saturation parameter.\nHigher values increase term-frequency influence."
+"rag.settings.backends.bm25_b.label" = "  BM25 b:"
+"rag.settings.backends.bm25_b.tooltip" = "BM25 document-length normalization.\n0 disables length norm, 1 applies full normalization."
 "rag.settings.button.cancel" = "Abbrechen"
 "rag.settings.button.ok" = "OK"
 "rag.settings.button.restore_defaults" = "Restore Defaults"

@@ -10,6 +10,9 @@ class BackendConfig:
     """Backend toggles and sentence-transformer settings."""
 
     use_tfidf: bool = True
+    lexical_mode: str = "tfidf"
+    bm25_k1: float = 1.2
+    bm25_b: float = 0.75
     use_st: bool = False
     use_regex_search: bool = True
     st_model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"
@@ -54,7 +57,7 @@ class SelectionConfig:
 
     mode: str = "top_k"
     top_k: int = 5
-    score_threshold: float = 0.15
+    score_threshold: float = 0.05
 
 
 @dataclass(slots=True)

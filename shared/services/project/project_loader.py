@@ -78,9 +78,9 @@ class ProjectLoader:
             raise ProjectSchemaError(
                 f"Field 'version' must be int, got {type(version).__name__}."
             )
-        if version != 1:
+        if version != 2:
             raise ProjectSchemaError(
-                f"Unsupported project version: {version} (expected 1)."
+                f"Unsupported project version: {version} (expected 2)."
             )
 
         required_dict_fields = ("rag_config", "canvas", "knowledge", "settings", "llm", "ui")

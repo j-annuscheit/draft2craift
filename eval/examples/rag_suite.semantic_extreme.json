@@ -10,15 +10,24 @@
     {"name": "rag_doc_8.md", "path": "fixtures/rag_doc_8.md"}
   ],
   "config": {
-    "use_tfidf": true,
-    "use_st": false,
-    "use_regex_search": false,
-    "use_hyde": false,
-    "selection_mode": "top_k",
-    "top_k": 3,
-    "chunking_strategy": "sliding_window",
-    "chunk_size": 420,
-    "chunk_overlap": 120
+    "backend": {
+      "use_tfidf": true,
+      "lexical_mode": "tfidf",
+      "use_st": false,
+      "use_regex_search": false
+    },
+    "hyde": {
+      "use_hyde": false
+    },
+    "selection": {
+      "mode": "top_k",
+      "top_k": 3
+    },
+    "chunking": {
+      "strategy": "sliding_window",
+      "chunk_size": 420,
+      "chunk_overlap": 120
+    }
   },
   "cases": [
     {

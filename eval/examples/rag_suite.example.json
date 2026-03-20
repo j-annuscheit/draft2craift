@@ -14,20 +14,30 @@
     }
   ],
   "config": {
-    "use_tfidf": true,
-    "use_st": false,
-    "use_regex_search": true,
-    "chunking_strategy": "sliding_window",
-    "chunk_size": 450,
-    "chunk_overlap": 100,
-    "selection_mode": "top_k",
-    "top_k": 3
+    "backend": {
+      "use_tfidf": true,
+      "lexical_mode": "tfidf",
+      "use_st": false,
+      "use_regex_search": true
+    },
+    "chunking": {
+      "strategy": "sliding_window",
+      "chunk_size": 450,
+      "chunk_overlap": 100
+    },
+    "selection": {
+      "mode": "top_k",
+      "top_k": 3
+    }
   },
   "cases": [
     {
       "id": "renewable_001",
       "query": "Welche Vorteile hat Solarenergie in Städten?",
-      "labels": ["energy", "baseline"],
+      "labels": [
+        "energy",
+        "baseline"
+      ],
       "gt_docs": [
         "rag_doc_1.md"
       ],
@@ -40,7 +50,10 @@
     {
       "id": "security_001",
       "query": "Welche Risiken entstehen durch schwache Zugriffskontrollen in APIs?",
-      "labels": ["security", "baseline"],
+      "labels": [
+        "security",
+        "baseline"
+      ],
       "gt_docs": [
         "rag_doc_2.md"
       ],
@@ -53,7 +66,10 @@
     {
       "id": "mixed_001",
       "query": "Wie kann man CO2 reduzieren und gleichzeitig digitale Dienste absichern?",
-      "labels": ["cross_domain", "baseline"],
+      "labels": [
+        "cross_domain",
+        "baseline"
+      ],
       "gt_docs": [
         "rag_doc_1.md",
         "rag_doc_2.md"

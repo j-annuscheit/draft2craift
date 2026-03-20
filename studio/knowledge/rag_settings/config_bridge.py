@@ -138,6 +138,9 @@ def load_config_into_controls(controls: RAGSettingsControls, cfg: RAGConfig) -> 
     box = controls.widgets
 
     box["use_tfidf"].setChecked(cfg.backend.use_tfidf)  # type: ignore[attr-defined]
+    _set_combo_text(box["lexical_mode"], cfg.backend.lexical_mode)  # type: ignore[arg-type]
+    box["bm25_k1"].setValue(cfg.backend.bm25_k1)  # type: ignore[attr-defined]
+    box["bm25_b"].setValue(cfg.backend.bm25_b)  # type: ignore[attr-defined]
     box["use_st"].setChecked(cfg.backend.use_st)  # type: ignore[attr-defined]
     box["use_regex"].setChecked(cfg.backend.use_regex_search)  # type: ignore[attr-defined]
     box["st_model"].setText(cfg.backend.st_model_name)  # type: ignore[attr-defined]
@@ -186,6 +189,9 @@ def build_config_from_controls(controls: RAGSettingsControls) -> RAGConfig:
         {
             "backend": {
                 "use_tfidf": bool(use_tfidf.isChecked()),  # type: ignore[attr-defined]
+                "lexical_mode": str(_widget(controls, "lexical_mode").currentText()),  # type: ignore[attr-defined]
+                "bm25_k1": float(_widget(controls, "bm25_k1").value()),  # type: ignore[attr-defined]
+                "bm25_b": float(_widget(controls, "bm25_b").value()),  # type: ignore[attr-defined]
                 "use_st": bool(use_st.isChecked()),  # type: ignore[attr-defined]
                 "use_regex_search": bool(use_regex.isChecked()),  # type: ignore[attr-defined]
                 "st_model_name": st_model,

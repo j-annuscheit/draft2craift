@@ -559,7 +559,7 @@ def run_suite(
     cfg = _apply_config_overrides(cfg, config_file_overrides or {})
     cfg = _apply_config_overrides(cfg, config_overrides or {})
     if cli_top_k is not None:
-        cfg = _apply_config_overrides(cfg, {"top_k": int(cli_top_k)})
+        cfg = _apply_config_overrides(cfg, {"selection.top_k": int(cli_top_k)})
 
     logger.info("Using RAG config: %s", json.dumps(cfg.to_dict(), ensure_ascii=False))
 

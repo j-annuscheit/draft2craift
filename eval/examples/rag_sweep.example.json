@@ -1,31 +1,37 @@
 {
   "combination_mode": "product",
-  "max_runs": 24,
+  "max_runs": 48,
   "base_config": {
-    "chunk_size": 450,
-    "chunk_overlap": 100
+    "backend.use_tfidf": true,
+    "backend.use_st": false,
+    "chunking.strategy": "sliding_window",
+    "chunking.chunk_size": 450,
+    "chunking.chunk_overlap": 100,
+    "selection.mode": "top_k_threshold",
+    "selection.top_k": 4
   },
   "parameters": {
-    "chunking_strategy": [
-      "sliding_window",
-      "section",
-      "recursive"
+    "backend.lexical_mode": [
+      "tfidf",
+      "bm25"
     ],
-    "selection_mode": [
-      "top_k",
-      "top_k_threshold"
-    ],
-    "top_k": [
-      3,
-      5
-    ],
-    "score_threshold": [
+    "selection.score_threshold": [
+      0.05,
       0.1,
+      0.15,
       0.2
     ],
-    "use_regex_search": [
+    "backend.use_regex_search": [
       true,
       false
+    ],
+    "backend.bm25_k1": [
+      1.2,
+      1.5
+    ],
+    "backend.bm25_b": [
+      0.6,
+      0.75
     ]
   }
 }

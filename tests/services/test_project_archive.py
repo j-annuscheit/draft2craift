@@ -21,7 +21,7 @@ def _create_project_folder(base: Path) -> None:
         (base / folder).mkdir(parents=True, exist_ok=True)
 
     manifest = {
-        "version": 1,
+        "version": 2,
         "rag_config": {},
         "canvas": {"tabs": [], "current_tab": 0},
         "knowledge": {"files": []},

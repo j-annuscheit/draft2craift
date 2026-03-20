@@ -61,6 +61,8 @@ class RAGSettingsDialog(QDialog):
         self._user_mode = normalize_user_mode(default_user_mode() if user_mode is None else user_mode)
         self._show_hyde_hypotheses = False
         self._show_rerank_min_score = False
+        self._show_bm25_k1 = True
+        self._show_bm25_b = True
         self._controls = self._build_ui()
         self._connect_signals()
         self._load(config)
@@ -111,7 +113,7 @@ class RAGSettingsDialog(QDialog):
     def _build_backends_group(self, root, groups, forms, widgets) -> None:
         form = add_group(root, groups, forms, "backends", "Backends")
 
-        use_tfidf = QCheckBox("TF-IDF  (always available)")
+        use_tfidf = QCheckBox("Lexical Search (TF-IDF/BM25)")
         use_st = QCheckBox("Sentence-Transformers")
         use_regex = QCheckBox("Literal Search (Regex/Substrings)")
         form.addRow(use_tfidf)
@@ -120,6 +122,37 @@ class RAGSettingsDialog(QDialog):
         widgets["use_tfidf"] = use_tfidf
         widgets["use_st"] = use_st
         widgets["use_regex"] = use_regex
+
+        lexical_mode = QComboBox()
+        lexical_mode.addItems(["tfidf", "bm25"])
+        lexical_mode.setToolTip(
+            "Select lexical ranking backend.\n"
+            "tfidf = weighted term relevance, bm25 = Okapi BM25."
+        )
+        form.addRow("  Lexical mode:", lexical_mode)
+        widgets["lexical_mode"] = lexical_mode
+
+        bm25_k1 = QDoubleSpinBox()
+        bm25_k1.setRange(0.20, 3.00)
+        bm25_k1.setDecimals(2)
+        bm25_k1.setSingleStep(0.05)
+        bm25_k1.setToolTip(
+            "BM25 TF saturation parameter.\n"
+            "Higher values increase term-frequency influence."
+        )
+        form.addRow("  BM25 k1:", bm25_k1)
+        widgets["bm25_k1"] = bm25_k1
+
+        bm25_b = QDoubleSpinBox()
+        bm25_b.setRange(0.00, 1.00)
+        bm25_b.setDecimals(2)
+        bm25_b.setSingleStep(0.05)
+        bm25_b.setToolTip(
+            "BM25 document-length normalization.\n"
+            "0 disables length norm, 1 applies full normalization."
+        )
+        form.addRow("  BM25 b:", bm25_b)
+        widgets["bm25_b"] = bm25_b
 
         st_model = QLineEdit()
         form.addRow("  Model name:", st_model)
@@ -261,6 +294,10 @@ class RAGSettingsDialog(QDialog):
         self._controls.reset_button.clicked.connect(lambda: self._load(RAGConfig()))
 
         widgets["use_tfidf"].toggled.connect(self._validate_backends)  # type: ignore[attr-defined]
+        widgets["use_tfidf"].toggled.connect(self._update_lexical_visibility)  # type: ignore[attr-defined]
+        widgets["lexical_mode"].currentTextChanged.connect(  # type: ignore[attr-defined]
+            lambda _text: self._update_lexical_visibility()
+        )
         widgets["use_st"].toggled.connect(self._validate_backends)  # type: ignore[attr-defined]
         widgets["use_regex"].toggled.connect(self._validate_backends)  # type: ignore[attr-defined]
         widgets["use_regex"].toggled.connect(self._update_literal_visibility)  # type: ignore[attr-defined]
@@ -271,6 +308,7 @@ class RAGSettingsDialog(QDialog):
         widgets["llm_rerank_enabled"].toggled.connect(self._update_rerank_visibility)  # type: ignore[attr-defined]
 
     def _sync_dynamic_state(self) -> None:
+        self._update_lexical_visibility()
         self._update_literal_visibility()
         self._update_rerank_visibility()
         self._update_hyde_visibility()
@@ -286,6 +324,21 @@ class RAGSettingsDialog(QDialog):
             )
         )
         self._controls.ok_button.setEnabled(has_backend)
+
+    def _update_lexical_visibility(self) -> None:
+        w = self._controls.widgets
+        f = self._controls.forms
+        lexical_enabled = w["use_tfidf"].isChecked()  # type: ignore[attr-defined]
+        mode = str(w["lexical_mode"].currentText()).strip().lower()  # type: ignore[attr-defined]
+        use_bm25 = lexical_enabled and mode == "bm25"
+        w["lexical_mode"].setEnabled(lexical_enabled)
+
+        show_k1_row = bool(self._show_bm25_k1 and use_bm25)
+        show_b_row = bool(self._show_bm25_b and use_bm25)
+        _set_form_row_visible(f["backends"], w["bm25_k1"], show_k1_row)
+        _set_form_row_visible(f["backends"], w["bm25_b"], show_b_row)
+        w["bm25_k1"].setEnabled(show_k1_row)
+        w["bm25_b"].setEnabled(show_b_row)
 
     def _update_hyde_visibility(self) -> None:
         w = self._controls.widgets
@@ -397,7 +450,49 @@ class RAGSettingsDialog(QDialog):
             resolve_feature_label(
                 self._user_mode,
                 "rag.settings.backends.use_tfidf.label",
-                "TF-IDF  (always available)",
+                "Lexical Search (TF-IDF/BM25)",
+            )
+        )
+        self._set_form_row_label(
+            "backends",
+            "lexical_mode",
+            "rag.settings.backends.lexical_mode.label",
+            "  Lexical mode:",
+        )
+        w["lexical_mode"].setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.backends.lexical_mode.tooltip",
+                "Select lexical ranking backend.\n"
+                "tfidf = weighted term relevance, bm25 = Okapi BM25.",
+            )
+        )
+        self._set_form_row_label(
+            "backends",
+            "bm25_k1",
+            "rag.settings.backends.bm25_k1.label",
+            "  BM25 k1:",
+        )
+        self._set_form_row_label(
+            "backends",
+            "bm25_b",
+            "rag.settings.backends.bm25_b.label",
+            "  BM25 b:",
+        )
+        w["bm25_k1"].setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.backends.bm25_k1.tooltip",
+                "BM25 TF saturation parameter.\n"
+                "Higher values increase term-frequency influence.",
+            )
+        )
+        w["bm25_b"].setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.backends.bm25_b.tooltip",
+                "BM25 document-length normalization.\n"
+                "0 disables length norm, 1 applies full normalization.",
             )
         )
         w["use_st"].setText(
@@ -719,6 +814,17 @@ class RAGSettingsDialog(QDialog):
         show_use_tfidf = bool(
             is_feature_visible(self._user_mode, "rag.settings.backends.use_tfidf", default=True)
         )
+        show_lexical_mode = bool(
+            is_feature_visible(self._user_mode, "rag.settings.backends.lexical_mode", default=True)
+        )
+        show_bm25_k1 = bool(
+            is_feature_visible(self._user_mode, "rag.settings.backends.bm25_k1", default=True)
+        )
+        show_bm25_b = bool(
+            is_feature_visible(self._user_mode, "rag.settings.backends.bm25_b", default=True)
+        )
+        self._show_bm25_k1 = show_bm25_k1
+        self._show_bm25_b = show_bm25_b
         show_st_model = bool(
             is_feature_visible(self._user_mode, "rag.settings.backends.st_model", default=True)
         )
@@ -733,6 +839,9 @@ class RAGSettingsDialog(QDialog):
             w["use_tfidf"].setChecked(True)  # type: ignore[attr-defined]
 
         _set_form_row_visible(f["backends"], w["use_tfidf"], show_use_tfidf)
+        _set_form_row_visible(f["backends"], w["lexical_mode"], show_lexical_mode)
+        _set_form_row_visible(f["backends"], w["bm25_k1"], show_bm25_k1)
+        _set_form_row_visible(f["backends"], w["bm25_b"], show_bm25_b)
         _set_form_row_visible(f["backends"], w["st_model"], show_st_model)
         _set_form_row_visible(f["backends"], w["st_n_threads"], show_st_n_threads)
         w["backends_hint"].setVisible(show_backends_hint)

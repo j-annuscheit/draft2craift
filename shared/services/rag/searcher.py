@@ -47,6 +47,7 @@ class RAGSearcher:
     ) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], dict[str, Any]]:
         t0 = time.perf_counter()
         cfg = self.config
+        lexical_mode = self._indexer.lexical_mode()
         effective_top_k = top_k if top_k is not None else cfg.selection.top_k
         fetch_k = max(
             effective_top_k * _RETRIEVAL_OVERSAMPLE_FACTOR,
@@ -57,7 +58,7 @@ class RAGSearcher:
 
         def trace_hit(bucket: str, ranked: list[tuple[str, float, str]]) -> None:
             for rank, (key, score, _ex) in enumerate(ranked, 1):
-                trace = trace_by_key.setdefault(key, {"tfidf": None, "st": None, "regex": None})
+                trace = trace_by_key.setdefault(key, {})
                 prev = trace.get(bucket)
                 if prev is None or rank < int(prev["rank"]):
                     trace[bucket] = {"rank": rank, "score": float(score)}
@@ -75,22 +76,22 @@ class RAGSearcher:
                 span_cache[key] = self._indexer.chunk_span(key)
             return span_cache[key]
 
-        tfidf_query = query
+        lexical_query = query
         st_queries = [query]
         should_expand = self._expanders.should_expand(query)
 
         if should_expand:
             if cfg.backend.use_tfidf and self._expanders.tfidf_query_expander:
-                tfidf_query = self._expanders.safe_expand_tfidf(query, self._indexer.global_toc)
+                lexical_query = self._expanders.safe_expand_tfidf(query, self._indexer.global_toc)
             if cfg.backend.use_st and self._indexer.st_model and self._expanders.st_query_expander:
                 st_queries = self._expanders.safe_expand_st(query, self._indexer.global_toc)
 
-        tfidf_raw: list[tuple[str, float, str]] = []
+        lexical_raw: list[tuple[str, float, str]] = []
         st_raw: list[tuple[str, float, str]] = []
 
         if cfg.backend.use_tfidf:
-            tfidf_raw = self._indexer.index.search(tfidf_query, fetch_k)
-            trace_hit("tfidf", tfidf_raw)
+            lexical_raw = self._indexer.index.search(lexical_query, fetch_k)
+            trace_hit(lexical_mode, lexical_raw)
 
         if cfg.backend.use_st and self._indexer.st_model:
             for st_query in st_queries:
@@ -100,17 +101,17 @@ class RAGSearcher:
             if len(st_queries) > 1:
                 st_raw = deduplicate_and_rerank(st_raw)
 
-        if tfidf_raw and st_raw:
-            raw = rrf_merge(tfidf_raw, st_raw)
+        if lexical_raw and st_raw:
+            raw = rrf_merge(lexical_raw, st_raw)
             if self._log:
                 self._log.debug(
                     "RAG",
-                    f"RRF merge: {len(tfidf_raw)} TF-IDF + {len(st_raw)} ST -> {len(raw)} merged",
+                    f"RRF merge: {len(lexical_raw)} {lexical_mode.upper()} + {len(st_raw)} ST -> {len(raw)} merged",
                 )
         elif st_raw:
             raw = st_raw
         else:
-            raw = tfidf_raw
+            raw = lexical_raw
 
         candidate_top_k = max(
             effective_top_k * _CANDIDATE_OVERSAMPLE_FACTOR,
@@ -159,7 +160,8 @@ class RAGSearcher:
                 ex = self._indexer.chunk_parents[key]
 
             trace = trace_by_key.get(key, {})
-            methods = [bucket for bucket in ("tfidf", "st", "regex") if trace.get(bucket) is not None]
+            methods_order = (lexical_mode, "st", "regex")
+            methods = [bucket for bucket in methods_order if trace.get(bucket) is not None]
             chunk_hits.append(
                 {
                     "key": key,
@@ -234,14 +236,14 @@ class RAGSearcher:
             "fetch_k": fetch_k,
             "selection_mode": cfg.selection.mode,
             "should_expand": should_expand,
-            "tfidf_query": tfidf_query,
+            "lexical_query": lexical_query,
             "st_queries": st_queries,
             "literal_terms": literal_terms,
             "literal_llm_terms": literal_llm_terms,
             "rerank": chunk_rerank_debug,
             "warnings": warnings,
             "counts": {
-                "tfidf_raw": len(tfidf_raw),
+                "lexical_raw": len(lexical_raw),
                 "st_raw": len(st_raw),
                 "regex_hits": len(regex_hits),
                 "fused_chunk_hits": len(chunk_hits),
@@ -269,8 +271,8 @@ class RAGSearcher:
         if self._log:
             dt = (time.perf_counter() - t0) * 1000
             notes: list[str] = []
-            if tfidf_query != query and cfg.backend.use_tfidf:
-                notes.append(f"tfidf_q='{tfidf_query[:60]}'")
+            if lexical_query != query and cfg.backend.use_tfidf:
+                notes.append(f"lexical_q='{lexical_query[:60]}'")
             if len(st_queries) > 1:
                 notes.append(f"st_passages={len(st_queries)}")
             if literal_llm_terms:

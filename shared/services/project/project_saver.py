@@ -288,7 +288,7 @@ class ProjectSaver:
                 project_variables = {}
 
         return {
-            "version": 1,
+            "version": 2,
             "rag_config": mw.rag_system.config.to_dict(),
             "project_variables": project_variables,
             "settings": {

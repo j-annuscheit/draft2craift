@@ -32,7 +32,7 @@ def test_load_project_rejects_missing_required_manifest_fields(tmp_path: Path):
     _write_manifest(
         folder,
         {
-            "version": 1,
+            "version": 2,
             "rag_config": {},
             "canvas": {"tabs": [], "current_tab": 0},
             "knowledge": {"files": []},
@@ -55,7 +55,7 @@ def test_load_project_rejects_missing_required_rag_config(tmp_path: Path):
     _write_manifest(
         folder,
         {
-            "version": 1,
+            "version": 2,
             "canvas": {"tabs": [], "current_tab": 0},
             "knowledge": {"files": []},
             "settings": {},
@@ -77,7 +77,7 @@ def test_load_project_rejects_wrong_nested_types(tmp_path: Path):
     _write_manifest(
         folder,
         {
-            "version": 1,
+            "version": 2,
             "rag_config": {},
             "canvas": {"tabs": {}, "current_tab": 0},
             "knowledge": {"files": []},
@@ -97,7 +97,7 @@ def test_load_project_rejects_wrong_nested_types(tmp_path: Path):
 
 def test_validate_manifest_accepts_project_variables_dict() -> None:
     raw = {
-        "version": 1,
+        "version": 2,
         "rag_config": {},
         "canvas": {"tabs": [], "current_tab": 0},
         "knowledge": {"files": []},
@@ -112,7 +112,7 @@ def test_validate_manifest_accepts_project_variables_dict() -> None:
 
 def test_validate_manifest_rejects_non_string_project_variable_value() -> None:
     raw = {
-        "version": 1,
+        "version": 2,
         "rag_config": {},
         "canvas": {"tabs": [], "current_tab": 0},
         "knowledge": {"files": []},

@@ -91,9 +91,16 @@ Beispiel:
     {"name": "rag_doc_1.md", "path": "fixtures/rag_doc_1.md"}
   ],
   "config": {
-    "use_tfidf": true,
-    "use_st": false,
-    "top_k": 3
+    "backend": {
+      "use_tfidf": true,
+      "lexical_mode": "bm25",
+      "bm25_k1": 1.2,
+      "bm25_b": 0.75,
+      "use_st": false
+    },
+    "selection": {
+      "top_k": 3
+    }
   },
   "cases": [
     {
@@ -150,15 +157,17 @@ Run-Summary:
 
 ### 4.5 Zulaessige `--set`/`config`-Keys (RAGConfig)
 
-- `use_tfidf`, `use_st`
-- `chunk_size`, `chunk_overlap`, `chunking_strategy`
-- `include_headings`, `include_filename`
-- `use_hyde`, `hyde_min_words`, `hyde_tfidf_mode`, `hyde_st_mode`, `hyde_st_hypotheses`, `hyde_use_doc_context`
-- `extended_context`, `extended_context_before`, `extended_context_after`
-- `selection_mode`, `top_k`, `score_threshold`
-- `use_regex_search`, `regex_max_results`, `literal_use_llm_terms`, `literal_llm_max_terms`
-- `llm_rerank_enabled`, `llm_rerank_min_score`, `llm_rerank_max_candidates`
-- `st_model_name`, `st_n_threads`
+- Nur **section-Objekte** oder **dotted keys** sind erlaubt (`strict=True`).
+- Beispiel dotted keys:
+  - `backend.use_tfidf`, `backend.lexical_mode`, `backend.bm25_k1`, `backend.bm25_b`
+  - `backend.use_st`, `backend.use_regex_search`, `backend.st_model_name`, `backend.st_n_threads`
+  - `chunking.chunk_size`, `chunking.chunk_overlap`, `chunking.strategy`, `chunking.include_headings`, `chunking.include_filename`
+  - `hyde.use_hyde`, `hyde.min_words`, `hyde.tfidf_mode`, `hyde.st_mode`, `hyde.st_hypotheses`, `hyde.use_doc_context`
+  - `context.enabled`, `context.before_chars`, `context.after_chars`
+  - `selection.mode`, `selection.top_k`, `selection.score_threshold`
+  - `literal.max_results`, `literal.use_llm_terms`, `literal.max_llm_terms`
+  - `rerank.enabled`, `rerank.min_score`, `rerank.max_candidates`
+- Flat-Legacy-Keys wie `top_k`, `chunk_size`, `use_tfidf` (ohne Section-Prefix) sind nicht zulaessig.
 
 ## 5) PDF-Tests (`eval/pdf_eval.py`)
 
@@ -598,10 +607,10 @@ Grid-Beispiel:
 {
   "combination_mode": "product",
   "max_runs": 24,
-  "base_config": {"chunk_size": 450},
+  "base_config": {"chunking.chunk_size": 450},
   "parameters": {
-    "chunking_strategy": ["sliding_window", "section"],
-    "top_k": [3, 5],
+    "chunking.strategy": ["sliding_window", "section"],
+    "selection.top_k": [3, 5],
     "llm_model": ["", "/path/model.gguf"]
   }
 }

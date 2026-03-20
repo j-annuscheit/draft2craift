@@ -7,7 +7,8 @@ import time
 from typing import Any
 
 from shared.services.rag.chunking import build_chunks
-from shared.services.rag.tfidf import TFIDFIndex
+from shared.services.rag.excerpt import excerpt
+from shared.services.rag.tfidf import BM25Index, TFIDFIndex
 
 _SEP = "\x00"
 
@@ -18,7 +19,7 @@ class RAGIndexer:
     def __init__(self, config: Any, logger: Any = None):
         self.config = config
         self._log = logger
-        self._index = TFIDFIndex()
+        self._index: TFIDFIndex | BM25Index = self._create_lexical_index()
         self._indexed: set[str] = set()
         self._content_cache: dict[str, str] = {}
         self._indexed_text: dict[str, str] = {}
@@ -30,7 +31,7 @@ class RAGIndexer:
         self._st_embeddings: dict[str, Any] = {}
 
     @property
-    def index(self) -> TFIDFIndex:
+    def index(self) -> TFIDFIndex | BM25Index:
         return self._index
 
     @property
@@ -79,11 +80,57 @@ class RAGIndexer:
 
     def set_config(self, config: Any) -> None:
         self.config = config
+        self._sync_lexical_index_from_config()
+
+    @staticmethod
+    def _normalise_lexical_mode(value: object) -> str:
+        mode = str(value or "").strip().lower()
+        if mode in {"tfidf", "bm25"}:
+            return mode
+        return "tfidf"
+
+    def lexical_mode(self) -> str:
+        backend = getattr(self.config, "backend", None)
+        mode = getattr(backend, "lexical_mode", "tfidf")
+        return self._normalise_lexical_mode(mode)
+
+    def _create_lexical_index(self) -> TFIDFIndex | BM25Index:
+        mode = self.lexical_mode()
+        if mode == "bm25":
+            backend = getattr(self.config, "backend", None)
+            k1 = float(getattr(backend, "bm25_k1", 1.2))
+            b = float(getattr(backend, "bm25_b", 0.75))
+            return BM25Index(k1=k1, b=b)
+        return TFIDFIndex()
+
+    def _rebuild_lexical_index(self) -> None:
+        docs = {
+            key: text
+            for key, text in self._indexed_text.items()
+            if str(text or "").strip()
+        }
+        self._index.clear()
+        if docs:
+            self._index.add_documents_batch(docs)
+
+    def _sync_lexical_index_from_config(self) -> None:
+        mode = self.lexical_mode()
+        backend = getattr(self.config, "backend", None)
+        if mode == "bm25" and isinstance(self._index, BM25Index):
+            self._index.set_params(
+                k1=float(getattr(backend, "bm25_k1", 1.2)),
+                b=float(getattr(backend, "bm25_b", 0.75)),
+            )
+            return
+        if mode == "tfidf" and isinstance(self._index, TFIDFIndex):
+            return
+        self._index = self._create_lexical_index()
+        self._rebuild_lexical_index()
 
     def current_backend(self) -> str:
         parts: list[str] = []
         if bool(self.config.backend.use_tfidf):
-            parts.append("tfidf")
+            parts.append(self.lexical_mode())
         if bool(self.config.backend.use_st and self._st_model is not None):
             parts.append("st")
         if bool(self.config.backend.use_regex_search):
@@ -247,10 +294,10 @@ class RAGIndexer:
         self._global_toc = ""
 
     def dump_state(self) -> dict[str, Any]:
+        lexical_state = self._index.dump_state()
         return {
-            "tfidf_docs": dict(self._index._docs),
-            "tfidf_scores": dict(self._index._tfidf),
-            "tfidf_idf": dict(self._index._idf),
+            "lexical_mode": self.lexical_mode(),
+            "lexical_state": lexical_state,
             "indexed": list(self._indexed),
             "content_cache": dict(self._content_cache),
             "indexed_text": dict(self._indexed_text),
@@ -262,16 +309,32 @@ class RAGIndexer:
         }
 
     def load_state(self, state: dict[str, Any]) -> None:
-        self._index._docs = dict(state.get("tfidf_docs", {}))
-        self._index._tfidf = dict(state.get("tfidf_scores", {}))
-        self._index._idf = dict(state.get("tfidf_idf", {}))
-        self._indexed = set(state.get("indexed", []))
-        self._content_cache = dict(state.get("content_cache", {}))
-        self._indexed_text = dict(state.get("indexed_text", {}))
-        self._chunk_to_doc = dict(state.get("chunk_to_doc", {}))
-        self._doc_full_content = dict(state.get("doc_full_content", {}))
-        self._chunk_parents = dict(state.get("chunk_parents", {}))
-        self._global_toc = str(state.get("global_toc", ""))
+        mode = self._normalise_lexical_mode(state["lexical_mode"])
+        backend = getattr(self.config, "backend", None)
+        if backend is not None:
+            setattr(backend, "lexical_mode", mode)
+
+        if mode == "bm25":
+            self._index = BM25Index(
+                k1=float(getattr(backend, "bm25_k1", 1.2)),
+                b=float(getattr(backend, "bm25_b", 0.75)),
+            )
+        else:
+            self._index = TFIDFIndex()
+
+        lexical_state = dict(state["lexical_state"])
+        self._index.load_state(lexical_state)
+        if mode == "bm25" and isinstance(self._index, BM25Index) and backend is not None:
+            backend.bm25_k1 = float(self._index.k1)
+            backend.bm25_b = float(self._index.b)
+
+        self._indexed = set(state["indexed"])
+        self._content_cache = dict(state["content_cache"])
+        self._indexed_text = dict(state["indexed_text"])
+        self._chunk_to_doc = dict(state["chunk_to_doc"])
+        self._doc_full_content = dict(state["doc_full_content"])
+        self._chunk_parents = dict(state["chunk_parents"])
+        self._global_toc = str(state["global_toc"])
 
     def embed_documents_batch(self, chunks: dict[str, str]) -> None:
         if not chunks:
@@ -327,7 +390,7 @@ class RAGIndexer:
             ]
         except Exception as exc:
             if self._log:
-                self._log.error("ST", f"ST search failed, falling back to TF-IDF: {exc}")
+                self._log.error("ST", f"ST search failed, falling back to lexical search: {exc}")
             return self._index.search(query, top_k)
 
     def chunk_span(self, key: str) -> tuple[int, int] | None:

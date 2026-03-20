@@ -198,25 +198,33 @@ Für betroffene Schicht existiert mindestens ein Test, der das Verhalten absiche
 | `orchestrator.py` | `RAGSystem(QObject)` | Öffentliche Fassade; Thread-sicher via `RLock` |
 | `worker.py` | `RAGWorker(QThread)` | Queue-basierte Background-Ausführung |
 | `config.py` | `RAGConfig` | Verschachtelte Dataclass-Struktur |
-| `indexer.py` | `RAGIndexer` | Besitzt Index-State (TF-IDF + ST-Embeddings) |
+| `indexer.py` | `RAGIndexer` | Besitzt Index-State (lexical: TF-IDF/BM25 + ST-Embeddings) |
 | `searcher.py` | `RAGSearcher` | Vollständige Such-Pipeline (Expansion → Retrieval → Fusion → Rerank) |
 | `chunking.py` | — | Drei Strategien: `sliding_window`, `section`, `recursive` |
 | `expanders.py` | — | HyDE Query-Expansion (TF-IDF-Modus, ST-Modus) |
-| `tfidf.py` | — | TF-IDF-Ranking |
+| `tfidf.py` | — | Lexical Ranking (`TFIDFIndex`, `BM25Index`) |
 | `search_fusion.py` | — | Reciprocal Rank Fusion (RRF, k=60 nach Cormack 2009) |
 
 ### `RAGConfig`-Struktur
 
 ```
 RAGConfig
-├── backend:   BackendConfig   — use_tfidf, use_st, st_model_name, use_regex_search
+├── backend:   BackendConfig   — use_tfidf, lexical_mode(tfidf|bm25), bm25_k1, bm25_b, use_st, st_model_name, use_regex_search
 ├── chunking:  ChunkingConfig  — strategy, chunk_size, overlap, include_filename
 ├── hyde:      HyDEConfig      — use_hyde, min_words, tfidf_mode, st_mode, st_hypotheses
 ├── context:   ContextConfig   — enabled, before_chars, after_chars
 ├── selection: SelectionConfig — mode, top_k, score_threshold
 ├── literal:   LiteralConfig   — max_results, use_llm_terms
-└── rerank:    RerankConfig    — enabled, min_score
+└── rerank:    RerankConfig    — enabled, min_score, max_candidates
 ```
+
+### RAG-Override-Vertrag (strict)
+
+- `RAGConfig.with_overrides(..., strict=True)` akzeptiert ausschließlich:
+  - section-Objekte (`{"backend": {...}, "selection": {...}}`)
+  - oder dotted keys (`"backend.lexical_mode"`, `"selection.top_k"`).
+- Flache Legacy-Keys wie `"chunk_size"`, `"top_k"`, `"use_tfidf"` sind **invalid** und erzeugen `KeyError`.
+- Eval-Suites und Sweep-Grids unter `eval/examples/rag_*.json` folgen genau diesem Vertrag.
 
 ### Internes Key-Format
 
@@ -625,7 +633,7 @@ Main Thread (Qt Event Loop)
 ├── knowledge/
 │   └── ...                  # Importierte Dokumente
 ├── rag/
-│   ├── index.pkl            # TF-IDF-Index + Metadaten
+│   ├── index.pkl            # Lexical-Index (TF-IDF/BM25) + Metadaten
 │   └── embeddings.pt        # ST-Embeddings (optional)
 ├── chat/
 │   ├── history.json
@@ -646,7 +654,7 @@ Main Thread (Qt Event Loop)
 ### Strikter Ladevertrag (kein Legacy-Fallback)
 
 - **Keine Altformat-Kompatibilität:** alte Projektstände sind nicht supported.
-- `project.json` muss dem aktuellen Schema entsprechen (`version == 1`, inkl. `rag_config`, `canvas`, `knowledge`, `settings`, `llm`, `ui`).
+- `project.json` muss dem aktuellen Schema entsprechen (`version == 2`, inkl. `rag_config`, `canvas`, `knowledge`, `settings`, `llm`, `ui`).
 - `chat/history.json` muss im Session-Objektformat vorliegen (`{"current_tab": ..., "tabs": [...]}`), nicht als alte Message-Liste.
 - `knowledge.files[*]` lädt Inhalt ausschließlich aus `knowledge_file`; kein Inline-`markdown`-Fallback.
 - Canvas lädt ausschließlich in `project.json` referenzierte Dateien; keine automatische Orphan-Recovery (`doc_*.md`) beim Load.
