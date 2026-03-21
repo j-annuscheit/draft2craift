@@ -80,6 +80,41 @@ class _FakeModel:
         return [[11, 22, 99]]
 
 
+class _CapturingModel:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def generate(self, **kwargs):  # noqa: ANN003
+        self.calls.append(dict(kwargs))
+        return [[11, 22, 99]]
+
+
+class _FakeForbiddenTokenizer(_FakeGenTokenizer):
+    vocab_size = 4
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.scan_decode_calls = 0
+        self.output_decode_calls = 0
+        self._pieces: dict[int, str] = {
+            0: "a",
+            1: "b",
+            2: "—",
+            3: "c",
+        }
+
+    def decode(self, token_ids, **kwargs):  # noqa: ANN001, ANN003
+        _ = kwargs
+        ids = list(token_ids or [])
+        if ids == [99]:
+            self.output_decode_calls += 1
+            return "decoded-output"
+        if len(ids) == 1:
+            self.scan_decode_calls += 1
+            return self._pieces.get(int(ids[0]), "")
+        return ""
+
+
 def test_prepare_prompt_uses_chat_template_for_role_tagged_prompt():
     backend = TransformersBackend()
     tok = _FakeTokenizer()
@@ -152,6 +187,45 @@ def test_generate_once_uses_prepared_prompt_before_tokenization():
     assert tok.last_tokenize_prompt == "<templated>"
     assert tok.last_decode_ids == [99]
     assert text == "decoded-output"
+
+
+def test_generate_once_passes_suppress_tokens_for_forbidden_chars():
+    backend = TransformersBackend()
+    tok = _FakeForbiddenTokenizer()
+    model = _CapturingModel()
+    backend._tokenizer = tok
+    backend._model = model
+    backend._torch = _FakeTorch()
+    backend._device = "cpu"
+    backend._model_ref = "demo/model"
+
+    text = backend.generate_once(
+        "<|system|>\nS\n<|user|>\nU\n<|assistant|>\n",
+        max_tokens=16,
+        temperature=0.0,
+        top_p=1.0,
+        repeat_penalty=1.0,
+        stop=["<|"],
+        forbidden_chars=("—",),
+    )
+
+    assert text == "decoded-output"
+    assert model.calls
+    first_call = model.calls[0]
+    assert first_call.get("suppress_tokens") == [2]
+
+    # Cached: second call should not rescan tokenizer vocabulary.
+    scan_calls_after_first = tok.scan_decode_calls
+    _ = backend.generate_once(
+        "<|system|>\nS\n<|user|>\nU\n<|assistant|>\n",
+        max_tokens=8,
+        temperature=0.0,
+        top_p=1.0,
+        repeat_penalty=1.0,
+        stop=["<|"],
+        forbidden_chars=("—",),
+    )
+    assert tok.scan_decode_calls == scan_calls_after_first
 
 
 def test_load_model_forwards_trust_remote_code(monkeypatch):
@@ -610,6 +684,48 @@ def test_generate_stream_surfaces_background_error(monkeypatch):
                 stop=["<|"],
             )
         )
+
+
+def test_generate_stream_passes_suppress_tokens_for_forbidden_chars():
+    class _StreamingModel:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def generate(self, **kwargs):  # noqa: ANN003
+            self.calls.append(dict(kwargs))
+            streamer = kwargs["streamer"]
+            streamer.text_queue.put("A")
+            streamer.text_queue.put(streamer.stop_signal)
+            return None
+
+    backend = TransformersBackend()
+    backend._tokenizer = _FakeForbiddenTokenizer()
+    model = _StreamingModel()
+    backend._model = model
+    backend._torch = _FakeTorch()
+    backend._device = "cpu"
+    backend._model_ref = "demo/model"
+    backend._transformers = types.SimpleNamespace(
+        TextIteratorStreamer=_FakeQueueStreamer,
+        StoppingCriteria=_FakeStoppingCriteria,
+        StoppingCriteriaList=_FakeStoppingCriteriaList,
+    )
+
+    pieces = list(
+        backend.generate_stream(
+            "<|system|>\nS\n<|user|>\nU\n<|assistant|>\n",
+            max_tokens=8,
+            temperature=0.0,
+            top_p=1.0,
+            repeat_penalty=1.0,
+            stop=["<|"],
+            forbidden_chars=("—",),
+        )
+    )
+
+    assert pieces == ["A"]
+    assert model.calls
+    assert model.calls[0].get("suppress_tokens") == [2]
 
 
 def test_generate_stream_raises_if_thread_exits_without_stream_signal(monkeypatch):

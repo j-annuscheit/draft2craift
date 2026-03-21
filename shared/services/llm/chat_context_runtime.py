@@ -397,9 +397,10 @@ def _on_complete(self, response: str):
         else raw_response
     )
     filtered_response = self._apply_forbidden_filter(without_think)
+    removed_think_chars = max(0, len(raw_response) - len(without_think))
+    removed_forbidden_chars = max(0, len(without_think) - len(filtered_response))
     elapsed = time.perf_counter() - self._gen_start
     if self._log:
-        removed_chars = max(0, len(raw_response) - len(filtered_response))
         tok_s = self._token_count / elapsed if elapsed > 0 else 0.0
         self._log.info(
             "LLM",
@@ -408,8 +409,13 @@ def _on_complete(self, response: str):
             f"  |  {elapsed:.2f}s"
             f"  |  {tok_s:.1f} tok/s",
         )
-        if removed_chars > 0:
-            self._log.info("LLM", f"Removed {removed_chars} forbidden characters.")
+        if removed_think_chars > 0 or removed_forbidden_chars > 0:
+            self._log.info(
+                "LLM",
+                "Filtering stats"
+                f"  |  removed_think_chars={removed_think_chars}"
+                f"  |  removed_forbidden_chars={removed_forbidden_chars}",
+            )
         if think_payload:
             self._log.debug("LLM", f"Thinking (hidden from chat):\n{think_payload}")
         self._log.debug("LLM", f"Full response (raw):\n{raw_response}")

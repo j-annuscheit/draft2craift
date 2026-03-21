@@ -387,6 +387,8 @@ class TransformersBackend(BaseLLMBackend):
         self._model_ref: str = ""
         self._device: str = "cpu"
         self._context_window: int = 4096
+        self._forbidden_suppress_cache_model: tuple[str, int] | None = None
+        self._forbidden_suppress_cache: dict[tuple[str, ...], tuple[int, ...]] = {}
 
     @property
     def backend_id(self) -> str:
@@ -539,6 +541,8 @@ class TransformersBackend(BaseLLMBackend):
         self._model_ref = ""
         self._device = "cpu"
         self._context_window = 4096
+        self._forbidden_suppress_cache_model = None
+        self._forbidden_suppress_cache.clear()
 
         if model is not None:
             try:
@@ -637,7 +641,6 @@ class TransformersBackend(BaseLLMBackend):
         stop: list[str] | None = None,
         forbidden_chars: tuple[str, ...] = (),
     ) -> str:
-        _ = forbidden_chars
         self._ensure_loaded()
         torch_mod = self._torch
         tokenizer = self._tokenizer
@@ -651,6 +654,11 @@ class TransformersBackend(BaseLLMBackend):
             top_p=top_p,
             repeat_penalty=repeat_penalty,
         )
+        suppress_tokens = self._build_forbidden_suppress_tokens(
+            tuple(sorted(set(forbidden_chars or ())))
+        )
+        if suppress_tokens:
+            gen_kwargs["suppress_tokens"] = list(suppress_tokens)
         with torch_mod.no_grad():
             output_ids = model.generate(**inputs, **gen_kwargs)
         prompt_len = int(inputs["input_ids"].shape[-1])
@@ -676,7 +684,7 @@ class TransformersBackend(BaseLLMBackend):
         forbidden_chars: tuple[str, ...] = (),
         stop_requested=None,
     ):
-        _ = stop, forbidden_chars
+        _ = stop
         self._ensure_loaded()
         torch_mod = self._torch
         transformers_mod = self._transformers
@@ -709,6 +717,11 @@ class TransformersBackend(BaseLLMBackend):
             top_p=top_p,
             repeat_penalty=repeat_penalty,
         )
+        suppress_tokens = self._build_forbidden_suppress_tokens(
+            tuple(sorted(set(forbidden_chars or ())))
+        )
+        if suppress_tokens:
+            gen_kwargs["suppress_tokens"] = list(suppress_tokens)
 
         error_holder: dict[str, Exception] = {}
         queue_timeout = _stream_timeout_seconds()
@@ -769,6 +782,126 @@ class TransformersBackend(BaseLLMBackend):
     def _ensure_loaded(self) -> None:
         if self._model is None or self._tokenizer is None or self._torch is None:
             raise RuntimeError("No model loaded.")
+
+    def _build_forbidden_suppress_tokens(
+        self,
+        forbidden_chars: tuple[str, ...],
+    ) -> tuple[int, ...]:
+        tokenizer = self._tokenizer
+        if tokenizer is None or not forbidden_chars:
+            return ()
+
+        vocab_limit = self._infer_tokenizer_vocab_limit()
+        if vocab_limit <= 0:
+            return ()
+
+        model_key = (self._model_ref, int(vocab_limit))
+        if self._forbidden_suppress_cache_model != model_key:
+            self._forbidden_suppress_cache_model = model_key
+            self._forbidden_suppress_cache.clear()
+
+        cached = self._forbidden_suppress_cache.get(forbidden_chars)
+        if cached is not None:
+            return cached
+
+        forbidden_set = {ch for ch in forbidden_chars if ch}
+        if not forbidden_set:
+            self._forbidden_suppress_cache[forbidden_chars] = ()
+            return ()
+
+        suppress_set: set[int] = set()
+        for token_id in range(vocab_limit):
+            text = self._decode_token_piece(tokenizer, token_id)
+            if text and any(ch in text for ch in forbidden_set):
+                suppress_set.add(token_id)
+
+        get_vocab = getattr(tokenizer, "get_vocab", None)
+        if callable(get_vocab):
+            try:
+                vocab = get_vocab() or {}
+            except Exception:
+                vocab = {}
+            for value in vocab.values():
+                try:
+                    token_id = int(value)
+                except Exception:
+                    continue
+                if token_id < 0 or token_id in suppress_set or token_id < vocab_limit:
+                    continue
+                text = self._decode_token_piece(tokenizer, token_id)
+                if text and any(ch in text for ch in forbidden_set):
+                    suppress_set.add(token_id)
+
+        suppress_tokens = tuple(sorted(suppress_set))
+        self._forbidden_suppress_cache[forbidden_chars] = suppress_tokens
+        return suppress_tokens
+
+    def _infer_tokenizer_vocab_limit(self) -> int:
+        tokenizer = self._tokenizer
+        if tokenizer is None:
+            return 0
+
+        candidates: list[int] = []
+        model = self._model
+        config = getattr(model, "config", None)
+        for value in (
+            getattr(config, "vocab_size", None),
+            getattr(tokenizer, "vocab_size", None),
+        ):
+            try:
+                parsed = int(value)
+            except Exception:
+                continue
+            if parsed > 0:
+                candidates.append(parsed)
+
+        try:
+            parsed_len = int(len(tokenizer))
+            if parsed_len > 0:
+                candidates.append(parsed_len)
+        except Exception:
+            pass
+
+        get_vocab = getattr(tokenizer, "get_vocab", None)
+        if callable(get_vocab):
+            try:
+                vocab = get_vocab() or {}
+            except Exception:
+                vocab = {}
+            if vocab:
+                candidates.append(max(int(v) for v in vocab.values()) + 1)
+
+        if not candidates:
+            return 0
+        return max(0, max(candidates))
+
+    @staticmethod
+    def _decode_token_piece(tokenizer: Any, token_id: int) -> str:
+        decode = getattr(tokenizer, "decode", None)
+        if not callable(decode):
+            return ""
+        try:
+            return str(
+                decode(
+                    [int(token_id)],
+                    skip_special_tokens=False,
+                    clean_up_tokenization_spaces=False,
+                )
+                or ""
+            )
+        except TypeError:
+            try:
+                return str(
+                    decode(
+                        [int(token_id)],
+                        skip_special_tokens=False,
+                    )
+                    or ""
+                )
+            except Exception:
+                return ""
+        except Exception:
+            return ""
 
     def _infer_context_window(self, default_n_ctx: int) -> int:
         candidates: list[int] = []
