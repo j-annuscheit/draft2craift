@@ -190,39 +190,48 @@ def test_generation_style_visibility_is_user_mode_driven(qt_app):
     assert _gen_row_hidden(panel, panel.temp_spin) is False
 
 
-def test_context_profile_slider_applies_context_presets(qt_app):
+def test_max_tokens_profile_slider_applies_presets(qt_app):
     _ = qt_app
     panel = ModelLoadPanel()
 
-    panel.context_profile_slider.setValue(0)
-    assert panel.ctx_spin.value() == 2048
+    panel.max_tokens_profile_slider.setValue(0)
+    assert panel.max_tokens_spin.value() == 512
 
-    panel.context_profile_slider.setValue(1)
-    assert panel.ctx_spin.value() == 4096
+    panel.max_tokens_profile_slider.setValue(1)
+    assert panel.max_tokens_spin.value() == 1024
 
-    panel.context_profile_slider.setValue(2)
-    assert panel.ctx_spin.value() == 8192
+    panel.max_tokens_profile_slider.setValue(2)
+    assert panel.max_tokens_spin.value() == 2048
 
 
-def test_context_profile_slider_syncs_from_manual_context_value(qt_app):
+def test_max_tokens_profile_slider_syncs_from_manual_value(qt_app):
     _ = qt_app
     panel = ModelLoadPanel()
 
-    panel.ctx_spin.setValue(8192)
-    assert panel.context_profile_slider.value() == 2
+    panel.max_tokens_spin.setValue(2048)
+    assert panel.max_tokens_profile_slider.value() == 2
 
-    panel.ctx_spin.setValue(2048)
-    assert panel.context_profile_slider.value() == 0
+    panel.max_tokens_spin.setValue(512)
+    assert panel.max_tokens_profile_slider.value() == 0
 
 
-def test_context_profile_visibility_is_user_mode_driven(qt_app):
+def test_context_tokens_visibility_is_user_mode_driven(qt_app):
     _ = qt_app
     panel = ModelLoadPanel()
 
     panel.set_user_mode("easy_eng")
-    assert _row_hidden(panel, panel.context_profile_widget) is False
     assert _row_hidden(panel, panel.ctx_spin) is True
 
     panel.set_user_mode(USER_MODE_EXPERT)
-    assert _row_hidden(panel, panel.context_profile_widget) is False
     assert _row_hidden(panel, panel.ctx_spin) is False
+
+
+def test_max_tokens_profile_visibility_is_user_mode_driven(qt_app):
+    _ = qt_app
+    panel = ModelLoadPanel()
+
+    panel.set_user_mode("easy_eng")
+    assert _gen_row_hidden(panel, panel.max_tokens_profile_widget) is False
+
+    panel.set_user_mode(USER_MODE_EXPERT)
+    assert _gen_row_hidden(panel, panel.max_tokens_profile_widget) is False

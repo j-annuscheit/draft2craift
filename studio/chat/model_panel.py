@@ -33,7 +33,6 @@ from shared.domain.user_mode import (
     resolve_feature_label,
 )
 from shared.domain.slider_presets import (
-    chat_context_length_presets,
     chat_generation_style_presets,
 )
 from studio.user_mode_bindings import (
@@ -48,7 +47,7 @@ from studio.user_mode_bindings import (
 from .styles import BTN_NEUTRAL, BTN_PRIMARY
 
 _GENERATION_STYLE_PRESETS: tuple[dict[str, float], ...] = chat_generation_style_presets()
-_CONTEXT_LENGTH_PRESETS: tuple[int, ...] = chat_context_length_presets()
+_MAX_TOKENS_PRESETS: tuple[int, ...] = (512, 1024, 2048)
 _GREEN_SLIDER_STYLE = """
 QSlider::groove:horizontal {
     height: 6px;
@@ -82,11 +81,11 @@ class ModelLoadPanel(QWidget):
         super().__init__(parent)
         self._user_mode = default_user_mode()
         self._show_ctx_tokens = True
-        self._show_context_profile = True
+        self._show_max_tokens_profile = True
         self._show_gpu_layers = True
         self._show_threads = False
         self._show_trust_remote_code = False
-        self._syncing_context_profile = False
+        self._syncing_max_tokens_profile = False
         self._syncing_generation_style = False
         self._setup_ui()
 
@@ -151,50 +150,6 @@ class ModelLoadPanel(QWidget):
         self.ctx_spin.setRange(512, 131072)
         self.ctx_spin.setValue(4096)
         self.ctx_spin.setSingleStep(512)
-        self.context_profile_slider = QSlider(Qt.Orientation.Horizontal)
-        self.context_profile_slider.setRange(0, 2)
-        self.context_profile_slider.setSingleStep(1)
-        self.context_profile_slider.setPageStep(1)
-        self.context_profile_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.context_profile_slider.setTickInterval(1)
-        self.context_profile_slider.setValue(1)
-        self.context_profile_slider.setStyleSheet(_GREEN_SLIDER_STYLE)
-        self.context_profile_mark_short = QLabel("Kurz")
-        self.context_profile_mark_standard = QLabel("Standard")
-        self.context_profile_mark_long = QLabel("Lang")
-        for mark in (
-            self.context_profile_mark_short,
-            self.context_profile_mark_standard,
-            self.context_profile_mark_long,
-        ):
-            mark.setStyleSheet("color: palette(placeholder-text); font-size: 9px;")
-
-        self.context_profile_marks_row = QHBoxLayout()
-        self.context_profile_marks_row.setContentsMargins(0, 0, 0, 0)
-        self.context_profile_marks_row.setSpacing(4)
-        self.context_profile_marks_row.addWidget(
-            self.context_profile_mark_short,
-            1,
-            Qt.AlignmentFlag.AlignLeft,
-        )
-        self.context_profile_marks_row.addWidget(
-            self.context_profile_mark_standard,
-            1,
-            Qt.AlignmentFlag.AlignHCenter,
-        )
-        self.context_profile_marks_row.addWidget(
-            self.context_profile_mark_long,
-            1,
-            Qt.AlignmentFlag.AlignRight,
-        )
-
-        self.context_profile_widget = QWidget()
-        self.context_profile_layout = QVBoxLayout(self.context_profile_widget)
-        self.context_profile_layout.setContentsMargins(0, 0, 0, 0)
-        self.context_profile_layout.setSpacing(1)
-        self.context_profile_layout.addWidget(self.context_profile_slider)
-        self.context_profile_layout.addLayout(self.context_profile_marks_row)
-        self._model_form.addRow("Kontextlaenge:", self.context_profile_widget)
         self._model_form.addRow("Context (tokens):", self.ctx_spin)
 
         self.gpu_spin = QSpinBox()
@@ -317,6 +272,51 @@ class ModelLoadPanel(QWidget):
         self.generation_style_layout.addLayout(self.generation_style_marks_row)
         self._gen_form.addRow("Antwortstil:", self.generation_style_widget)
 
+        self.max_tokens_profile_slider = QSlider(Qt.Orientation.Horizontal)
+        self.max_tokens_profile_slider.setRange(0, 2)
+        self.max_tokens_profile_slider.setSingleStep(1)
+        self.max_tokens_profile_slider.setPageStep(1)
+        self.max_tokens_profile_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.max_tokens_profile_slider.setTickInterval(1)
+        self.max_tokens_profile_slider.setValue(1)
+        self.max_tokens_profile_slider.setStyleSheet(_GREEN_SLIDER_STYLE)
+        self.max_tokens_profile_mark_short = QLabel("Kurz")
+        self.max_tokens_profile_mark_standard = QLabel("Standard")
+        self.max_tokens_profile_mark_long = QLabel("Lang")
+        for mark in (
+            self.max_tokens_profile_mark_short,
+            self.max_tokens_profile_mark_standard,
+            self.max_tokens_profile_mark_long,
+        ):
+            mark.setStyleSheet("color: palette(placeholder-text); font-size: 9px;")
+
+        self.max_tokens_profile_marks_row = QHBoxLayout()
+        self.max_tokens_profile_marks_row.setContentsMargins(0, 0, 0, 0)
+        self.max_tokens_profile_marks_row.setSpacing(4)
+        self.max_tokens_profile_marks_row.addWidget(
+            self.max_tokens_profile_mark_short,
+            1,
+            Qt.AlignmentFlag.AlignLeft,
+        )
+        self.max_tokens_profile_marks_row.addWidget(
+            self.max_tokens_profile_mark_standard,
+            1,
+            Qt.AlignmentFlag.AlignHCenter,
+        )
+        self.max_tokens_profile_marks_row.addWidget(
+            self.max_tokens_profile_mark_long,
+            1,
+            Qt.AlignmentFlag.AlignRight,
+        )
+
+        self.max_tokens_profile_widget = QWidget()
+        self.max_tokens_profile_layout = QVBoxLayout(self.max_tokens_profile_widget)
+        self.max_tokens_profile_layout.setContentsMargins(0, 0, 0, 0)
+        self.max_tokens_profile_layout.setSpacing(1)
+        self.max_tokens_profile_layout.addWidget(self.max_tokens_profile_slider)
+        self.max_tokens_profile_layout.addLayout(self.max_tokens_profile_marks_row)
+        self._gen_form.addRow("Antwortlaenge:", self.max_tokens_profile_widget)
+
         self.max_tokens_spin = QSpinBox()
         self.max_tokens_spin.setRange(16, 32768)
         self.max_tokens_spin.setSingleStep(64)
@@ -358,11 +358,11 @@ class ModelLoadPanel(QWidget):
         self.generation_style_slider.valueChanged.connect(
             self._on_generation_style_changed
         )
-        self.context_profile_slider.valueChanged.connect(
-            self._on_context_profile_changed
+        self.max_tokens_profile_slider.valueChanged.connect(
+            self._on_max_tokens_profile_changed
         )
-        self.ctx_spin.valueChanged.connect(
-            lambda _value: self._sync_context_profile_from_controls()
+        self.max_tokens_spin.valueChanged.connect(
+            lambda _value: self._sync_max_tokens_profile_from_controls()
         )
         self.temp_spin.valueChanged.connect(
             lambda _value: self._sync_generation_style_from_controls()
@@ -377,7 +377,7 @@ class ModelLoadPanel(QWidget):
         layout.addLayout(self._gen_form)
         self.set_user_mode(self._user_mode)
         self._refresh_model_row_visibility()
-        self._sync_context_profile_from_controls()
+        self._sync_max_tokens_profile_from_controls()
         self._sync_generation_style_from_controls()
 
     def _on_backend_changed(self, _index: int):
@@ -500,7 +500,6 @@ class ModelLoadPanel(QWidget):
 
     def _refresh_model_row_visibility(self):
         backend = self.get_model_backend()
-        show_context_profile = bool(self._show_context_profile)
         show_ctx = bool(self._show_ctx_tokens)
         show_gpu = bool(self._show_gpu_layers) and backend in {
             BACKEND_AUTO,
@@ -511,7 +510,6 @@ class ModelLoadPanel(QWidget):
             BACKEND_AUTO,
             BACKEND_TRANSFORMERS,
         }
-        set_form_row_visible(self._model_form, self.context_profile_widget, show_context_profile)
         set_form_row_visible(self._model_form, self.ctx_spin, show_ctx)
         set_form_row_visible(self._model_form, self.gpu_spin, show_gpu)
         set_form_row_visible(self._model_form, self.threads_spin, show_threads)
@@ -670,38 +668,38 @@ class ModelLoadPanel(QWidget):
         finally:
             self._syncing_generation_style = False
 
-    def _on_context_profile_changed(self, profile_index: int) -> None:
+    def _on_max_tokens_profile_changed(self, profile_index: int) -> None:
         idx = max(0, min(2, int(profile_index)))
-        if self._syncing_context_profile:
+        if self._syncing_max_tokens_profile:
             return
-        target_ctx = int(_CONTEXT_LENGTH_PRESETS[idx])
-        self._syncing_context_profile = True
+        target_tokens = int(_MAX_TOKENS_PRESETS[idx])
+        self._syncing_max_tokens_profile = True
         try:
-            self.ctx_spin.setValue(target_ctx)
+            self.max_tokens_spin.setValue(target_tokens)
         finally:
-            self._syncing_context_profile = False
+            self._syncing_max_tokens_profile = False
 
-    def _nearest_context_profile_index(self) -> int:
-        current_ctx = int(self.ctx_spin.value())
+    def _nearest_max_tokens_profile_index(self) -> int:
+        current_tokens = int(self.max_tokens_spin.value())
         distances: list[tuple[int, int]] = []
-        for idx, target_ctx in enumerate(_CONTEXT_LENGTH_PRESETS):
-            distances.append((abs(current_ctx - int(target_ctx)), idx))
+        for idx, target_tokens in enumerate(_MAX_TOKENS_PRESETS):
+            distances.append((abs(current_tokens - int(target_tokens)), idx))
         distances.sort(key=lambda item: (item[0], item[1]))
         return int(distances[0][1])
 
-    def _sync_context_profile_from_controls(self) -> None:
-        if self._syncing_context_profile:
+    def _sync_max_tokens_profile_from_controls(self) -> None:
+        if self._syncing_max_tokens_profile:
             return
-        target_idx = self._nearest_context_profile_index()
-        self._syncing_context_profile = True
+        target_idx = self._nearest_max_tokens_profile_index()
+        self._syncing_max_tokens_profile = True
         try:
-            self.context_profile_slider.setValue(target_idx)
+            self.max_tokens_profile_slider.setValue(target_idx)
         finally:
-            self._syncing_context_profile = False
+            self._syncing_max_tokens_profile = False
 
     def set_user_mode(self, mode: str):
         self._user_mode = normalize_user_mode(mode)
-        self._show_context_profile = feature_visible(
+        self._show_max_tokens_profile = feature_visible(
             self._user_mode,
             "chat.model.load.context_profile",
             default=True,
@@ -734,6 +732,11 @@ class ModelLoadPanel(QWidget):
                 (
                     self.generation_style_widget,
                     "chat.model.generation.style",
+                    True,
+                ),
+                (
+                    self.max_tokens_profile_widget,
+                    "chat.model.load.context_profile",
                     True,
                 ),
                 (
@@ -785,17 +788,17 @@ class ModelLoadPanel(QWidget):
                     "Generation",
                 ),
                 (
-                    self.context_profile_mark_short,
+                    self.max_tokens_profile_mark_short,
                     "chat.model.load.context_profile.short",
                     "Kurz",
                 ),
                 (
-                    self.context_profile_mark_standard,
+                    self.max_tokens_profile_mark_standard,
                     "chat.model.load.context_profile.standard",
                     "Standard",
                 ),
                 (
-                    self.context_profile_mark_long,
+                    self.max_tokens_profile_mark_long,
                     "chat.model.load.context_profile.long",
                     "Lang",
                 ),
@@ -826,10 +829,10 @@ class ModelLoadPanel(QWidget):
                     "This automatically updates temperature, top-p and repeat penalty.",
                 ),
                 (
-                    self.context_profile_slider,
+                    self.max_tokens_profile_slider,
                     "chat.model.load.context_profile.tooltip",
-                    "Simple context length: short, standard or long. "
-                    "This automatically updates context tokens.",
+                    "Simple response length: short, standard or long. "
+                    "This automatically updates max tokens.",
                 ),
             ),
         )
@@ -857,11 +860,6 @@ class ModelLoadPanel(QWidget):
             self._user_mode,
             self._model_form,
             (
-                (
-                    self.context_profile_widget,
-                    "chat.model.load.context_profile",
-                    "Kontextlaenge:",
-                ),
                 (
                     self.ctx_spin,
                     "chat.model.load.context_tokens",
@@ -894,6 +892,11 @@ class ModelLoadPanel(QWidget):
                     "Antwortstil:",
                 ),
                 (
+                    self.max_tokens_profile_widget,
+                    "chat.model.load.context_profile",
+                    "Antwortlaenge:",
+                ),
+                (
                     self.max_tokens_spin,
                     "chat.model.generation.max_tokens",
                     "Max tokens:",
@@ -920,6 +923,11 @@ class ModelLoadPanel(QWidget):
                 ),
             ),
         )
+        set_form_row_visible(
+            self._gen_form,
+            self.max_tokens_profile_widget,
+            bool(self._show_max_tokens_profile),
+        )
         self._apply_backend_ui()
-        self._sync_context_profile_from_controls()
+        self._sync_max_tokens_profile_from_controls()
         self._sync_generation_style_from_controls()
