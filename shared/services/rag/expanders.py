@@ -63,24 +63,40 @@ class RAGExpanders:
         return self._rag_reranker
 
     @staticmethod
-    def normalise_literal_terms(terms: list[str]) -> list[str]:
+    def _unwrap_matching_quotes(value: str) -> str:
+        text = str(value or "").strip()
+        if len(text) < 2:
+            return text
+        if text[0] == text[-1] and text[0] in "\"'`":
+            return text[1:-1].strip()
+        return text
+
+    @staticmethod
+    def normalise_regex_patterns(patterns: list[str]) -> list[str]:
         out: list[str] = []
         seen: set[str] = set()
-        for raw in terms:
-            term = str(raw or "").strip()
-            if not term:
+        for raw in patterns:
+            pattern = str(raw or "").strip()
+            if not pattern:
                 continue
-            term = re.sub(r"^\s*(?:[-*\u2022]+|\d+[\.\)])\s*", "", term).strip()
-            term = term.strip("\"'`")
-            term = re.sub(r"\s+", " ", term)
-            if len(term) < 2:
+            pattern = re.sub(r"^\s*regex\s*:\s*", "", pattern, flags=re.IGNORECASE).strip()
+            pattern = re.sub(r"^\s*(?:[-*\u2022]+|\d+[\.\)])\s*", "", pattern).strip()
+            pattern = RAGExpanders._unwrap_matching_quotes(pattern)
+            if not pattern:
                 continue
-            key = term.casefold()
+            if len(pattern) > 240:
+                continue
+            key = pattern.casefold()
             if key in seen:
                 continue
             seen.add(key)
-            out.append(term)
+            out.append(pattern)
         return out[:24]
+
+    @staticmethod
+    def normalise_literal_terms(terms: list[str]) -> list[str]:
+        """Backward-compatible alias for regex pattern normalization."""
+        return RAGExpanders.normalise_regex_patterns(terms)
 
     def safe_expand_tfidf(self, query: str, global_toc: str = "") -> str:
         """Run TF-IDF HyDE expansion; return original query on failure."""
@@ -126,7 +142,7 @@ class RAGExpanders:
             return [query]
 
     def safe_expand_literal_terms(self, query: str) -> tuple[list[str], dict[str, Any]]:
-        """Expand literal terms via optional LLM callback."""
+        """Expand regex patterns via optional LLM callback."""
         if not self._literal_query_expander:
             return [], {"attempted": False, "used": False, "reason": "no_expander"}
 
@@ -146,9 +162,9 @@ class RAGExpanders:
             else:
                 raw_terms = [str(term).strip() for term in (raw_result or []) if str(term).strip()]
 
-            terms = self.normalise_literal_terms(raw_terms)[:limit]
+            terms = self.normalise_regex_patterns(raw_terms)[:limit]
             if self._log and terms:
-                self._log.info("LLM", f"Literal terms: '{query}'  ->  {', '.join(terms[:8])}")
+                self._log.info("LLM", f"Regex patterns: '{query}'  ->  {', '.join(terms[:8])}")
             return terms, {
                 "attempted": True,
                 "used": bool(terms),

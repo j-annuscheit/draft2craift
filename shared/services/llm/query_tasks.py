@@ -1,16 +1,45 @@
 """HyDE/query-expansion task methods for ``LLMManager``."""
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
-_COLLAPSE_WS_RE = re.compile(r"\s+")
 _LIST_PREFIX_RE = re.compile(r"^\s*(?:[-*]+|\d+[\.\)])\s*")
-_COMMA_NEWLINE_SEMI_SPLIT_RE = re.compile(r"[,\n;]+")
+_FENCED_REGEX_BLOCK_RE = re.compile(r"```(?:regex|json|text)?\s*([\s\S]*?)```", flags=re.IGNORECASE)
+_JSON_ARRAY_RE = re.compile(r"\[[\s\S]*\]")
 
 
-def _collapse_ws(value: object) -> str:
-    return _COLLAPSE_WS_RE.sub(" ", str(value or "")).strip()
+def _unwrap_matching_quotes(value: str) -> str:
+    text = str(value or "").strip()
+    if len(text) < 2:
+        return text
+    if text[0] == text[-1] and text[0] in "\"'`":
+        return text[1:-1].strip()
+    return text
+
+
+def _extract_regex_candidates(raw_text: str) -> list[str]:
+    text = str(raw_text or "").strip()
+    if not text:
+        return []
+    fenced = _FENCED_REGEX_BLOCK_RE.search(text)
+    candidate = str(fenced.group(1) if fenced else text).strip()
+    if not candidate:
+        return []
+
+    array_match = _JSON_ARRAY_RE.search(candidate)
+    if array_match:
+        try:
+            payload = json.loads(array_match.group(0))
+            if isinstance(payload, list):
+                out = [str(item).strip() for item in payload if str(item).strip()]
+                if out:
+                    return out
+        except Exception:
+            pass
+
+    return [str(line).strip() for line in candidate.splitlines() if str(line).strip()]
 
 
 def expand_query_tfidf_sync(self, query: str) -> str:
@@ -170,7 +199,7 @@ def expand_query_literal_terms_sync(
     query: str,
     max_terms: int = 8,
 ) -> list[str] | tuple[list[str], dict[str, Any]]:
-    """Generate short literal search terms for the literal RAG backend."""
+    """Generate regex patterns for the regex RAG backend."""
     if not self.is_model_loaded():
         return [], {
             "applied": False,
@@ -179,7 +208,7 @@ def expand_query_literal_terms_sync(
         }
     if self.worker.isRunning():
         if self._log:
-            self._log.debug("LLM", f"Literal expansion skipped – model busy: '{query}'")
+            self._log.debug("LLM", f"Regex expansion skipped – model busy: '{query}'")
         return [], {
             "applied": False,
             "used": False,
@@ -206,7 +235,7 @@ def expand_query_literal_terms_sync(
     try:
         raw_full = self._generate_backend_text(
             prompt,
-            max_tokens=max(40, limit * 12),
+            max_tokens=max(80, limit * 18),
             temperature=0.2,
             top_p=0.9,
             repeat_penalty=1.0,
@@ -226,37 +255,39 @@ def expand_query_literal_terms_sync(
             self._query_cache_set("literal", cache_key, result)
             return result
 
-        terms: list[str] = []
+        patterns: list[str] = []
         seen: set[str] = set()
-        for token in _COMMA_NEWLINE_SEMI_SPLIT_RE.split(raw):
-            term = token.strip()
-            term = _LIST_PREFIX_RE.sub("", term).strip()
-            term = term.strip("\"'`")
-            term = _collapse_ws(term)
-            if len(term) < 2:
+        for token in _extract_regex_candidates(raw):
+            pattern = str(token).strip()
+            pattern = _LIST_PREFIX_RE.sub("", pattern).strip()
+            pattern = re.sub(r"^\s*regex\s*:\s*", "", pattern, flags=re.IGNORECASE).strip()
+            pattern = _unwrap_matching_quotes(pattern)
+            if not pattern:
                 continue
-            key = term.casefold()
+            if len(pattern) > 240:
+                continue
+            key = pattern.casefold()
             if key in seen:
                 continue
             seen.add(key)
-            terms.append(term)
-            if len(terms) >= limit:
+            patterns.append(pattern)
+            if len(patterns) >= limit:
                 break
 
         if self._log:
-            if terms:
+            if patterns:
                 self._log.info(
                     "LLM",
-                    f"Literal terms: '{query}' -> {', '.join(terms[:8])}",
+                    f"Regex patterns: '{query}' -> {', '.join(patterns[:8])}",
                 )
             else:
-                self._log.debug("LLM", f"Literal terms empty for: '{query}'")
+                self._log.debug("LLM", f"Regex patterns empty for: '{query}'")
         result = (
-            terms,
+            patterns,
             {
                 "applied": True,
-                "used": bool(terms),
-                "reason": "ok" if terms else "empty",
+                "used": bool(patterns),
+                "reason": "ok" if patterns else "empty",
             },
         )
         self._query_cache_set("literal", cache_key, result)
@@ -264,7 +295,7 @@ def expand_query_literal_terms_sync(
     except Exception as exc:
         self._log_llm_io("Literal-Terms", prompt, error=str(exc))
         if self._log:
-            self._log.error("LLM", f"Literal term expansion failed: {exc}")
+            self._log.error("LLM", f"Regex pattern expansion failed: {exc}")
         return [], {
             "applied": False,
             "used": False,

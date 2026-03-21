@@ -147,7 +147,7 @@ class RAGSettingsDialog(QDialog):
 
         use_tfidf = QCheckBox("Lexical Search (TF-IDF/BM25)")
         use_st = QCheckBox("Sentence-Transformers")
-        use_regex = QCheckBox("Literal Search (Regex/Substrings)")
+        use_regex = QCheckBox("Regex Search")
         form.addRow(use_tfidf)
         form.addRow(use_st)
         form.addRow(use_regex)
@@ -200,7 +200,7 @@ class RAGSettingsDialog(QDialog):
         form.addRow("  CPU threads (ST):", st_n_threads)
         widgets["st_n_threads"] = st_n_threads
 
-        hint = QLabel("At least one backend must be active (TF-IDF, ST or Literal).")
+        hint = QLabel("At least one backend must be active (TF-IDF, ST or Regex).")
         hint.setStyleSheet("color: palette(bright-text); font-size: 10px;")
         form.addRow(hint)
         widgets["backends_hint"] = hint
@@ -358,7 +358,7 @@ class RAGSettingsDialog(QDialog):
             "top_k: return best N results\n"
             "threshold: return all above score\n"
             "top_k_threshold: best N above score\n"
-            "Applied to all backends (TF-IDF, ST, Literal)."
+            "Applied to all backends (TF-IDF, ST, Regex)."
         )
         hint.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
         form.addRow(hint)
@@ -406,19 +406,19 @@ class RAGSettingsDialog(QDialog):
         widgets["rerank_hint"] = rerank_hint
 
     def _build_literal_group(self, root, groups, forms, widgets) -> None:
-        form = add_group(root, groups, forms, "literal", "Direct Match (Literal Search)")
+        form = add_group(root, groups, forms, "literal", "Direct Match (Regex Search)")
 
-        hint = QLabel("Details for the Literal backend (configured above).")
+        hint = QLabel("Details for the Regex backend (configured above).")
         hint.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
         form.addRow(hint)
         widgets["literal_hint"] = hint
 
         regex_max = QSpinBox()
         regex_max.setRange(0, 20)
-        form.addRow("Max literal results:", regex_max)
+        form.addRow("Max regex results:", regex_max)
         widgets["regex_max"] = regex_max
 
-        literal_use_llm_terms = QCheckBox("Ask LLM for literal terms:")
+        literal_use_llm_terms = QCheckBox("Ask LLM for regex patterns:")
         form.addRow(literal_use_llm_terms)
         widgets["literal_use_llm_terms"] = literal_use_llm_terms
 
@@ -720,7 +720,7 @@ class RAGSettingsDialog(QDialog):
             resolve_feature_label(
                 self._user_mode,
                 "rag.settings.group.literal.title",
-                "Direct Match (Literal Search)",
+                "Direct Match (Regex Search)",
             )
         )
 
@@ -784,7 +784,7 @@ class RAGSettingsDialog(QDialog):
             resolve_feature_label(
                 self._user_mode,
                 "rag.settings.backends.use_regex.label",
-                "Literal Search (Regex/Substrings)",
+                "Regex Search",
             )
         )
         self._set_form_row_label(
@@ -811,7 +811,7 @@ class RAGSettingsDialog(QDialog):
             resolve_feature_label(
                 self._user_mode,
                 "rag.settings.backends.hint.text",
-                "At least one backend must be active (TF-IDF, ST or Literal).",
+                "At least one backend must be active (TF-IDF, ST or Regex).",
             )
         )
 
@@ -998,7 +998,7 @@ class RAGSettingsDialog(QDialog):
                 "top_k: return best N results\n"
                 "threshold: return all above score\n"
                 "top_k_threshold: best N above score\n"
-                "Applied to all backends (TF-IDF, ST, Literal).",
+                "Applied to all backends (TF-IDF, ST, Regex).",
             )
         )
         self._set_form_row_label(
@@ -1058,20 +1058,20 @@ class RAGSettingsDialog(QDialog):
             resolve_feature_label(
                 self._user_mode,
                 "rag.settings.literal.hint.text",
-                "Details for the Literal backend (configured above).",
+                "Details for the Regex backend (configured above).",
             )
         )
         self._set_form_row_label(
             "literal",
             "regex_max",
             "rag.settings.literal.max_results.label",
-            "Max literal results:",
+            "Max regex results:",
         )
         w["literal_use_llm_terms"].setText(
             resolve_feature_label(
                 self._user_mode,
                 "rag.settings.literal.use_llm_terms.label",
-                "Ask LLM for literal terms:",
+                "Ask LLM for regex patterns:",
             )
         )
         self._set_form_row_label(

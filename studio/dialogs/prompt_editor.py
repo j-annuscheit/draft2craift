@@ -241,15 +241,15 @@ class PromptEditorDialog(QDialog):
             },
             "literal_terms_system": {
                 "group": "RAG",
-                "title": "Literal Terms: System",
+                "title": "Regex Patterns: System",
                 "kind": "System",
-                "desc": "Rolle für LLM-gestützte Literal-Begriffe.",
+                "desc": "Rolle für LLM-gestützte Regex-Muster.",
             },
             "literal_terms_user": {
                 "group": "RAG",
-                "title": "Literal Terms: User",
+                "title": "Regex Patterns: User",
                 "kind": "User",
-                "desc": "Auftrag zur Begriffsgenerierung für Literal Search.",
+                "desc": "Auftrag zur Muster-Generierung für Regex Search.",
                 "placeholders": "{query}, {max_terms}",
             },
             "rag_rerank_system": {

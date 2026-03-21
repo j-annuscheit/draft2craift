@@ -20,11 +20,12 @@ _RETRIEVAL_MIN_FETCH_K = 30
 _CANDIDATE_OVERSAMPLE_FACTOR = 4
 _CANDIDATE_MIN_TOP_K = 20
 
-# Literal direct-match scoring heuristic.
-# Base boost for one literal hit plus capped bonus per additional matched term.
+# Regex direct-match scoring heuristic.
+# Base boost for one regex hit plus capped bonus per additional matched pattern.
 _LITERAL_DIRECT_BASE_SCORE = 1.5
 _LITERAL_DIRECT_BONUS_CAP = 0.6
 _LITERAL_DIRECT_BONUS_PER_EXTRA_MATCH = 0.1
+_REGEX_SEARCH_FLAGS = re.IGNORECASE | re.MULTILINE
 
 
 class RAGSearcher:
@@ -120,27 +121,37 @@ class RAGSearcher:
         raw = raw[:candidate_top_k]
 
         regex_hits: list[tuple[str, float, str]] = []
-        literal_terms = [query.strip()] if (cfg.backend.use_regex_search and query.strip()) else []
-        literal_llm_terms: list[str] = []
+        regex_patterns = [query.strip()] if (cfg.backend.use_regex_search and query.strip()) else []
+        regex_llm_patterns: list[str] = []
+        regex_debug: dict[str, Any] = {
+            "input_patterns": [],
+            "compiled_patterns": [],
+            "invalid_patterns": [],
+            "literal_fallback_patterns": [],
+        }
         warnings: list[str] = []
 
         if cfg.backend.use_regex_search and query.strip():
             if cfg.literal.use_llm_terms:
                 if not self._expanders.literal_query_expander:
                     warnings.append(
-                        "Literal LLM terms enabled, but no LLM expander is configured. Continuing without LLM term expansion."
+                        "Regex LLM pattern expansion enabled, but no LLM expander is configured. Continuing without LLM pattern expansion."
                     )
                 else:
-                    literal_llm_terms, literal_meta = self._expanders.safe_expand_literal_terms(query)
-                    if not bool(literal_meta.get("used", bool(literal_llm_terms))):
+                    regex_llm_patterns, literal_meta = self._expanders.safe_expand_literal_terms(query)
+                    if not bool(literal_meta.get("used", bool(regex_llm_patterns))):
                         reason = str(literal_meta.get("reason", "unknown"))
                         warnings.append(
-                            "Literal LLM term expansion requested but not used "
-                            f"(reason: {reason}). Continuing with base query terms."
+                            "Regex LLM pattern expansion requested but not used "
+                            f"(reason: {reason}). Continuing with base query pattern."
                         )
-                literal_terms.extend(literal_llm_terms)
+                regex_patterns.extend(regex_llm_patterns)
 
-            regex_hits = self._regex_search(literal_terms)
+            regex_hits, regex_debug = self._regex_search(regex_patterns)
+            if regex_debug.get("invalid_patterns"):
+                warnings.append(
+                    "Some regex patterns were invalid and were skipped or matched literally."
+                )
             trace_hit("regex", regex_hits)
 
         merged = merge_regex_first(regex_hits, raw, candidate_top_k + cfg.literal.max_results)
@@ -238,14 +249,19 @@ class RAGSearcher:
             "should_expand": should_expand,
             "lexical_query": lexical_query,
             "st_queries": st_queries,
-            "literal_terms": literal_terms,
-            "literal_llm_terms": literal_llm_terms,
+            "regex_patterns": regex_patterns,
+            "regex_llm_patterns": regex_llm_patterns,
+            "literal_terms": regex_patterns,
+            "literal_llm_terms": regex_llm_patterns,
+            "regex": regex_debug,
             "rerank": chunk_rerank_debug,
             "warnings": warnings,
             "counts": {
                 "lexical_raw": len(lexical_raw),
                 "st_raw": len(st_raw),
                 "regex_hits": len(regex_hits),
+                "regex_compiled": len(regex_debug.get("compiled_patterns", [])),
+                "regex_invalid": len(regex_debug.get("invalid_patterns", [])),
                 "fused_chunk_hits": len(chunk_hits),
                 "doc_results": len(doc_results),
             },
@@ -275,8 +291,8 @@ class RAGSearcher:
                 notes.append(f"lexical_q='{lexical_query[:60]}'")
             if len(st_queries) > 1:
                 notes.append(f"st_passages={len(st_queries)}")
-            if literal_llm_terms:
-                notes.append(f"literal_terms={len(literal_terms)}")
+            if regex_llm_patterns:
+                notes.append(f"regex_patterns={len(regex_patterns)}")
             if chunk_rerank_debug.get("enabled"):
                 notes.append(
                     f"rerank={chunk_rerank_debug.get('kept', len(chunk_hits))}/"
@@ -294,19 +310,38 @@ class RAGSearcher:
             return doc_results, debug_info
         return doc_results
 
-    def _regex_search(self, terms: list[str]) -> list[tuple[str, float, str]]:
-        clean_terms = self._expanders.normalise_literal_terms(terms)
-        if not clean_terms:
-            return []
+    def _regex_search(self, terms: list[str]) -> tuple[list[tuple[str, float, str]], dict[str, Any]]:
+        clean_patterns = self._expanders.normalise_regex_patterns(terms)
+        debug: dict[str, Any] = {
+            "input_patterns": clean_patterns,
+            "compiled_patterns": [],
+            "invalid_patterns": [],
+            "literal_fallback_patterns": [],
+        }
+        if not clean_patterns:
+            return [], debug
 
-        patterns: list[tuple[str, Any]] = []
-        for term in clean_terms:
+        compiled_patterns: list[tuple[str, Any]] = []
+        for pattern in clean_patterns:
             try:
-                patterns.append((term, re.compile(re.escape(term), re.IGNORECASE)))
-            except re.error:
-                continue
-        if not patterns:
-            return []
+                compiled_patterns.append((pattern, re.compile(pattern, _REGEX_SEARCH_FLAGS)))
+                debug["compiled_patterns"].append(pattern)
+            except re.error as exc:
+                escaped = re.escape(pattern)
+                try:
+                    compiled_patterns.append((pattern, re.compile(escaped, _REGEX_SEARCH_FLAGS)))
+                    debug["compiled_patterns"].append(pattern)
+                    debug["literal_fallback_patterns"].append(pattern)
+                    debug["invalid_patterns"].append(
+                        {"pattern": pattern, "error": str(exc), "fallback_used": True}
+                    )
+                except re.error:
+                    debug["invalid_patterns"].append(
+                        {"pattern": pattern, "error": str(exc), "fallback_used": False}
+                    )
+                    continue
+        if not compiled_patterns:
+            return [], debug
 
         scored: list[tuple[str, float, str, int, int]] = []
         for key, content in self._indexer.content_cache.items():
@@ -316,7 +351,7 @@ class RAGSearcher:
 
             match_count = 0
             first_pos = len(body)
-            for _term, pattern in patterns:
+            for _pattern_text, pattern in compiled_patterns:
                 match = pattern.search(body)
                 if match:
                     match_count += 1
@@ -340,9 +375,10 @@ class RAGSearcher:
             docs = [self._indexer.chunk_to_doc.get(key, key) for key, _, _ in result]
             self._log.debug(
                 "RAG",
-                f"Literal terms '{', '.join(clean_terms[:6])}'  |  {len(result)} hits in: {', '.join(set(docs))}",
+                f"Regex patterns '{', '.join(clean_patterns[:6])}'  |  "
+                f"{len(result)} hits in: {', '.join(set(docs))}",
             )
-        return result
+        return result, debug
 
     def _apply_selection(
         self,

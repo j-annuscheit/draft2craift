@@ -68,15 +68,20 @@ class QueryExpansionCacheTests(unittest.TestCase):
         self.assertEqual(len(model.calls), 2)
 
     def test_literal_expansion_reuses_cache_for_same_limit(self):
-        manager, model = self._build_manager(outputs=["alpha, beta", "gamma, delta"])
+        manager, model = self._build_manager(
+            outputs=[
+                "```regex\nalpha\\s+beta\nbeta(?:-)?gamma\n```",
+                "gamma\\d+\ndelta",
+            ]
+        )
 
         terms1, meta1 = manager.expand_query_literal_terms_sync("frage", max_terms=2)
         terms2, meta2 = manager.expand_query_literal_terms_sync("frage", max_terms=2)
         terms3, _meta3 = manager.expand_query_literal_terms_sync("frage", max_terms=1)
 
-        self.assertEqual(terms1, ["alpha", "beta"])
-        self.assertEqual(terms2, ["alpha", "beta"])
-        self.assertEqual(terms3, ["gamma"])
+        self.assertEqual(terms1, [r"alpha\s+beta", r"beta(?:-)?gamma"])
+        self.assertEqual(terms2, [r"alpha\s+beta", r"beta(?:-)?gamma"])
+        self.assertEqual(terms3, [r"gamma\d+"])
         self.assertEqual(meta1["applied"], True)
         self.assertEqual(meta2["applied"], True)
         self.assertEqual(len(model.calls), 2)
