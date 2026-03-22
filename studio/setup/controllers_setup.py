@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from shared.services.agentic.settings import AgenticRuntimeSettings
 from studio.app_context import AppContext
 from studio.chat.runtime_ports import (
     ChatDockActionPorts,
@@ -48,6 +49,14 @@ def init_controllers(ctx: AppContext) -> ControllerBundle:
     user_mode_ctrl = getattr(window, "_user_mode_ctrl", None)
     if user_mode_ctrl is None:
         raise RuntimeError("Controller setup requires user_mode controller to be bound.")
+    agentic_settings_ctrl = getattr(window, "_agentic_settings_ctrl", None)
+    get_agentic_settings = (
+        getattr(agentic_settings_ctrl, "get_settings", None)
+        if agentic_settings_ctrl is not None
+        else None
+    )
+    if not callable(get_agentic_settings):
+        get_agentic_settings = AgenticRuntimeSettings.defaults
 
     autosave_ctrl = AutosaveController(
         parent=window,
@@ -132,6 +141,7 @@ def init_controllers(ctx: AppContext) -> ControllerBundle:
             autosave_schedule_fn=ctx.schedule_autosave,
             build_llm_context=chat_controller.build_llm_context,
             get_user_mode=ctx.get_user_mode,
+            get_agentic_settings=get_agentic_settings,
             is_prompt_editor_allowed=user_mode_ctrl.is_prompt_editor_allowed,
             dialog_manager=window.dialog_manager,
         ),

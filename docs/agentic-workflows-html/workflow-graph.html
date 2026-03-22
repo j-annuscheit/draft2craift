@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Step 2: Build Agent Runners</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <script defer src="assets/code-highlight.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1>Agentic Tutorial</h1>
+      <p>Step 2: Build small workers that together create the mind map.</p>
+      <nav class="nav">
+        <a href="index.html">Step 0: Start</a>
+        <a href="system-overview.html">Step 1: Architecture</a>
+        <a class="active" href="workflow-graph.html">Step 2: Build Agent</a>
+        <a href="configuration.html">Step 3: Configure Workflow</a>
+        <a href="files-and-impact.html">Step 4: Runtime &amp; GUI</a>
+        <a href="code-deep-dive.html">Step 5: Deep Dive Snippets</a>
+        <a href="extending-workflows.html">Step 6: Tests &amp; Extension</a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <section class="card">
+        <span class="step">Step 2</span>
+        <h2>What a Worker is in the Current Mindmap-v3 Path</h2>
+        <p>
+          The productive mind map workflow no longer builds the map in one large draft step.
+          Instead, there are many small workers with clear responsibilities. This is the
+          core idea from <code>mindmap-worker-architektur-v3.md</code> and this is exactly how it is now
+          implemented in the code.
+        </p>
+        <div class="note ok">
+          Important: This step describes the active mind map path. The graph workflow currently
+          still uses an older, separately wired set of workers. This is intentionally not
+          the same as the new mindmap-v3 path.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>The Worker Families</h2>
+        <table>
+          <thead>
+            <tr><th>Area</th><th>Path</th><th>Task</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Source</td><td><code>workers/maps/source/</code></td><td>Normalize request, adopt context, clean up, segment, extract outline</td></tr>
+            <tr><td>Seed</td><td><code>workers/maps/seed/</code></td><td>Generate deterministic start tree and prepare small initial additions</td></tr>
+            <tr><td>Frontier</td><td><code>workers/maps/frontier/</code></td><td>Select next expansion point, gather evidence, fix format, detect gaps and fill them specifically</td></tr>
+            <tr><td>Validate</td><td><code>workers/maps/validate/</code></td><td>Check candidates and the entire tree</td></tr>
+            <tr><td>Apply</td><td><code>workers/maps/apply/</code></td><td>Attach candidates, commit, update coverage, final cleanup</td></tr>
+            <tr><td>Render</td><td><code>workers/maps/render/</code></td><td>Render and emit final Markdown</td></tr>
+          </tbody>
+        </table>
+        <p>
+          This division is the real maintainability gain. If a problem lies in prompting,
+          in deduplication, or in commit behavior, you only work on a small part.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>1) Request Worker: start small and deterministic</h2>
+        <div class="snippet-title"><code>shared/services/agentic/workers/maps/source/resolve_request.py</code></div>
+        <pre><code>WORKER_ID = "map.resolve_request.v1"
+
+
+def run(ctx, step, projected):
+    _ = ctx, step
+    query = str(projection_get(projected, "request.query", "") or "").strip()
+    depth = projection_get(projected, "request.depth", 0)
+    try:
+        target_depth = int(depth or 0)
+    except Exception:
+        target_depth = 0
+    target_depth = max(2, min(10, target_depth or 4))
+    topic = query or "Mindmap from context"
+    return StepOutcome(
+        value={
+            "topic": topic,
+            "focus": query or topic,
+            "mode": "mindmap",
+            "target_depth": target_depth,
+            "style_constraints": [],
+        },
+        meta={"query_chars": len(query)},
+    )
+</code></pre>
+        <p>
+          This worker intentionally does very little: it normalizes the user request and derives a
+          stable target depth. It knows nothing about parsing, LLMs, or the rest of the map.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>2) Seed Worker: deterministic first, LLM only for small initial additions</h2>
+        <div class="snippet-title"><code>shared/services/agentic/workers/maps/seed/seed_from_outline.py</code></div>
+        <pre><code>WORKER_ID = "map.seed_from_outline.v1"
+
+
+def run(ctx, step, projected):
+    _ = ctx, step
+    root_label = str(projection_get(projected, "state.map_seed.root_label", "") or "Mindmap")
+    outline = dict(projection_get(projected, "state.map_outline", {}) or {})
+    focus = dict(projection_get(projected, "state.map_focus", {}) or {})
+    spec = build_seed_spec(root_label=root_label, outline=outline, focus=focus)
+    markdown = render_markdown(spec)
+    stats = spec_stats(spec)
+    value = {
+        "markdown": markdown,
+        "mode": "mindmap",
+        "root_label": root_label,
+        "version": 1,
+        "stats": stats,
+        "reason": "seed_from_outline",
+    }
+    return StepOutcome(value=value, meta={"nodes": int(stats.get("nodes", 0) or 0), "edges": int(stats.get("edges", 0) or 0)})
+</code></pre>
+        <p>
+          This is one of the most important differences from the old paths: the first accepted map
+          comes deterministically from the document structure and not directly from an LLM draft.
+        </p>
+        <p>
+          Immediately after this, in the active path, follow <code>map.extract_seed_concepts.v1</code>,
+          <code>map.propose_seed_enrichment.v1</code>, <code>map.parse_seed_enrichment.v1</code>,
+          <code>map.validate_seed_enrichment.v1</code> and <code>map.commit_initial_tree.v1</code>.
+          So the first accepted map is: a deterministic seed plus a few validated top-level additions.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>3) LLM Worker: only local children for one parent</h2>
+        <div class="snippet-title"><code>shared/services/agentic/workers/maps/frontier/propose_child_nodes.py</code></div>
+        <pre><code>WORKER_ID = "map.propose_child_nodes.v1"
+
+
+def run(ctx, step, projected):
+    frontier = dict(projection_get(projected, "state.map_frontier", {}) or {})
+    evidence = dict(projection_get(projected, "state.map_evidence", {}) or {})
+    hints = dict(projection_get(projected, "state.map_candidate_hints", {}) or {})
+    query = str(projection_get(projected, "state.map_request.focus", "") or "")
+    markdown = str(projection_get(projected, "state.map_result.markdown", "") or "")
+    source_text = str(projection_get(projected, "state.map_source.normalized_text", "") or "")
+    child_limit = max(1, min(6, int(projection_get(projected, "policy.map_llm_child_limit", 4) or 4)))
+    parent_label = str(frontier.get("label", "") or "").strip()
+    snippets = list(evidence.get("snippets", []) or [])[:5]
+    candidate_terms = [str(item.get("label", "") or "").strip() for item in list(hints.get("candidate_terms", []) or []) if str(item.get("label", "") or "").strip()]
+    prompt = (
+        "You are expanding an existing mind map.\n"
+        "IMPORTANT:\n"
+        "- Only generate DIRECT children for exactly ONE existing parent.\n"
+        "- No new overall mind map.\n"
+        "- No explanations outside of the JSON.\n"
+        "- Only use terms that are supported by the evidence or the overall context.\n"
+        f"- A maximum of {child_limit} children.\n\n"
+        f"Focus: {query}\n"
+        f"Parent: {parent_label}\n"
+        f"Hints: {', '.join(candidate_terms[:8])}\n\n"
+        "Current mind map:\n"
+        f"{markdown}\n\n"
+        "Local evidence:\n"
+        + "\n\n".join(f"[{idx + 1}] {snippet}" for idx, snippet in enumerate(snippets))
+        + "\n\nOverall context:\n"
+        + source_text
+        + "\n\n"
+        "Answer ONLY as JSON in this format:\n"
+        '{"children":[{"label":"...","evidence_segment_ids":[]}]}\n'
+    )
+    raw_text = str(ctx.tools.call("llm.generate", prompt=prompt) or "")
+    reason = "ok" if str(raw_text or "").strip() else "empty_response"
+    return StepOutcome(value={"raw_text": raw_text, "reason": reason, "intent": "expansion"}, meta={"prompt_chars": len(prompt), "snippet_count": len(snippets), "context_chars": len(source_text)})
+</code></pre>
+        <p>
+          This worker is only allowed to solve a very small semantic task. It does not generate the
+          entire map, but only direct children for exactly one existing parent.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>4) Validator Worker: match candidates with evidence and duplicates</h2>
+        <div class="snippet-title"><code>shared/services/agentic/workers/maps/validate/validate_child_nodes.py</code></div>
+        <pre><code>WORKER_ID = "map.validate_child_nodes.v1"
+
+
+def run(ctx, step, projected):
+    reason = str(projection_get(projected, "state.map_candidate.reason", "") or "").strip()
+    children = list(projection_get(projected, "state.map_candidate.children", []) or [])
+    frontier = dict(projection_get(projected, "state.map_frontier", {}) or {})
+    evidence = dict(projection_get(projected, "state.map_evidence", {}) or {})
+    markdown = str(projection_get(projected, "state.map_result.markdown", "") or "")
+    source_text = str(projection_get(projected, "state.map_source.normalized_text", "") or "")
+    ...
+    value = validate_child_candidates(
+        children=children,
+        parent_label=str(frontier.get("label", "") or ""),
+        existing_labels=existing_labels,
+        evidence_snippets=list(evidence.get("snippets", []) or []),
+        source_text=source_text,
+        min_word_letters=min_letters,
+        max_children=max_children,
+    )
+    return StepOutcome(value=value, meta={"accepted_count": ..., "rejected_count": ...})
+</code></pre>
+        <p>
+          A typical v3 principle becomes visible here: first, the LLM is allowed to propose, then
+          deterministic business logic decides what is actually accepted.
+        </p>
+        <p>
+          If the raw response only has a format problem, <code>map.repair_child_nodes.v1</code>
+          now runs beforehand. This worker tries to save the response with
+          deterministic heuristics instead of immediately forcing another LLM call.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>5) Apply Worker: stage candidate instead of overwriting directly</h2>
+        <div class="snippet-title"><code>shared/services/agentic/workers/maps/apply/attach_child_nodes.py</code></div>
+        <pre><code>WORKER_ID = "map.attach_child_nodes.v1"
+
+
+def run(ctx, step, projected):
+    markdown = str(projection_get(projected, "state.map_result.markdown", "") or "")
+    parent_id = str(projection_get(projected, "state.map_frontier.node_id", "") or "")
+    accepted_children = list(projection_get(projected, "state.map_validation.accepted_children", []) or [])
+    ...
+    candidate_spec = attach_children_to_parent(spec, parent_id=parent_id, children=accepted_children)
+    candidate_markdown = render_markdown(candidate_spec)
+    staged_value = {
+        "markdown": candidate_markdown,
+        "mode": "mindmap",
+        "root_label": root_label,
+        "reason": "attached_children",
+    }
+    return StepOutcome(
+        value={"attached_count": len(accepted_children), "reason": "candidate_staged"},
+        candidate_writes={"map_result_candidate": {"write_to": "state.map_result", "value": staged_value}},
+        meta={"attached_count": len(accepted_children)},
+    )
+</code></pre>
+        <p>
+          The accepted state remains untouched. The worker only stages a new candidate.
+          The same pattern also applies to <code>map.attach_gap_fill.v1</code> if a
+          discovered gap is later specifically expanded under an anchor node.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>6) Validator + Commit as separate responsibilities</h2>
+        <div class="snippet-title"><code>shared/services/agentic/workers/maps/validate/validate_candidate_tree.py</code></div>
+        <pre><code>WORKER_ID = "map.validate_candidate_tree.v1"
+
+
+def run(ctx, step, projected):
+    candidate = dict(projection_get(projected, "state._candidates.map_result_candidate", {}) or {})
+    ...
+    normalized_spec, payload = sanitize_and_validate_spec(spec, policy=policy, root_label=root_label, merge_similar_nodes=True)
+    candidate_writes = {
+        "map_result_candidate": {
+            "write_to": "state.map_result",
+            "value": {
+                "markdown": normalized_markdown,
+                "mode": "mindmap",
+                "root_label": root_label,
+                "stats": dict(payload.get("stats", {}) or {}),
+                "reason": "candidate_tree",
+            },
+            "meta": {"validated": True},
+        }
+    }
+    return StepOutcome(value=value, candidate_writes=candidate_writes, meta={...})
+</code></pre>
+        <div class="snippet-title"><code>shared/services/agentic/workers/maps/apply/commit_candidate_tree.py</code></div>
+        <pre><code>WORKER_ID = "map.commit_candidate_tree.v1"
+
+
+def run(ctx, step, projected):
+    validation = dict(projection_get(projected, "state.map_validation", {}) or {})
+    candidate = dict(projection_get(projected, "state._candidates.map_result_candidate", {}) or {})
+    ...
+    if bool(validation.get("ok", False)):
+        return StepOutcome(
+            value={"committed": True, "reason": "candidate_valid"},
+            updates={"state.map_metrics.candidate_commits": committed_count + 1},
+            commit_candidates=("map_result_candidate",),
+            meta={"committed": True},
+        )
+    return StepOutcome(
+        value={"committed": False, "reason": ...},
+        updates={"state.map_metrics.candidate_discards": discarded_count + 1},
+        discard_candidates=("map_result_candidate",),
+        meta={"committed": False},
+    )
+</code></pre>
+        <p>
+          This is exactly where the candidate pattern from the architecture really comes into play:
+          propose, validate, commit, or discard. No single worker is allowed to silently
+          overwrite the accepted tree. After the frontier loop, <code>map.detect_coverage_gaps.v1</code> ->
+          <code>map.select_gap_target.v1</code> -> <code>map.propose_gap_fill.v1</code> also follows,
+          so that missing document parts are not silently lost.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>7) Registry: only direct worker registration</h2>
+        <div class="snippet-title"><code>shared/services/agentic/default_registry.py</code></div>
+        <pre><code>from .workers.maps.source import resolve_request as map_resolve_request
+from .workers.maps.seed import (
+    seed_from_outline as map_seed_from_outline,
+    propose_seed_enrichment as map_propose_seed_enrichment,
+)
+from .workers.maps.frontier import (
+    propose_child_nodes as map_propose_child_nodes,
+    detect_coverage_gaps as map_detect_coverage_gaps,
+)
+from .workers.maps.validate import validate_candidate_tree as map_validate_candidate_tree
+from .workers.maps.apply import (
+    commit_candidate_tree as map_commit_candidate_tree,
+    commit_initial_tree as map_commit_initial_tree,
+)
+from .workers.maps.render import emit_result as map_emit_result
+
+registry.register("map.resolve_request.v1", map_resolve_request.run)
+registry.register("map.seed_from_outline.v1", map_seed_from_outline.run)
+registry.register("map.propose_seed_enrichment.v1", map_propose_seed_enrichment.run)
+registry.register("map.propose_child_nodes.v1", map_propose_child_nodes.run)
+registry.register("map.detect_coverage_gaps.v1", map_detect_coverage_gaps.run)
+registry.register("map.validate_candidate_tree.v1", map_validate_candidate_tree.run)
+registry.register("map.commit_initial_tree.v1", map_commit_initial_tree.run)
+registry.register("map.commit_candidate_tree.v1", map_commit_candidate_tree.run)
+registry.register("map.emit_result.v1", map_emit_result.run)
+</code></pre>
+        <p>
+          This is the current style in the project. No <code>runners_*.py</code> collection layer, no
+          hidden export stage, no indirect magic path.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>File Order for This Step</h2>
+        <ul class="checklist">
+          <li>First create shared business logic under <code>shared/services/agentic/lib/maps/</code>.</li>
+          <li>Then write exactly one worker per file under <code>shared/services/agentic/workers/maps/</code>.</li>
+          <li>Register the worker immediately in <code>shared/services/agentic/default_registry.py</code>.</li>
+          <li>Only then wire the definition and profile to these worker IDs.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>Checkpoint</h2>
+        <pre><code>python -m py_compile \
+  shared/services/agentic/lib/maps/*.py \
+  shared/services/agentic/workers/maps/source/*.py \
+  shared/services/agentic/workers/maps/seed/*.py \
+  shared/services/agentic/workers/maps/frontier/*.py \
+  shared/services/agentic/workers/maps/validate/*.py \
+  shared/services/agentic/workers/maps/apply/*.py \
+  shared/services/agentic/workers/maps/render/*.py \
+  shared/services/agentic/default_registry.py
+
+PYTHONPATH=. pytest -q \
+  tests/services/test_agentic_workflows.py \
+  tests/services/test_agentic_definition_projections.py
+</code></pre>
+        <div class="pager">
+          <a class="btn secondary" href="system-overview.html">Back</a>
+          <a class="btn" href="configuration.html">Next: Step 3</a>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

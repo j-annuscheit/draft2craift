@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tutorial: Agentic Workflows End-to-End</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <script defer src="assets/code-highlight.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1>Agentic Tutorial</h1>
+      <p>From architecture to productive integration with real snippets.</p>
+      <nav class="nav">
+        <a class="active" href="index.html">Step 0: Start</a>
+        <a href="system-overview.html">Step 1: Architecture</a>
+        <a href="workflow-graph.html">Step 2: Build Agent</a>
+        <a href="configuration.html">Step 3: Configure Workflow</a>
+        <a href="files-and-impact.html">Step 4: Runtime & GUI</a>
+        <a href="code-deep-dive.html">Step 5: Deep Dive Snippets</a>
+        <a href="extending-workflows.html">Step 6: Tests & Extension</a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <section class="card">
+        <span class="step">Step 0</span>
+        <h2>What this tutorial is for</h2>
+        <p>
+          This tutorial is aimed at AI/software developers who are new to the project,
+          but want to get up to a productive level quickly. The goal is not only "what" to do,
+          but "why" each decision (policy, loop, wiring, UI parameter) was set this way.
+        </p>
+        <div class="kpi-grid">
+          <div class="kpi"><span class="label">Core Workflow</span><span class="value">mindmap_agentic (v3) + graph_agentic</span></div>
+          <div class="kpi"><span class="label">Core Runner</span><span class="value">map.seed_from_outline, map.propose_child_nodes, map.validate_candidate_tree</span></div>
+          <div class="kpi"><span class="label">UI Control</span><span class="value">User mode slider for expansion depth</span></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>What you will be able to do at the end</h2>
+        <ul class="checklist">
+          <li>Implement and register new agents as step runners.</li>
+          <li>Build workflow definitions with loops, guards, overflow paths and fail strategy.</li>
+          <li>Validate candidate outputs first and then commit or discard them.</li>
+          <li>Set policy/profile so that output remains robust and deterministic enough.</li>
+          <li>Pass UI parameters (here: expansion depth) through to Agentic runs.</li>
+          <li>Secure the implementation with tests against regression.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>If you start without project knowledge</h2>
+        <p>
+          You don't have to understand the whole project for this tutorial. It is enough if you
+          keep this simple chain in mind: The GUI collects a user request, the service
+          loads definition + profile, the engine executes steps, and a terminal step returns the
+          result to Canvas or Chat.
+        </p>
+        <table class="file-table">
+          <thead>
+            <tr><th>Term</th><th>Meaning</th><th>Where you see it</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Workflow</td><td>The flow graph of a job.</td><td><code>data/workflows/definitions/*.toml</code></td></tr>
+            <tr><td>Runner</td><td>A Python function for exactly one step.</td><td><code>shared/services/agentic/workers/**/*.py</code></td></tr>
+            <tr><td>Profile</td><td>Configuration for behavior, limits and wiring.</td><td><code>data/workflows/profiles/*.toml</code></td></tr>
+            <tr><td>Projection</td><td>What data a step is officially allowed to see.</td><td>Sections <code>[projections.*]</code> in the definition</td></tr>
+            <tr><td>Candidate</td><td>A proposed new state that has not yet been committed.</td><td><code>state._candidates.*</code></td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>How to read this tutorial</h2>
+        <ul class="checklist">
+          <li>Step 1 explains the basic model so that the later files don't seem like a coincidence.</li>
+          <li>Step 2 shows how a single agent step is technically built.</li>
+          <li>Step 3 explains how these steps are connected to a workflow.</li>
+          <li>Step 4 shows how the workflow arrives in Service, Settings and GUI.</li>
+          <li>Step 5 is intended for looking up individual code paths.</li>
+          <li>Step 6 shows the shortest safe sequence for new workflows.</li>
+        </ul>
+        <div class="note ok">
+          Recommendation: Really follow the pages in this order. The later sections
+          deliberately build on the concepts from steps 1 to 3.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Project orientation in 2 minutes</h2>
+        <table class="file-table">
+          <thead>
+            <tr><th>Area</th><th>Path</th><th>Role</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Workflow Definitions</td><td><code>data/workflows/definitions/*.toml</code></td><td>Graph of steps, edges, projections, budgets</td></tr>
+            <tr><td>Workflow Profiles</td><td><code>data/workflows/profiles/*.toml</code></td><td>Policies, model routing, wiring overrides</td></tr>
+            <tr><td>Runner Implementation</td><td><code>shared/services/agentic/workers/**/*.py</code></td><td>Business logic per step</td></tr>
+            <tr><td>Engine Runtime</td><td><code>shared/services/agentic/engine.py</code></td><td>Step execution, candidate commit, visit guards</td></tr>
+            <tr><td>Registry</td><td><code>shared/services/agentic/default_registry.py</code></td><td>Links runner IDs to functions</td></tr>
+            <tr><td>Service Entry</td><td><code>shared/services/agentic/service.py</code></td><td><code>run_mindmap</code>, <code>run_graph</code> etc.</td></tr>
+            <tr><td>GUI Integration</td><td><code>studio/controllers/llm_tasks.py</code></td><td>Dialogs, request construction, policy overrides</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Quick start (local)</h2>
+        <pre><code>cd /home/be/test_claude/canvas2
+PYTHONPATH=. pytest -q tests/services/test_agentic_*.py
+python -m py_compile shared/services/agentic/default_registry.py \
+  $(find shared/services/agentic/workers -type f -name '*.py' | sort) \
+  studio/controllers/llm_tasks.py
+</code></pre>
+        <div class="note ok">
+          If these checks are green, you can follow the next steps 1:1.
+        </div>
+        <div class="pager">
+          <a class="btn" href="system-overview.html">Next: Step 1</a>
+        </div>
+      </section>
+
+      <p class="footer">Note: All code examples are adapted to the current project structure.</p>
+    </main>
+  </div>
+</body>
+</html>

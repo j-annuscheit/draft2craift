@@ -1,0 +1,103 @@
+schema_version = 1
+workflow_id = "canvas_agentic"
+workflow_version = "1.0.0"
+job_type = "canvas"
+entry_step = "understand_edit_goal"
+terminal_steps = ["preview_and_apply", "fail_hard"]
+
+[state_init]
+edit_goal = {}
+canvas_context = {}
+canvas_patch = {}
+patch_validation = {}
+apply_result = {}
+
+[projections.understand_goal_input_v1]
+include = ["request.instruction"]
+
+[projections.collect_context_input_v1]
+include = ["request.selected_text", "request.instruction"]
+
+[projections.draft_patch_input_v1]
+include = ["state.canvas_context"]
+
+[projections.validate_patch_input_v1]
+include = ["state.canvas_patch"]
+
+[projections.preview_apply_input_v1]
+include = ["state.canvas_patch"]
+
+[[steps]]
+id = "understand_edit_goal"
+runner = "canvas.understand_edit_goal.v1"
+input_projection = "understand_goal_input_v1"
+write_to = "edit_goal"
+on_error = "continue_with_defaults"
+
+[[steps]]
+id = "collect_context"
+runner = "canvas.collect_context.v1"
+input_projection = "collect_context_input_v1"
+write_to = "canvas_context"
+on_error = "continue_with_defaults"
+
+[[steps]]
+id = "draft_patch"
+runner = "canvas.draft_patch.v1"
+input_projection = "draft_patch_input_v1"
+write_to = "canvas_patch"
+on_error = "continue_with_defaults"
+
+[[steps]]
+id = "validate_patch"
+runner = "canvas.validate_patch_constraints.v1"
+input_projection = "validate_patch_input_v1"
+write_to = "patch_validation"
+on_error = "continue_with_defaults"
+
+[[steps]]
+id = "preview_and_apply"
+runner = "canvas.preview_and_apply.v1"
+input_projection = "preview_apply_input_v1"
+write_to = "apply_result"
+
+[[steps]]
+id = "fail_hard"
+runner = "control.fail.v1"
+
+[[edges]]
+from = "understand_edit_goal"
+to = "collect_context"
+color = "#27ae60"
+
+[[edges]]
+from = "collect_context"
+to = "draft_patch"
+color = "#27ae60"
+
+[[edges]]
+from = "draft_patch"
+to = "validate_patch"
+color = "#27ae60"
+
+[[edges]]
+from = "validate_patch"
+to = "preview_and_apply"
+when = "state.patch_validation.ok == true"
+color = "#27ae60"
+
+[[edges]]
+from = "validate_patch"
+to = "fail_hard"
+when = "state.patch_validation.ok != true"
+color = "#c0392b"
+
+[budgets]
+max_runtime_seconds = 90
+max_llm_calls = 10
+max_rag_calls = 4
+max_nli_calls = 4
+
+[step_tool_allowlist]
+draft_patch = ["llm.generate"]
+preview_and_apply = ["canvas.apply"]

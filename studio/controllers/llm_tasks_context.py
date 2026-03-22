@@ -6,13 +6,13 @@ def _build_context_text_from_llm_context(
     self,
     ctx: dict,
     *,
-    max_chars: int = 22000,
+    max_chars: int = 0,
 ) -> str:
     parts: list[str] = []
     try:
         char_limit = int(max_chars)
     except (TypeError, ValueError):
-        char_limit = 22000
+        char_limit = 0
     unlimited = char_limit <= 0
     total_len = 0
     truncated = False
@@ -90,13 +90,13 @@ def _fallback_context_text_from_ctx(
     self,
     ctx: dict,
     *,
-    max_chars: int = 22000,
+    max_chars: int = 0,
 ) -> str:
     out: list[str] = []
     try:
         char_limit = int(max_chars)
     except (TypeError, ValueError):
-        char_limit = 22000
+        char_limit = 0
     unlimited = char_limit <= 0
     total_len = 0
     truncated = False
@@ -237,4 +237,3 @@ def _resolve_mindmap_mode_and_query(
                 "Welche zentralen Konzepte beantworten die Fragestellung im Kontext?"
             )
     return mode, query
-

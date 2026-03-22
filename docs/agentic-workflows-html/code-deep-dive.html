@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Step 5: Deep Dive Code Snippets</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <script defer src="assets/code-highlight.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1>Agentic Tutorial</h1>
+      <p>Step 5: Concrete end-to-end paths through real code.</p>
+      <nav class="nav">
+        <a href="index.html">Step 0: Start</a>
+        <a href="system-overview.html">Step 1: Architecture</a>
+        <a href="workflow-graph.html">Step 2: Build Agent</a>
+        <a href="configuration.html">Step 3: Configure Workflow</a>
+        <a href="files-and-impact.html">Step 4: Runtime &amp; GUI</a>
+        <a class="active" href="code-deep-dive.html">Step 5: Deep Dive Snippets</a>
+        <a href="extending-workflows.html">Step 6: Tests &amp; Extension</a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <section class="card">
+        <span class="step">Step 5</span>
+        <h2>Why this page</h2>
+        <p>
+          This page is the pragmatic part of the tutorial. Here you can see the productive
+          Mindmap v3 path from the GUI to the final Emit worker with real, current snippets.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>1) From the Chat Dock to the Service Run</h2>
+        <div class="snippet-title"><code>studio/controllers/llm_tasks.py</code></div>
+        <pre><code>map_depth = max(0, min(12, int(self._request.map_depth or 0)))
+mode_clean = str(mode or "").strip().casefold()
+workflow_key = "graph" if mode_clean == "graph" else "mindmap"
+agentic_opts = self._agentic_settings.run_options_for(workflow_key)
+...
+policy_overrides = dict(agentic_opts.get("policy_overrides", {}) or {})
+policy_overrides["map_require_connected_graph"] = True
+policy_overrides.setdefault("map_cleanup_enabled", True)
+policy_overrides.setdefault("map_node_min_word_letters", 3)
+if mode_clean != "graph":
+    policy_overrides.setdefault(
+        "map_max_expansion_rounds",
+        max(4, map_depth * 3) if map_depth > 0 else 24,
+    )
+else:
+    if map_depth > 0:
+        policy_overrides["map_expand_enabled"] = True
+        policy_overrides["map_expand_target_depth"] = map_depth
+    else:
+        policy_overrides.setdefault("map_expand_enabled", False)
+        policy_overrides.setdefault("map_expand_target_depth", 0)
+
+run_kwargs = {
+  "request": {
+    "mode": mode,
+    "scope": "selection",
+    "query": query,
+    "depth": map_depth,
+    "context_text": context_text,
+  },
+  "profile_id": profile_id or default_profile_id,
+  "enabled": agentic_enabled,
+  "policy_overrides": policy_overrides,
+  "tools": build_tools(llm_manager=self._llm_manager, source_texts=[("Context", context_text)]),
+}
+run_result = svc.run_graph(**run_kwargs) if mode_clean == "graph" else svc.run_mindmap(**run_kwargs)
+</code></pre>
+        <p>
+          Here you can see very clearly what the UI path really influences: full context, user query,
+          mode and the desired depth.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>2) Seed instead of total draft</h2>
+        <div class="snippet-title"><code>shared/services/agentic/workers/maps/seed/seed_from_outline.py</code></div>
+        <pre><code>def run(ctx, step, projected):
+    _ = ctx, step
+    root_label = str(projection_get(projected, "state.map_seed.root_label", "") or "Mindmap")
+    outline = dict(projection_get(projected, "state.map_outline", {}) or {})
+    focus = dict(projection_get(projected, "state.map_focus", {}) or {})
+    spec = build_seed_spec(root_label=root_label, outline=outline, focus=focus)
+    markdown = render_markdown(spec)
+    stats = spec_stats(spec)
+    value = {
+        "markdown": markdown,
+        "mode": "mindmap",
+        "root_label": root_label,
+        "version": 1,
+        "stats": stats,
+        "reason": "seed_from_outline",
+    }
+    return StepOutcome(value=value, meta={"nodes": int(stats.get("nodes", 0) or 0), "edges": int(stats.get("edges", 0) or 0)})
+</code></pre>
+        <div class="note ok">
+          This part replaces the previous all-in-one draft idea. First comes a safe,
+          parsable seed. Then it is expanded.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>3) LLM really only for small suggestions</h2>
+        <div class="snippet-title"><code>shared/services/agentic/workers/maps/frontier/propose_child_nodes.py</code></div>
+        <pre><code>def run(ctx, step, projected):
+    frontier = dict(projection_get(projected, "state.map_frontier", {}) or {})
+    evidence = dict(projection_get(projected, "state.map_evidence", {}) or {})
+    hints = dict(projection_get(projected, "state.map_candidate_hints", {}) or {})
+    query = str(projection_get(projected, "state.map_request.focus", "") or "")
+    ...
+    prompt = (
+        "You are expanding an existing mind map.\n"
+        "IMPORTANT:\n"
+        "- Only create DIRECT children for exactly ONE existing parent.\n"
+        "- No new complete mind map.\n"
+        "- No explanations outside of the JSON.\n"
+        "- Only use terms that are supported by the evidence.\n"
+        ...
+    )
+    try:
+        raw_text = str(ctx.tools.call("llm.generate", prompt=prompt) or "")
+    except Exception as exc:
+        return StepOutcome(
+            value={"raw_text": "", "reason": "llm_error", "error": str(exc)},
+            meta={"prompt_chars": len(prompt), "snippet_count": len(snippets)},
+        )
+    reason = "ok" if str(raw_text or "").strip() else "empty_response"
+    return StepOutcome(value={"raw_text": raw_text, "reason": reason}, meta={"prompt_chars": len(prompt), "snippet_count": len(snippets)})
+</code></pre>
+        <p>
+          This is intentionally narrowly defined: one parent, few evidence snippets, small JSON.
+          This makes even smaller models much more controllable.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>4) Parsing and technical validation are separate</h2>
+        <div class="snippet-title"><code>shared/services/agentic/workers/maps/frontier/parse_child_nodes.py</code></div>
+        <pre><code>def run(ctx, step, projected):
+    raw_text = str(projection_get(projected, "state.map_candidate.raw_text", "") or "")
+    reason = str(projection_get(projected, "state.map_candidate.reason", "") or "")
+    ...
+    parsed = parse_child_suggestion_text(
+        raw_text,
+        min_word_letters=min_letters,
+        limit=child_limit,
+        default_segment_ids=default_segment_ids,
+    )
+    if not parsed:
+        return StepOutcome(value={"children": [], "reason": "invalid_response_format"}, meta={"children": 0})
+    return StepOutcome(value={"children": parsed, "reason": reason or "ok"}, meta={"children": len(parsed)})
+</code></pre>
+        <div class="snippet-title"><code>shared/services/agentic/workers/maps/validate/validate_child_nodes.py</code></div>
+        <pre><code>def run(ctx, step, projected):
+    reason = str(projection_get(projected, "state.map_candidate.reason", "") or "").strip()
+    children = list(projection_get(projected, "state.map_candidate.children", []) or [])
+    ...
+    if reason in {"llm_error", "empty_response", "invalid_response_format"} and not children:
+        value = {"ok": False, "accepted_children": [], "rejected_children": [], "reason": reason}
+        return StepOutcome(value=value, meta={"accepted_count": 0, "rejected_count": 0})
+    ...
+    value = validate_child_candidates(...)
+    return StepOutcome(value=value, meta={"accepted_count": ..., "rejected_count": ...})
+</code></pre>
+        <p>
+          Here a typical alpha error path becomes clearly visible: The LLM is allowed to fail formally,
+          without the entire workflow state becoming unusable.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>5) Stage candidate, then normalize, then commit</h2>
+        <div class="snippet-title"><code>shared/services/agentic/workers/maps/apply/attach_child_nodes.py</code></div>
+        <pre><code>def run(ctx, step, projected):
+    ...
+    candidate_spec = attach_children_to_parent(spec, parent_id=parent_id, children=accepted_children)
+    candidate_markdown = render_markdown(candidate_spec)
+    staged_value = {
+        "markdown": candidate_markdown,
+        "mode": "mindmap",
+        "root_label": root_label,
+        "reason": "attached_children",
+    }
+    return StepOutcome(
+        value={"attached_count": len(accepted_children), "reason": "candidate_staged"},
+        candidate_writes={"map_result_candidate": {"write_to": "state.map_result", "value": staged_value}},
+        meta={"attached_count": len(accepted_children)},
+    )
+</code></pre>
+        <div class="snippet-title"><code>shared/services/agentic/workers/maps/validate/validate_candidate_tree.py</code></div>
+        <pre><code>def run(ctx, step, projected):
+    candidate = dict(projection_get(projected, "state._candidates.map_result_candidate", {}) or {})
+    ...
+    normalized_spec, payload = sanitize_and_validate_spec(spec, policy=policy, root_label=root_label, merge_similar_nodes=True)
+    candidate_writes = {
+        "map_result_candidate": {
+            "write_to": "state.map_result",
+            "value": {
+                "markdown": normalized_markdown,
+                "mode": "mindmap",
+                "root_label": root_label,
+                "stats": dict(payload.get("stats", {}) or {}),
+                "reason": "candidate_tree",
+            },
+            "meta": {"validated": True},
+        }
+    }
+    return StepOutcome(value=value, candidate_writes=candidate_writes, meta={...})
+</code></pre>
+        <div class="snippet-title"><code>shared/services/agentic/workers/maps/apply/commit_candidate_tree.py</code></div>
+        <pre><code>def run(ctx, step, projected):
+    validation = dict(projection_get(projected, "state.map_validation", {}) or {})
+    candidate = dict(projection_get(projected, "state._candidates.map_result_candidate", {}) or {})
+    ...
+    if bool(validation.get("ok", False)):
+        return StepOutcome(
+            value={"committed": True, "reason": "candidate_valid"},
+            updates={"state.map_metrics.candidate_commits": committed_count + 1},
+            commit_candidates=("map_result_candidate",),
+            meta={"committed": True},
+        )
+    return StepOutcome(
+        value={"committed": False, "reason": str(validation.get("reason", "candidate_invalid") or "candidate_invalid")},
+        updates={"state.map_metrics.candidate_discards": discarded_count + 1},
+        discard_candidates=("map_result_candidate",),
+        meta={"committed": False},
+    )
+</code></pre>
+        <p>
+          This is the most important robustness pattern in the entire new mind map path.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>6) Finalization and Emit</h2>
+        <div class="snippet-title"><code>shared/services/agentic/workers/maps/render/emit_result.py</code></div>
+        <pre><code>def run(ctx, step, projected):
+    payload = dict(projection_get(projected, "state.map_result", {}) or {})
+    validation = dict(projection_get(projected, "state.map_validation", {}) or {})
+    markdown = str(payload.get("markdown", "") or "")
+    if markdown:
+        ctx.tools.call("canvas.open_text", text=markdown, title="Mindmap")
+    result_payload = {"markdown": markdown, "mode": "mindmap", "stats": dict(validation.get("stats", {}) or {})}
+    return StepOutcome(
+        value=result_payload,
+        updates={"result.markdown": markdown, "result.meta": result_payload},
+        stop=True,
+        meta={"markdown_chars": len(markdown)},
+    )
+</code></pre>
+        <p>
+          The terminal step is deliberately small. It no longer re-renders, it no longer executes any content-related
+          business logic and it immediately ends the run afterwards.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>7) Think of Graph Legacy separately</h2>
+        <p>
+          If you still see names like <code>mindmap.ensure_connected_graph.v1</code> or
+          <code>mindmap.expand_map_depth.v1</code> in the code, these belong primarily to the
+          graph workflow today. They are no longer the productive mind map main path.
+        </p>
+        <div class="note warn">
+          For new mind map work, you should therefore first look in <code>workers/maps/source</code>,
+          <code>seed</code>, <code>frontier</code>, <code>validate</code>, <code>apply</code> and
+          <code>render</code>, not in the older graph/legacy runners.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>8) Read Trace</h2>
+        <pre><code>{
+  "step_id": "validate_candidate_tree",
+  "runner": "map.validate_candidate_tree.v1",
+  "status": "ok",
+  "visit_index": 7,
+  "input": {
+    "state._candidates.map_result_candidate": {"meta": {"intent": "attach_children"}},
+    "state.map_result.root_label": "Bachelor's thesis",
+    "policy.map_node_min_word_letters": 3
+  },
+  "output": {
+    "value": {"ok": true, "reason": "ok"},
+    "candidate_writes": {
+      "map_result_candidate": {"meta": {"validated": true}}
+    },
+    "write_to": "map_validation"
+  },
+  "state_after": {
+    "map_validation": {"ok": true, "reason": "ok"},
+    "state._candidates.map_result_candidate": {"meta": {"validated": true}}
+  }
+}
+</code></pre>
+        <p>
+          In the new trace you can see very well where a candidate was created, normalized, validated and
+          finally committed or discarded.
+        </p>
+        <div class="pager">
+          <a class="btn secondary" href="files-and-impact.html">Back</a>
+          <a class="btn" href="extending-workflows.html">Next: Step 6</a>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

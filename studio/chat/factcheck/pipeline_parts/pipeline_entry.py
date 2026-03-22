@@ -3,6 +3,139 @@ from __future__ import annotations
 
 from .deps import *  # noqa: F403
 
+
+def _env_flag(name: str) -> bool:
+    return str(os.environ.get(name, "")).strip().casefold() in {"1", "true", "yes", "on"}
+
+def _resolve_agentic_run_options(self) -> dict:
+    getter = getattr(self, "get_agentic_settings", None)
+    if callable(getter):
+        try:
+            settings = getter()
+            run_options_for = getattr(settings, "run_options_for", None)
+            if callable(run_options_for):
+                options = dict(run_options_for("factcheck") or {})
+                if options:
+                    return options
+        except Exception:
+            pass
+    return {
+        "enabled": _env_flag("D2C_AGENTIC_FACTCHECK"),
+        "profile_id": str(
+            os.environ.get("D2C_AGENTIC_FACTCHECK_PROFILE", "factcheck_regex_only")
+            or "factcheck_regex_only"
+        ).strip() or "factcheck_regex_only",
+        "policy_overrides": {},
+        "overlay_profile_ids": [],
+        "env_name": str(os.environ.get("D2C_AGENTIC_ENV", "") or "").strip(),
+    }
+
+
+def _normalize_agentic_status(value: str) -> str:
+    status = str(value or "").strip().casefold()
+    if status == "widerlegt":
+        return "widerspruch"
+    if status in {"belegt", "widerspruch", "nicht_belegt", "teilweise"}:
+        return status
+    return "nicht_belegt"
+
+
+def _try_agentic_factcheck(
+    self,
+    *,
+    target_text: str,
+    target_label: str,
+    source_contexts: list[tuple[str, str]],
+) -> bool:
+    run_options = _resolve_agentic_run_options(self)
+    if not bool(run_options.get("enabled", False)):
+        return False
+    try:
+        from shared.services.agentic import AgenticWorkflowService, build_tools
+    except Exception as exc:
+        self._fact_log_info(f"Agentic import failed, fallback to classic pipeline: {exc}")
+        return False
+
+    profile_id = str(
+        run_options.get("profile_id", "factcheck_regex_only")
+        or "factcheck_regex_only"
+    ).strip() or "factcheck_regex_only"
+    try:
+        tools = build_tools(
+            llm_manager=self.llm,
+            source_texts=source_contexts,
+        )
+        result = AgenticWorkflowService().run_factcheck(
+            request={
+                "q": list(source_contexts),
+                "c": str(target_text or ""),
+                "o": {"rows": []},
+            },
+            profile_id=profile_id,
+            enabled=bool(run_options.get("enabled", False)),
+            policy_overrides=dict(run_options.get("policy_overrides", {}) or {}),
+            overlay_profile_ids=list(
+                run_options.get("overlay_profile_ids", []) or []
+            ),
+            env_name=str(run_options.get("env_name", "") or ""),
+            tools=tools,
+        )
+    except Exception as exc:
+        self._fact_log_info(f"Agentic run failed, fallback to classic pipeline: {exc}")
+        return False
+
+    if not bool(result.ok):
+        self._fact_log_info(
+            "Agentic run reported errors, fallback to classic pipeline: "
+            f"{list(result.errors or [])}"
+        )
+        return False
+
+    raw_rows = list(result.result.get("o", []) or [])
+    normalized_rows: list[dict[str, str]] = []
+    for idx, row in enumerate(raw_rows, 1):
+        item = dict(row or {})
+        normalized_rows.append(
+            {
+                "id": str(item.get("id", "") or f"C{idx}"),
+                "fact": str(item.get("fact", "") or ""),
+                "status": _normalize_agentic_status(str(item.get("status", "") or "")),
+                "reason": str(item.get("reason", "") or ""),
+                "evidence": str(item.get("evidence", "") or ""),
+                "confidence": str(item.get("confidence", "") or ""),
+                "sources": str(item.get("sources", "") or ""),
+            }
+        )
+
+    markdown = compose_fact_check_markdown(
+        normalized_rows,
+        target_label or "Faktencheck",
+        reason_header="Begründung",
+    )
+    note = validate_fact_check_response(markdown, target_text, source_contexts)
+    if note:
+        note_text = self._WARNING_PREFIX_RE.sub("", str(note or "")).strip()
+        markdown = f"{markdown}\n\n---\n\n## Qualitätsprüfung\n{note_text}"
+
+    if self._fact_result_handler is not None:
+        ok, info = self._fact_result_handler(target_label or "Faktencheck", markdown)
+        if not ok:
+            self.history.add_message(
+                "system",
+                (
+                    "⚠ Agentic-Faktencheck konnte nicht im Draft-Workspace geöffnet "
+                    f"werden: {info}"
+                ),
+            )
+            self.history.add_message("assistant", markdown)
+    else:
+        self.history.add_message("assistant", markdown)
+
+    self._last_use_case = "fact_check"
+    self.history.activate_feedback("fact_check")
+    return True
+
+
 def _reset_fact_pipeline_state(self):
     self._pending_fact_check = False
     self._pending_fact_stage = ""
@@ -90,7 +223,10 @@ def _resolve_canvas_selected_text(self) -> str:
         return ""
 
 def _send_fact_check(self):
-    if not self.llm.is_model_loaded():
+    agentic_enabled = bool(
+        _resolve_agentic_run_options(self).get("enabled", False)
+    )
+    if not self.llm.is_model_loaded() and not agentic_enabled:
         self.history.add_message(
             "system",
             "⚠ No model loaded. Load a GGUF model first.",
@@ -162,6 +298,14 @@ def _send_fact_check(self):
             "system",
             "⚠ Für den Faktencheck wurden keine verwertbaren Quelltexte gefunden.",
         )
+        return
+
+    if _try_agentic_factcheck(
+        self,
+        target_text=target_text,
+        target_label=target_label or "Zieltext",
+        source_contexts=source_contexts,
+    ):
         return
 
     selected_methods = self._select_factcheck_modes()

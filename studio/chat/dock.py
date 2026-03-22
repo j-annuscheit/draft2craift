@@ -33,16 +33,17 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         self._user_mode = default_user_mode()
         self._context_getter: Callable[[], dict] | None = None
         self._canvas_selection_getter: Callable[[], str] | None = None
+        self._agentic_settings_getter: Callable[[], object] | None = None
         self._selection_apply_handler: (
             Callable[[str, str, tuple[int, int] | None], tuple[bool, str]] | None
         ) = None
         self._fact_result_handler: Callable[[str, str], tuple[bool, str]] | None = None
         self._glossary_request_handler: (
-            Callable[[dict, Callable[[bool, str], None]], tuple[bool, str]] | None
+            Callable[[dict, str, Callable[[bool, str], None]], tuple[bool, str]] | None
         ) = None
         self._mindmap_request_handler: (
             Callable[
-                [dict, str, str, Callable[[bool, str], None]],
+                [dict, str, str, int, Callable[[bool, str], None]],
                 tuple[bool, str],
             ]
             | None

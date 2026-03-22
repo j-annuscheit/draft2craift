@@ -3,10 +3,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QObject, QThread, Signal
-from PySide6.QtWidgets import QDialog, QInputDialog, QMessageBox
+from PySide6.QtCore import QObject, Qt, QThread, Signal
+from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QInputDialog,
+    QLabel,
+    QMessageBox,
+    QSlider,
+    QVBoxLayout,
+)
 
 from shared.domain.user_mode import resolve_feature_label
+from shared.services.agentic.settings import AgenticRuntimeSettings
 from shared.services.highlights.store import get_highlight_store
 from shared.services.llm.manager import LLMManager
 from studio.glossary.editor import GlossaryEditorDialog
@@ -30,6 +39,7 @@ from studio.controllers.llm_tasks_finalize import (
 class GlossaryTaskRequest:
     context_text: str
     max_terms: int = 32
+    query: str = ""
 
 
 @dataclass(frozen=True)
@@ -41,6 +51,7 @@ class MindmapTaskRequest:
     chunking_strategy: str = "sliding_window"
     chunk_size: int = 900
     chunk_overlap: int = 160
+    map_depth: int = 0
 
 
 @dataclass(frozen=True)
@@ -63,6 +74,52 @@ TaskRequest = GlossaryTaskRequest | MindmapTaskRequest
 TaskResult = GlossaryTaskResult | MindmapTaskResult
 
 
+def _agentic_map_meta(run_result, *, mode: str) -> dict[str, object]:  # noqa: ANN001
+    state = dict(getattr(run_result, "state", {}) or {})
+    metrics = dict(getattr(run_result, "metrics", {}) or {})
+    map_result = dict(state.get("map_result", {}) or {})
+    map_metrics = dict(state.get("map_metrics", {}) or {})
+    map_coverage = dict(state.get("map_coverage", {}) or {})
+
+    # v1 workflow: stats in map_validation.stats
+    validation = dict(state.get("map_validation", {}) or {})
+    v1_stats = dict(validation.get("stats", {}) or {})
+
+    # v2 workflow: stats in structure_check (node_count, edge_count, component_count)
+    structure_check = dict(state.get("structure_check", {}) or {})
+
+    fallback_stats = dict(map_result.get("stats", {}) or {})
+    nodes = int(v1_stats.get("nodes", fallback_stats.get("nodes", structure_check.get("node_count", 0))) or 0)
+    edges = int(v1_stats.get("edges", fallback_stats.get("edges", structure_check.get("edge_count", 0))) or 0)
+    components = int(v1_stats.get("components", fallback_stats.get("components", structure_check.get("component_count", 0))) or 0)
+
+    return {
+        "kind": str(validation.get("kind", mode) or mode),
+        "variant": str(mode or ""),
+        "reason": "agentic",
+        "nodes": nodes,
+        "edges": edges,
+        "roots": int(v1_stats.get("roots", 0) or 0),
+        "isolated_nodes": int(v1_stats.get("isolated_nodes", 0) or 0),
+        "components": components,
+        "max_depth": int(v1_stats.get("max_depth", 0) or 0),
+        "root_label": str(map_result.get("root_label", "") or ""),
+        "cleanup": dict(validation.get("cleanup", {}) or {}),
+        "candidate_review": dict(validation.get("candidate_review", {}) or {}),
+        "workflow_id": str(getattr(run_result, "workflow_id", "") or ""),
+        "profile_id": str(getattr(run_result, "profile_id", "") or ""),
+        "errors": list(getattr(run_result, "errors", []) or []),
+        "metrics": metrics,
+        "trace_path": str(metrics.get("trace_path", "") or ""),
+        "graph_closure_round": int(state.get("graph_closure_round", 0) or 0),
+        "refine_round": int(state.get("refine_round", 0) or 0),
+        "expand_round": int(state.get("expand_round", 0) or 0),
+        "expansion_round": int(state.get("expansion_round", map_metrics.get("expansion_round", 0)) or 0),
+        "gap_round": int(map_metrics.get("gap_round", 0) or 0),
+        "coverage_ratio": float(map_coverage.get("coverage_ratio", 0.0) or 0.0),
+    }
+
+
 # ── Worker ─────────────────────────────────────────────────────────────────────
 
 
@@ -72,19 +129,32 @@ class _LLMSideTaskWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, llm_manager: LLMManager, *, request: TaskRequest):
+    def __init__(
+        self,
+        llm_manager: LLMManager,
+        *,
+        request: TaskRequest,
+        agentic_settings: AgenticRuntimeSettings | None = None,
+    ):
         super().__init__()
         self._llm_manager = llm_manager
         self._request = request
+        self._agentic_settings = (
+            agentic_settings.clone()
+            if isinstance(agentic_settings, AgenticRuntimeSettings)
+            else None
+        )
 
     def run(self):
         try:
             if isinstance(self._request, GlossaryTaskRequest):
                 context_text = str(self._request.context_text or "")
                 max_terms = int(self._request.max_terms or 32)
+                query = str(self._request.query or "")
                 entries, meta = self._llm_manager.generate_glossary_sync(
                     context_text=context_text,
                     max_terms=max_terms,
+                    focus_query=query,
                 )
                 safe_entries = [
                     dict(row)
@@ -109,11 +179,133 @@ class _LLMSideTaskWorker(QObject):
                 chunking_strategy = str(self._request.chunking_strategy or "sliding_window")
                 chunk_size = int(self._request.chunk_size or 900)
                 chunk_overlap = int(self._request.chunk_overlap or 160)
+                map_depth = max(0, min(12, int(self._request.map_depth or 0)))
+                mode_clean = str(mode or "").strip().casefold()
+                workflow_key = "graph" if mode_clean == "graph" else "mindmap"
+                agentic_opts = (
+                    self._agentic_settings.run_options_for(workflow_key)
+                    if self._agentic_settings is not None
+                    else {}
+                )
+                agentic_enabled = bool(agentic_opts.get("enabled", False))
+                if (
+                    mode_clean == "graph"
+                    and (not agentic_enabled)
+                    and self._agentic_settings is not None
+                ):
+                    fallback_opts = self._agentic_settings.run_options_for("mindmap")
+                    if bool(fallback_opts.get("enabled", False)):
+                        agentic_opts = dict(fallback_opts or {})
+                        agentic_enabled = True
+                if agentic_enabled:
+                    try:
+                        from shared.services.agentic import AgenticWorkflowService, build_tools
+
+                        default_profile_id = (
+                            "graph_connected_component"
+                            if mode_clean == "graph"
+                            else "mindmap_grounded_graph"
+                        )
+                        profile_id = str(
+                            agentic_opts.get(
+                                "profile_id",
+                                default_profile_id,
+                            )
+                            or default_profile_id
+                        ).strip()
+                        policy_overrides = dict(agentic_opts.get("policy_overrides", {}) or {})
+                        policy_overrides["map_require_connected_graph"] = True
+                        policy_overrides.setdefault("map_cleanup_enabled", True)
+                        policy_overrides.setdefault("map_node_min_word_letters", 3)
+                        if mode_clean != "graph":
+                            policy_overrides.setdefault("map_max_expansion_rounds", max(4, map_depth * 3) if map_depth > 0 else 24)
+                        else:
+                            # graph workflow (v1-style) still uses expand_enabled / target_depth
+                            if map_depth > 0:
+                                policy_overrides["map_expand_enabled"] = True
+                                policy_overrides["map_expand_target_depth"] = map_depth
+                            else:
+                                policy_overrides.setdefault("map_expand_enabled", False)
+                                policy_overrides.setdefault("map_expand_target_depth", 0)
+                        run_kwargs = {
+                            "request": {
+                                "mode": mode,
+                                "scope": "selection",
+                                "query": query,
+                                "depth": map_depth,
+                                "context_text": context_text,
+                            },
+                            "profile_id": profile_id or default_profile_id,
+                            "enabled": agentic_enabled,
+                            "policy_overrides": policy_overrides,
+                            "overlay_profile_ids": list(
+                                agentic_opts.get("overlay_profile_ids", []) or []
+                            ),
+                            "env_name": str(agentic_opts.get("env_name", "") or ""),
+                            "tools": build_tools(
+                                llm_manager=self._llm_manager,
+                                source_texts=[("Kontext", context_text)],
+                            ),
+                        }
+                        svc = AgenticWorkflowService()
+                        run_result = (
+                            svc.run_graph(**run_kwargs)
+                            if mode_clean == "graph"
+                            else svc.run_mindmap(**run_kwargs)
+                        )
+                        if bool(run_result.ok):
+                            markdown = str(run_result.result.get("markdown", "") or "")
+                            self.finished.emit(
+                                MindmapTaskResult(
+                                    context_text=context_text,
+                                    query=query,
+                                    mode=mode,
+                                    markdown=markdown,
+                                    meta=_agentic_map_meta(run_result, mode=mode),
+                                )
+                            )
+                            return
+                        if mode_clean == "graph":
+                            errors = list(run_result.errors or [])
+                            self.finished.emit(
+                                MindmapTaskResult(
+                                    context_text=context_text,
+                                    query=query,
+                                    mode=mode,
+                                    markdown="",
+                                    meta={
+                                        "kind": "graph",
+                                        "variant": "graph",
+                                        "reason": "agentic_failed",
+                                        "error": "; ".join(
+                                            str(item or "").strip()
+                                            for item in errors[:4]
+                                            if str(item or "").strip()
+                                        ) or "Graph konnte nicht zu einer Komponente geschlossen werden.",
+                                        "workflow_id": str(run_result.workflow_id or ""),
+                                        "profile_id": str(run_result.profile_id or ""),
+                                        "errors": errors,
+                                        "metrics": dict(run_result.metrics or {}),
+                                    },
+                                )
+                            )
+                            return
+                    except Exception as exc:
+                        if mode_clean == "graph":
+                            self.failed.emit(f"Graph-Agentic fehlgeschlagen: {exc}")
+                            return
+                        pass
+                non_agentic_max_nodes = max_nodes
+                if mode_clean in {"mindmap", "graph"} and map_depth > 0:
+                    non_agentic_max_nodes = max(
+                        int(non_agentic_max_nodes or 0),
+                        min(128, 12 + (map_depth * 12)),
+                    )
                 markdown, meta = self._llm_manager.generate_mindmap_sync(
                     context_text=context_text,
                     query=query,
                     mode=mode,
-                    max_nodes=max_nodes,
+                    max_nodes=non_agentic_max_nodes,
                     chunking_strategy=chunking_strategy,
                     chunk_size=chunk_size,
                     chunk_overlap=chunk_overlap,
@@ -164,6 +356,7 @@ class LLMSideTaskController(QObject):
         self._autosave_schedule_fn = ctx.autosave_schedule_fn
         self._build_llm_context_cb = ctx.build_llm_context
         self._get_user_mode = ctx.get_user_mode
+        self._get_agentic_settings = ctx.get_agentic_settings
         self._is_prompt_editor_allowed = ctx.is_prompt_editor_allowed
         self._dialog_manager = ctx.dialog_manager
 
@@ -180,6 +373,7 @@ class LLMSideTaskController(QObject):
     def generate_glossary_from_llm_context(
         self,
         ctx: dict,
+        query_raw: str = "",
         done_cb=None,
     ) -> tuple[bool, str]:
         if not self._llm_manager.is_model_loaded():
@@ -191,17 +385,21 @@ class LLMSideTaskController(QObject):
                 "wenn die aktuelle Generation fertig ist.",
             )
 
-        context_text = self._build_context_text_from_llm_context(ctx)
+        context_text = self._build_context_text_from_llm_context(ctx, max_chars=0)
         if not context_text:
-            context_text = self._fallback_context_text_from_ctx(ctx)
+            context_text = self._fallback_context_text_from_ctx(ctx, max_chars=0)
         if not context_text:
             return self._empty_context_error(ctx)
+        query = str(query_raw or "").strip()
+        if not query:
+            query = str(ctx.get("user_query", "") or "").strip()
 
         return self._start_task(
             task_kind="glossary",
             request=GlossaryTaskRequest(
                 context_text=context_text,
                 max_terms=32,
+                query=query,
             ),
             status_message="Generiere Glossar aus Kontext…",
             done_cb=done_cb,
@@ -212,9 +410,16 @@ class LLMSideTaskController(QObject):
         ctx: dict,
         query_raw: str = "",
         mode_hint: str = "auto",
+        map_depth: int = 0,
         done_cb=None,
     ) -> tuple[bool, str]:
-        mode, query = self._resolve_mindmap_mode_and_query(query_raw, mode_hint=mode_hint)
+        resolved_query_raw = str(query_raw or "").strip()
+        if not resolved_query_raw:
+            resolved_query_raw = str(ctx.get("user_query", "") or "").strip()
+        mode, query = self._resolve_mindmap_mode_and_query(
+            resolved_query_raw,
+            mode_hint=mode_hint,
+        )
 
         if mode != "chunkmap" and not self._llm_manager.is_model_loaded():
             return False, "Kein Modell geladen. Bitte zuerst ein GGUF-Modell laden."
@@ -245,10 +450,93 @@ class LLMSideTaskController(QObject):
                 chunking_strategy=str(rag_cfg.chunking.strategy or "sliding_window"),
                 chunk_size=int(rag_cfg.chunking.chunk_size or 900),
                 chunk_overlap=int(rag_cfg.chunking.chunk_overlap or 160),
+                map_depth=max(0, min(12, int(map_depth or 0))),
             ),
             status_message="Generiere MindMap/Graph/Chunk-MindMap aus Kontext…",
             done_cb=done_cb,
         )
+
+    def _prompt_map_depth_for_mode(
+        self,
+        *,
+        parent,
+        user_mode: str,
+        mode_hint: str,
+    ) -> int | None:
+        mode = str(mode_hint or "").strip().casefold()
+        if mode not in {"mindmap", "graph"}:
+            return 0
+        title = resolve_feature_label(
+            user_mode,
+            "mindmap.generate.dialog.depth.title",
+            "Ausbautiefe festlegen",
+        )
+        intro = resolve_feature_label(
+            user_mode,
+            "mindmap.generate.dialog.depth.intro",
+            "Wie tief soll der Agent den Graph/Mindmap iterativ ausbauen? 0 = deaktiviert.",
+        )
+        value_prefix = resolve_feature_label(
+            user_mode,
+            "mindmap.generate.dialog.depth.value_prefix",
+            "Tiefe",
+        )
+        ok_text = resolve_feature_label(
+            user_mode,
+            "mindmap.generate.dialog.button.ok",
+            "OK",
+        )
+        cancel_text = resolve_feature_label(
+            user_mode,
+            "mindmap.generate.dialog.button.cancel",
+            "Cancel",
+        )
+
+        dialog = QDialog(parent)
+        dialog.setWindowTitle(title)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        intro_lbl = QLabel(intro)
+        intro_lbl.setWordWrap(True)
+        layout.addWidget(intro_lbl)
+
+        slider = QSlider(Qt.Orientation.Horizontal, dialog)
+        slider.setRange(0, 6)
+        slider.setSingleStep(1)
+        slider.setPageStep(1)
+        slider.setTickInterval(1)
+        slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        slider.setValue(2)
+        layout.addWidget(slider)
+
+        value_lbl = QLabel("")
+        layout.addWidget(value_lbl)
+
+        def _sync_value(value: int) -> None:
+            value_lbl.setText(f"{value_prefix}: {int(value)}")
+
+        slider.valueChanged.connect(_sync_value)
+        _sync_value(int(slider.value()))
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_btn is not None:
+            ok_btn.setText(ok_text)
+        cancel_btn = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_btn is not None:
+            cancel_btn.setText(cancel_text)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return int(slider.value())
 
     def toggle_glossary_overlays(self, checked: bool) -> None:
         get_highlight_store().set_glossary_enabled(bool(checked))
@@ -292,6 +580,8 @@ class LLMSideTaskController(QObject):
         parent = self.parent()
         if parent is None:
             return
+        ctx_payload = self._build_llm_context_cb()
+        query_hint = str(ctx_payload.get("user_query", "") or "").strip()
         user_mode = self._get_user_mode()
         title = resolve_feature_label(
             user_mode,
@@ -384,17 +674,27 @@ class LLMSideTaskController(QObject):
             True,
         )
         query_dialog.setLabelText(query_label)
-        query_dialog.setTextValue(query_defaults.get(mode_hint, query_defaults["mindmap"]))
+        query_dialog.setTextValue(
+            query_hint or query_defaults.get(mode_hint, query_defaults["mindmap"])
+        )
         query_dialog.setOkButtonText(ok_text)
         query_dialog.setCancelButtonText(cancel_text)
         if query_dialog.exec() != QDialog.DialogCode.Accepted:
             return
         query_raw = query_dialog.textValue()
+        map_depth = self._prompt_map_depth_for_mode(
+            parent=parent,
+            user_mode=user_mode,
+            mode_hint=mode_hint,
+        )
+        if map_depth is None:
+            return
         _err2 = lambda ok2, info: (not ok2) and QMessageBox.information(parent, "MindMap/Graph", info)
         ok, info = self.generate_mindmap_from_llm_context(
-            self._build_llm_context_cb(),
+            ctx_payload,
             str(query_raw or ""),
             mode_hint=mode_hint,
+            map_depth=int(map_depth or 0),
             done_cb=_err2,
         )
         if not ok:
@@ -433,8 +733,20 @@ class LLMSideTaskController(QObject):
         if self.is_task_active():
             return False, "Es läuft bereits eine Hintergrundaufgabe."
 
+        agentic_settings = None
+        try:
+            settings = self._get_agentic_settings()
+            if isinstance(settings, AgenticRuntimeSettings):
+                agentic_settings = settings.clone()
+        except Exception:
+            agentic_settings = None
+
         thread = QThread(self)
-        worker = _LLMSideTaskWorker(self._llm_manager, request=request)
+        worker = _LLMSideTaskWorker(
+            self._llm_manager,
+            request=request,
+            agentic_settings=agentic_settings,
+        )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(self._on_finished)

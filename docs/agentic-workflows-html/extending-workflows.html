@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Step 6: Extending Tests and New Workflows</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <script defer src="assets/code-highlight.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1>Agentic Tutorial</h1>
+      <p>Step 6: Reproducibly extend the new agent setup.</p>
+      <nav class="nav">
+        <a href="index.html">Step 0: Start</a>
+        <a href="system-overview.html">Step 1: Architecture</a>
+        <a href="workflow-graph.html">Step 2: Build Agent</a>
+        <a href="configuration.html">Step 3: Configure Workflow</a>
+        <a href="files-and-impact.html">Step 4: Runtime &amp; GUI</a>
+        <a href="code-deep-dive.html">Step 5: Deep Dive Snippets</a>
+        <a class="active" href="extending-workflows.html">Step 6: Tests &amp; Extension</a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <section class="card">
+        <span class="step">Step 6</span>
+        <h2>Goal</h2>
+        <p>
+          You want to try out new agents/workflows quickly without losing maintainability.
+          That's why you always use the same insertion pattern: Runner -> Registry -> Definition -> Profile -> Service/UI -> Tests.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>The shortest safe sequence</h2>
+        <ol>
+          <li>First, build the business logic as a runner.</li>
+          <li>Give the runner a stable name and register it.</li>
+          <li>Then create the workflow definition that uses this runner.</li>
+          <li>Then create a profile with conservative defaults.</li>
+          <li>Only wire the workflow into the GUI/Settings if it should be visible to users.</li>
+          <li>Finally, write at least one end-to-end test and one negative case.</li>
+        </ol>
+        <div class="note ok">
+          This order is intentionally chosen this way: each later stage depends on the name and
+          behavior of the earlier stage. If you start with the GUI, you are still missing the stable core.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>1) Create a new runner</h2>
+        <div class="snippet-title"><code>shared/services/agentic/templates/step_runner_template.py</code></div>
+        <pre><code>from shared.services.agentic.contracts import StepOutcome
+
+
+def runner_template(ctx, step, projected):
+    _ = step, projected
+    input_value = str(ctx.request.get("example_input", "") or "").strip()
+    if not input_value:
+        return StepOutcome(
+            value={"ok": False, "reason": "empty_input"},
+            updates={"state.example_status": "empty_input"},
+        )
+    transformed = input_value.upper()
+    return StepOutcome(
+        value={"ok": True, "text": transformed},
+        updates={"state.example_status": "ok"},
+    )
+</code></pre>
+        <div class="note">
+          Rule: Runners must be deterministic enough, not import UI, and only communicate via <code>StepOutcome</code>.
+        </div>
+        <p>
+          If you are unsure, always start with a very small runner that has only one clear
+          input and one clear output. You can then add extensions like retries, LLM calls or cleanup
+          step by step.
+        </p>
+        <p>
+          Important for the current system: Everything you return as <code>StepOutcome.value</code> or
+          <code>StepOutcome.updates</code> also automatically ends up in the extended trace.
+          You don't have to write a second debug step for this.
+        </p>
+        <p>
+          For riskier steps, there is now a second pattern: A runner can only
+          store a candidate in <code>candidate_writes</code> and leave the actual decision to a
+          later validator.
+        </p>
+        <pre><code>return StepOutcome(
+    value={"retry": True, "reason": "candidate_proposed"},
+    candidate_writes={
+        "candidate_output": {
+            "write_to": "state.work",
+            "value": {"items": transformed_items},
+            "meta": {
+                "intent": "propose",
+            },
+        }
+    },
+)
+</code></pre>
+      </section>
+
+      <section class="card">
+        <h2>2) Extend registry directly</h2>
+        <div class="snippet-title"><code>shared/services/agentic/default_registry.py</code></div>
+        <pre><code>from .workers.myflow import extract_entities as myflow_extract_entities
+
+registry.register("myflow.extract_entities.v1", myflow_extract_entities.run)
+</code></pre>
+        <p>
+          Without a registry entry, the engine cannot resolve the runner, even if the function exists.
+        </p>
+        <p>
+          Naming conventions are very useful here. A name like <code>map.propose_child_nodes.v1</code>
+          already says which area the runner belongs to, what it does and which version is meant.
+        </p>
+        <div class="note">
+          In the current implementation, there is no additional export layer anymore. New
+          runners are registered directly from their file under <code>shared/services/agentic/workers/</code>
+          in the default registry module.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>3) New workflow definition (flow graph)</h2>
+        <pre><code>schema_version = 1
+workflow_id = "myflow_agentic"
+workflow_version = "1.0.0"
+job_type = "myflow"
+entry_step = "step_a"
+terminal_steps = ["emit", "fail_hard"]
+
+[state_init]
+work = {}
+
+[projections.step_a_input_v1]
+include = ["request.query", "policy.some_limit"]
+
+[[steps]]
+id = "step_a"
+runner = "myflow.my_new_step.v1"
+input_projection = "step_a_input_v1"
+write_to = "work"
+max_visits = 6
+on_max_visits = "fail_hard"
+
+[[steps]]
+id = "emit"
+runner = "control.emit_result.v1"
+input_projection = "step_a_input_v1"
+
+[[steps]]
+id = "fail_hard"
+runner = "control.fail.v1"
+
+[[edges]]
+from = "step_a"
+to = "emit"
+</code></pre>
+        <div class="note warn">
+          Important: Every runtime step needs an <code>input_projection</code> (except fail_hard).
+          This is ensured by <code>tests/services/test_agentic_definition_projections.py</code>.
+        </div>
+        <p>
+          If you read a definition without prior knowledge, don't read it as a text file,
+          but like a flowchart: start step, intermediate steps, terminal step, then
+          the conditions on the edges.
+        </p>
+        <p>
+          <code>max_visits</code> and <code>on_max_visits</code> form the third standard path
+          of a step: success, normal fallback and overflow fallback if there are too many repetitions.
+        </p>
+        <p>
+          If you are working with candidates, you will almost always need an additional validator step
+          that sees the same technical state plus <code>state._candidates.*</code> and then decides via
+          <code>commit_candidates</code> or <code>discard_candidates</code>.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>4) Create profile (Policies + Wiring)</h2>
+        <pre><code>schema_version = 1
+profile_id = "myflow_default"
+workflow_id = "myflow_agentic"
+profile_version = "1.0.0"
+
+[policy]
+max_runtime_seconds = 60
+max_llm_calls = 6
+some_limit = 10
+
+[model_routing]
+"myflow.step_a" = "llm.default"
+
+[wiring]
+"myflow.step_a" = "myflow.my_new_step.v1"
+</code></pre>
+        <p>
+          Separating definition and profile makes experiments easy: test a new policy without touching the flow graph.
+        </p>
+        <p>
+          Only use keys that the engine or the runner actually evaluate.
+          Unimplemented desired keys do not belong in the profile as a precaution, but only
+          when the corresponding runner or engine path exists.
+        </p>
+        <p>
+          This is exactly why you should first try out new ideas via profile values. Only when it
+          turns out that an additional step or a different order is necessary, you have to go to
+          the definition itself.
+        </p>
+        <div class="note ok">
+          Profiles and definitions are currently available exclusively as <code>.toml</code>. This
+          reduces parser dependencies and makes the loading paths clear.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>5) Optional: Service Wrapper + GUI Integration</h2>
+        <ul class="checklist">
+          <li><code>shared/services/agentic/service.py</code>: optional <code>run_myflow(...)</code> analogous to <code>run_graph</code>.</li>
+          <li><code>shared/services/agentic/settings.py</code>: extend key/id/default profile.</li>
+          <li><code>shared/config/setting_keys.py</code>: add persistent keys.</li>
+          <li><code>studio/controllers/agentic_settings_ctrl.py</code>: wire up save/load.</li>
+          <li><code>studio/agentic/settings_dialog.py</code>: new workflow line + user mode labels.</li>
+        </ul>
+        <p>
+          You only need this part if the workflow should be directly selectable for users or permanently
+          configurable. For internal experiments, Service + Tests are often sufficient.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>6) Test matrix (minimum)</h2>
+        <pre><code># 1) Definitions correct
+PYTHONPATH=. pytest -q tests/services/test_agentic_definition_projections.py
+
+# 2) Settings parse + defaults
+PYTHONPATH=. pytest -q tests/services/test_agentic_settings.py
+
+# 3) End-to-end workflow behavior
+PYTHONPATH=. pytest -q tests/services/test_agentic_workflows.py
+
+# 4) Domain-specific invariants (e.g. map/graph cleanup)
+PYTHONPATH=. pytest -q tests/services/test_agentic_mindmap_validation.py
+</code></pre>
+        <p>
+          These four test types cover different error classes: structural errors in definitions,
+          wrong defaults, broken end-to-end execution and technical invariants in the domain code.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>7) Final checklist</h2>
+        <ul class="checklist">
+          <li>New runners are registered and addressable via wiring.</li>
+          <li>Loop steps have explicit <code>max_visits</code> limits.</li>
+          <li>Candidates are only committed or discarded after validation.</li>
+          <li>Workflow has only necessary projections (least privilege).</li>
+          <li>Policy defaults are conservative and explicitly documented.</li>
+          <li>GUI uses user mode label resolution instead of hard strings.</li>
+          <li>Trace can be read immediately in case of errors (<code>runs/agentic/*</code>).</li>
+        </ul>
+        <div class="pager">
+          <a class="btn secondary" href="code-deep-dive.html">Back</a>
+          <a class="btn" href="index.html">To Start</a>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

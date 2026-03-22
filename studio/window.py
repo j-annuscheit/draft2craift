@@ -30,6 +30,7 @@ from shared.services.project.project_variables import (
 from studio.canvas.preview.pane import CanvasPreviewPane
 from studio.canvas.tabs import CanvasTabWidget
 from studio.controllers.feedback_ctrl import FeedbackController
+from studio.controllers.agentic_settings_ctrl import AgenticSettingsController
 from studio.controllers.theme_ctrl import ThemeController
 from studio.feedback.bar import FeedbackBar
 from studio.dialogs.window_manager import DialogWindowManager
@@ -96,6 +97,9 @@ class MainWindow(QMainWindow):
         self._init_statusbar()
         self._init_docks()
         self._init_controllers()
+        setter = getattr(self.chat_dock, "set_agentic_settings_getter", None)
+        if callable(setter):
+            setter(self._agentic_settings_ctrl.get_settings)
         self._context.validate()
         from studio.menubar import MenuBuildInputs, build_menubar
         self._knowledge_controller.set_loaded_menu(None)
@@ -133,6 +137,7 @@ class MainWindow(QMainWindow):
                     "open_freeform_feedback": self._open_freeform_feedback,
                     "open_feedback_stats": self._open_feedback_stats,
                     "open_feedback_settings": self._open_feedback_settings,
+                    "open_agentic_settings": self._open_agentic_settings,
                     "open_project_variables": self._open_project_variables,
                     "focus_model_panel": self._focus_model_panel,
                     "edit_system_prompt": self._edit_system_prompt,
@@ -221,6 +226,11 @@ class MainWindow(QMainWindow):
         CanvasPreviewPane.apply_global_page_margin_settings(enabled=margin_enabled, em=margin_em)
         CanvasPreviewPane.apply_global_preview_theme(self._theme_ctrl._load_preview_theme_id())
         self._feedback_ctrl = FeedbackController(
+            app_settings=self._app_settings,
+            show_status=self._context.show_status,
+            parent_window=self,
+        )
+        self._agentic_settings_ctrl = AgenticSettingsController(
             app_settings=self._app_settings,
             show_status=self._context.show_status,
             parent_window=self,
@@ -503,6 +513,7 @@ class MainWindow(QMainWindow):
     # ── Feedback, help, welcome, close ───────────────────────────────
 
     def _open_feedback_settings(self): self._feedback_ctrl.open_settings_dialog()
+    def _open_agentic_settings(self): self._agentic_settings_ctrl.open_settings_dialog()
     def _open_feedback_stats(self): self._feedback_ctrl.open_stats_dialog()
     def _open_freeform_feedback(self): self._feedback_ctrl.open_freeform_dialog()
     def _on_status_feedback(self, sentiment: str, tags: list, note: str):

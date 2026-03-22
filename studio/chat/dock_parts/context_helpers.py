@@ -15,11 +15,24 @@ def _collect_shared_context(self) -> dict:
         raw = self._context_getter()
         if isinstance(raw, dict):
             ctx = raw
+    user_query = ""
+    box = getattr(self, "input_box", None)
+    if box is not None:
+        getter = getattr(box, "toPlainText", None)
+        if callable(getter):
+            try:
+                user_query = str(getter() or "").strip()
+            except Exception:
+                user_query = ""
+    if not user_query:
+        user_query = str(getattr(self, "_last_user_msg", "") or "").strip()
+
     return {
         "file_contents": list(ctx.get("file_contents", []) or []),
         "rag_results": list(ctx.get("rag_results", []) or []),
         "selected_text": str(ctx.get("selected_text", "") or ""),
         "selected_span": ctx.get("selected_span", None),
+        "user_query": user_query,
         "grounding_required": bool(ctx.get("grounding_required", False)),
         "grounding_has_sources": bool(
             ctx.get("grounding_has_sources", False)

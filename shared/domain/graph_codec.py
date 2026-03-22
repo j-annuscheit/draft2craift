@@ -15,6 +15,7 @@ _GRAPH_TAGS = {
     "mindmap",
     "mind-map",
     "graph",
+    "mermaid",
     "knowledge_graph",
     "knowledge-graph",
     "wissensgraph",
@@ -22,9 +23,28 @@ _GRAPH_TAGS = {
 _EDGE_TEXT_RE = re.compile(
     r"^\s*(?P<src>[^-:>]+?)\s*[-=]+>\s*(?P<dst>[^:]+?)(?::\s*(?P<label>.+))?$"
 )
+_MERMAID_EDGE_RE = re.compile(
+    r"^(?P<src>.+?)\s*(?:-->|==>|-.->|---|--)\s*"
+    r"(?:\|(?P<label>[^|]+)\|\s*)?(?P<dst>.+?)\s*$"
+)
+_MERMAID_DECL_RE = re.compile(
+    r"^(?P<node>[A-Za-z0-9_.:-]+(?:\s*(?:\[[^\]]*\]|\([^)]*\)|\{[^}]*\}))?)$"
+)
+_YAML_SCALAR_RE = re.compile(
+    r'^\s*(?:-\s*)?(?P<key>type|title|text|label|name|id)\s*:\s*(?P<val>.+?)\s*$',
+    flags=re.IGNORECASE,
+)
+_YAML_REL_RE = re.compile(
+    r'^\s*-\s*(?:source|from)\s*:\s*"?(?P<src>[^"]+?)"?\s*->\s*"?(?P<dst>[^"]+?)"?\s*$',
+    flags=re.IGNORECASE,
+)
 _MAX_LABEL_CHARS = 180
 _MAX_DESC_CHARS = 6000
 _MAX_LINK_CHARS = 512
+_STRUCTURED_KEY_RE = re.compile(
+    r'^\s*-?\s*"?(type|title|nodes|edges|children|label|id|name|text|from|to|source|target)"?\s*:',
+    flags=re.IGNORECASE | re.MULTILINE,
+)
 
 def contains_structured_graph(markdown_text: str) -> bool:
     return extract_graph_spec(markdown_text) is not None
@@ -127,16 +147,147 @@ def _parse_payload(text: str, *, tag_hint: str) -> dict[str, Any] | None:
             return parsed
     except Exception:
         pass
+    yaml_like = _parse_yaml_like_payload(raw, tag_hint=tag_hint)
+    if yaml_like is not None:
+        return yaml_like
+    if _looks_structured_mapping_text(raw, tag_hint=tag_hint):
+        return None
     return _parse_simple_text_payload(raw, tag_hint=tag_hint)
 
 
+def _looks_structured_mapping_text(text: str, *, tag_hint: str) -> bool:
+    raw = str(text or "").strip()
+    if not raw:
+        return False
+    hint = str(tag_hint or "").strip().casefold()
+    if hint == "mermaid":
+        return False
+    if raw.startswith("{") or raw.startswith("["):
+        return True
+    if _STRUCTURED_KEY_RE.search(raw) is not None:
+        return True
+    lowered = raw.casefold()
+    return (
+        '"nodes"' in lowered
+        or '"children"' in lowered
+        or '"edges"' in lowered
+        or '"label"' in lowered
+        or '"id"' in lowered
+    )
+
+
 def _parse_simple_text_payload(text: str, *, tag_hint: str) -> dict[str, Any] | None:
+    if tag_hint == "mermaid":
+        payload = _parse_mermaid_payload(text)
+        if payload is not None:
+            return payload
     if tag_hint in {"graph", "knowledge_graph", "knowledge-graph", "wissensgraph"}:
         return _parse_simple_graph_payload(text)
     mindmap_payload = _parse_simple_mindmap_payload(text)
     if mindmap_payload is not None:
         return mindmap_payload
     return _parse_simple_graph_payload(text)
+
+
+def _unquote_yaml_scalar(value: str) -> str:
+    text = str(value or "").strip().rstrip(",")
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
+        text = text[1:-1]
+    return _clip_text(text.strip(), max_chars=_MAX_LABEL_CHARS)
+
+
+def _parse_yaml_like_payload(text: str, *, tag_hint: str) -> dict[str, Any] | None:
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+    lines = [str(line or "").rstrip() for line in raw.splitlines() if str(line or "").strip()]
+    if not lines:
+        return None
+
+    header = str(lines[0] or "").strip()
+    header_match = re.match(r"^(mindmap|graph)\s+(?P<title>.+?)\s*\{\s*$", header, flags=re.IGNORECASE)
+    kind = str(tag_hint or "").strip().casefold()
+    title = ""
+    start_idx = 0
+    if header_match is not None:
+        kind = str(header_match.group(1) or kind or "mindmap").strip().casefold()
+        title = _clip_text(str(header_match.group("title") or "").strip(), max_chars=160)
+        start_idx = 1
+    if kind not in {"mindmap", "graph"}:
+        return None
+
+    section = ""
+    roots: list[dict[str, Any]] = []
+    stack: list[tuple[int, dict[str, Any]]] = []
+    edge_rows: list[dict[str, str]] = []
+    node_count = 0
+
+    for raw_line in lines[start_idx:]:
+        line = str(raw_line or "").rstrip()
+        stripped = line.strip()
+        if not stripped or stripped == "}":
+            continue
+        lowered = stripped.casefold()
+        if lowered.startswith("nodes:"):
+            section = "nodes"
+            continue
+        if lowered.startswith("relationships:") or lowered.startswith("edges:"):
+            section = "edges"
+            continue
+
+        scalar_match = _YAML_SCALAR_RE.match(line)
+        if scalar_match is not None and section != "nodes":
+            key = str(scalar_match.group("key") or "").strip().casefold()
+            val = _unquote_yaml_scalar(str(scalar_match.group("val") or ""))
+            if key == "title" and val:
+                title = _clip_text(val, max_chars=160)
+            elif key == "type" and val:
+                kind = "graph" if "graph" in val.casefold() else "mindmap"
+            continue
+
+        if section == "nodes":
+            if lowered.startswith("children:"):
+                continue
+            scalar_match = _YAML_SCALAR_RE.match(line)
+            if scalar_match is None:
+                continue
+            key = str(scalar_match.group("key") or "").strip().casefold()
+            if key not in {"text", "label", "name"}:
+                continue
+            label = _unquote_yaml_scalar(str(scalar_match.group("val") or ""))
+            if not label:
+                continue
+            indent = len(line) - len(line.lstrip(" "))
+            node = {"label": label}
+            while stack and stack[-1][0] >= indent:
+                stack.pop()
+            if stack:
+                children = stack[-1][1].setdefault("children", [])
+                if isinstance(children, list):
+                    children.append(node)
+            else:
+                roots.append(node)
+            stack.append((indent, node))
+            node_count += 1
+            continue
+
+        if section == "edges":
+            rel_match = _YAML_REL_RE.match(line)
+            if rel_match is None:
+                continue
+            src = _unquote_yaml_scalar(str(rel_match.group("src") or ""))
+            dst = _unquote_yaml_scalar(str(rel_match.group("dst") or ""))
+            if src and dst:
+                edge_rows.append({"from": src, "to": dst})
+
+    if node_count <= 0:
+        return None
+    return {
+        "type": "graph" if kind == "graph" else "mindmap",
+        "title": title or ("Graph" if kind == "graph" else "MindMap"),
+        "nodes": roots,
+        **({"edges": edge_rows} if edge_rows else {}),
+    }
 
 
 def _normalize_simple_line(raw: str) -> tuple[int, str]:
@@ -151,6 +302,7 @@ def _normalize_simple_line(raw: str) -> tuple[int, str]:
 
 def _split_mindmap_line(content: str) -> tuple[str, str]:
     raw = str(content or "").strip()
+    raw = re.sub(r"^(?:[-*+]\s+|\d+[.)]\s+)", "", raw)
     if " | " not in raw:
         return raw, ""
     left, right = raw.split(" | ", 1)
@@ -231,6 +383,76 @@ def _parse_simple_graph_payload(text: str) -> dict[str, Any] | None:
     return {"type": "graph", "title": title, "nodes": standalone_nodes, "edges": edge_rows}
 
 
+def _parse_mermaid_node_token(text: str) -> tuple[str, str]:
+    token = str(text or "").strip().rstrip(";")
+    if not token:
+        return "", ""
+    if ":::" in token:
+        token = token.split(":::", 1)[0].strip()
+    match = re.match(
+        r"^(?P<id>[A-Za-z0-9_.:-]+)\s*(?P<shape>\[[^\]]*\]|\([^)]*\)|\{[^}]*\})?\s*$",
+        token,
+    )
+    if match is not None:
+        node_id = _clip_text(match.group("id") or "", max_chars=80)
+        shape = str(match.group("shape") or "").strip()
+        if shape:
+            label = shape[1:-1].strip().strip("\"'")
+        else:
+            label = node_id
+        label = _clip_text(label, max_chars=_MAX_LABEL_CHARS) or node_id
+        return node_id, label
+    clean = token.strip("\"'")
+    label = _clip_text(clean, max_chars=_MAX_LABEL_CHARS)
+    node_id = _slug(label or clean)
+    node_id = _clip_text(node_id or "node", max_chars=80)
+    return node_id, label or node_id
+
+
+def _parse_mermaid_payload(text: str) -> dict[str, Any] | None:
+    lines = [str(line or "").strip() for line in str(text or "").splitlines()]
+    nodes: dict[str, str] = {}
+    edges: list[dict[str, str]] = []
+
+    def ensure_node(raw: str) -> str:
+        node_id, label = _parse_mermaid_node_token(raw)
+        if not node_id:
+            return ""
+        if node_id not in nodes:
+            nodes[node_id] = label
+        return node_id
+
+    for raw_line in lines:
+        line = str(raw_line or "").strip()
+        if not line:
+            continue
+        if line.startswith("%%"):
+            continue
+        if line.casefold().startswith("graph ") or line.casefold().startswith("flowchart "):
+            continue
+        for segment in [part.strip() for part in line.split(";") if part.strip()]:
+            match = _MERMAID_EDGE_RE.match(segment)
+            if match is not None:
+                src = ensure_node(str(match.group("src") or ""))
+                dst = ensure_node(str(match.group("dst") or ""))
+                if not src or not dst:
+                    continue
+                row = {"from": src, "to": dst}
+                lbl = _clip_text(match.group("label") or "", max_chars=140)
+                if lbl:
+                    row["label"] = lbl
+                edges.append(row)
+                continue
+            decl = _MERMAID_DECL_RE.match(segment)
+            if decl is not None:
+                ensure_node(str(decl.group("node") or ""))
+
+    if not nodes and not edges:
+        return None
+    node_rows = [{"id": node_id, "label": label} for node_id, label in sorted(nodes.items())]
+    return {"type": "graph", "title": "Graph", "nodes": node_rows, "edges": edges}
+
+
 def _payload_to_spec(payload: dict[str, Any], *, tag_hint: str) -> GraphSpec | None:
     kind = str(payload.get("type", "") or "").strip().casefold()
     if kind not in {"mindmap", "graph"}:
@@ -247,7 +469,8 @@ def _payload_to_spec(payload: dict[str, Any], *, tag_hint: str) -> GraphSpec | N
     edge_seen: set[tuple[str, str, str]] = set()
 
     def alloc_node_id(candidate: str) -> str:
-        base = _slug(candidate) if candidate else "node"
+        slug = _slug(candidate) if candidate else ""
+        base = slug or "node"
         out = base
         idx = 2
         while out in used_ids:
@@ -353,6 +576,20 @@ def _payload_to_spec(payload: dict[str, Any], *, tag_hint: str) -> GraphSpec | N
 
     if not nodes:
         return None
+    if roots:
+        dedup_roots: list[str] = []
+        seen_roots: set[str] = set()
+        for node_id in roots:
+            key = str(node_id or "")
+            if not key or key in seen_roots or key not in nodes:
+                continue
+            seen_roots.add(key)
+            dedup_roots.append(key)
+        roots = dedup_roots
+        if incoming:
+            root_candidates = [node_id for node_id in roots if node_id not in incoming]
+            if root_candidates:
+                roots = root_candidates
     if not roots:
         roots = [node_id for node_id in nodes if node_id not in incoming]
     if not roots:

@@ -1,0 +1,187 @@
+schema_version = 1
+workflow_id = "factcheck_agentic"
+workflow_version = "1.0.0"
+job_type = "factcheck"
+entry_step = "gap_detect"
+terminal_steps = ["emit_result", "fail_hard"]
+
+[state_init]
+claims = []
+claim_cursor = 0
+current_claim = ""
+round = 0
+done = false
+facts_out = []
+query_plan = {}
+evidence_candidates = []
+verify_result = {}
+controller_decision = {}
+
+[projections.gap_input_v1]
+include = ["request.c", "request.o.rows[*].fact"]
+
+[projections.query_input_v1]
+include = [
+  "state.current_claim",
+  "policy.allowed_retrieval_modes",
+]
+
+[projections.rag_exec_input_v1]
+include = ["state.query_plan", "request.q", "policy.max_evidence_chunks"]
+
+[projections.verify_input_v1]
+include = ["state.current_claim", "state.evidence_candidates", "policy.allow_nli"]
+
+[projections.controller_input_v1]
+include = ["state.current_claim", "state.verify_result", "state.round", "policy.max_search_rounds_per_fact"]
+
+[projections.pick_claim_input_v1]
+include = ["state.claims", "state.claim_cursor"]
+
+[projections.increment_round_input_v1]
+include = ["state.round"]
+
+[projections.append_row_input_v1]
+include = ["state.current_claim", "state.verify_result", "state.facts_out", "state.claim_cursor", "state.round"]
+
+[projections.emit_input_v1]
+include = ["state.facts_out"]
+
+[[steps]]
+id = "gap_detect"
+runner = "factcheck.extract_missing_claims.v1"
+input_projection = "gap_input_v1"
+write_to = "claims"
+on_error = "fail_hard"
+
+[[steps]]
+id = "pick_claim"
+runner = "control.pick_next_claim.v1"
+input_projection = "pick_claim_input_v1"
+on_error = "fail_hard"
+
+[[steps]]
+id = "plan_query"
+runner = "factcheck.plan_query.v1"
+input_projection = "query_input_v1"
+write_to = "query_plan"
+on_error = "continue_with_defaults"
+
+[[steps]]
+id = "rag_search"
+runner = "rag.execute.v1"
+input_projection = "rag_exec_input_v1"
+write_to = "evidence_candidates"
+on_error = "continue_with_empty_evidence"
+
+[[steps]]
+id = "verify_claim"
+runner = "factcheck.verify.v1"
+input_projection = "verify_input_v1"
+write_to = "verify_result"
+on_error = "continue_with_neutral"
+
+[[steps]]
+id = "decide_retry"
+runner = "controller.retry_or_finalize.v1"
+input_projection = "controller_input_v1"
+write_to = "controller_decision"
+on_error = "finalize_current_claim"
+
+[[steps]]
+id = "inc_round"
+runner = "control.increment_int.v1"
+input_projection = "increment_round_input_v1"
+[steps.args]
+path = "round"
+by = 1
+
+[[steps]]
+id = "store_fact_row"
+runner = "factcheck.append_fact_row.v1"
+input_projection = "append_row_input_v1"
+
+[[steps]]
+id = "emit_result"
+runner = "control.emit_result.v1"
+input_projection = "emit_input_v1"
+[steps.args]
+map = { o = "state.facts_out" }
+
+[[steps]]
+id = "fail_hard"
+runner = "control.fail.v1"
+[steps.args]
+code = "WORKFLOW_FAILED"
+message = "Factcheck workflow failed"
+
+[[edges]]
+from = "gap_detect"
+to = "pick_claim"
+color = "#27ae60"
+
+[[edges]]
+from = "pick_claim"
+to = "emit_result"
+when = "state.done == true"
+color = "#27ae60"
+
+[[edges]]
+from = "pick_claim"
+to = "plan_query"
+when = "state.done == false"
+color = "#27ae60"
+
+[[edges]]
+from = "plan_query"
+to = "rag_search"
+color = "#27ae60"
+
+[[edges]]
+from = "rag_search"
+to = "verify_claim"
+color = "#27ae60"
+
+[[edges]]
+from = "verify_claim"
+to = "decide_retry"
+color = "#27ae60"
+
+[[edges]]
+from = "decide_retry"
+to = "store_fact_row"
+when = "state.controller_decision.retry == false"
+color = "#27ae60"
+
+[[edges]]
+from = "decide_retry"
+to = "inc_round"
+when = "state.controller_decision.retry == true"
+color = "#e67e22"
+
+[[edges]]
+from = "inc_round"
+to = "plan_query"
+when = "state.round < policy.max_search_rounds_per_fact"
+color = "#e67e22"
+
+[[edges]]
+from = "inc_round"
+to = "store_fact_row"
+when = "state.round >= policy.max_search_rounds_per_fact"
+color = "#e67e22"
+
+[[edges]]
+from = "store_fact_row"
+to = "pick_claim"
+color = "#2980b9"
+
+[budgets]
+max_runtime_seconds = 180
+max_llm_calls = 40
+max_rag_calls = 25
+max_nli_calls = 60
+
+[step_tool_allowlist]
+rag_search = ["rag.search"]
+verify_claim = ["nli.verify"]

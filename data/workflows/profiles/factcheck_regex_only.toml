@@ -1,0 +1,46 @@
+schema_version = 1
+profile_id = "factcheck_regex_only"
+workflow_id = "factcheck_agentic"
+profile_version = "1.0.0"
+description = "Factcheck profile with strict regex-only retrieval."
+
+[policy]
+allowed_retrieval_modes = ["regex"]
+allow_nli = true
+max_search_rounds_per_fact = 2
+max_evidence_chunks = 8
+max_llm_calls = 20
+max_runtime_seconds = 120
+
+# Optional hard gate: only these logical steps are allowed in this profile.
+allowed_steps = [
+  "gap_detect",
+  "pick_claim",
+  "plan_query",
+  "rag_search",
+  "verify_claim",
+  "decide_retry",
+  "inc_round",
+  "store_fact_row",
+  "emit_result",
+  "fail_hard",
+]
+
+[model_routing]
+"factcheck.verify_claim" = "nli.cross_encoder"
+
+[cache_policy]
+enabled = true
+default_ttl_seconds = 300
+
+[cache_policy.per_tool_ttl_seconds]
+"rag.search" = 120
+"nli.verify" = 300
+"llm.generate" = 60
+
+[wiring]
+"factcheck.gap_detect" = "factcheck.extract_missing_claims.v1"
+"factcheck.plan_query" = "factcheck.plan_query.regex.v1"
+"factcheck.rag_search" = "rag.execute.regex_only.v1"
+"factcheck.verify_claim" = "factcheck.verify.hybrid.v1"
+"factcheck.decide_retry" = "controller.retry_or_finalize.v1"

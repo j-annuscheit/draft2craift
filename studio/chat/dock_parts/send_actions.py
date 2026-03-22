@@ -1,7 +1,301 @@
 """ChatDock method implementations."""
 from __future__ import annotations
 
+import os
+
 from .deps import *  # noqa: F403
+
+
+def _env_flag(name: str) -> bool:
+    return str(os.environ.get(name, "")).strip().casefold() in {"1", "true", "yes", "on"}
+
+def _resolve_agentic_run_options(
+    self,
+    *,
+    workflow_key: str,
+    env_enabled_key: str,
+    env_profile_key: str,
+    default_profile_id: str,
+) -> dict:
+    getter = getattr(self, "get_agentic_settings", None)
+    if callable(getter):
+        try:
+            settings = getter()
+            run_options_for = getattr(settings, "run_options_for", None)
+            if callable(run_options_for):
+                options = dict(run_options_for(workflow_key) or {})
+                if options:
+                    return options
+        except Exception:
+            pass
+
+    return {
+        "enabled": _env_flag(env_enabled_key),
+        "profile_id": str(
+            os.environ.get(env_profile_key, default_profile_id) or default_profile_id
+        ).strip() or default_profile_id,
+        "policy_overrides": {},
+        "overlay_profile_ids": [],
+        "env_name": str(os.environ.get("D2C_AGENTIC_ENV", "") or "").strip(),
+    }
+
+
+def _collect_agentic_sources(self, ctx: dict) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    builder = getattr(self, "_build_source_contexts_from_context", None)
+    if callable(builder):
+        try:
+            rows = list(builder(ctx) or [])
+            for name, content in rows:
+                clean_name = str(name or "").strip()
+                clean_content = str(content or "").strip()
+                if not clean_name or not clean_content:
+                    continue
+                out.append((clean_name, clean_content))
+        except Exception:
+            pass
+    for name, content in list(ctx.get("file_contents", []) or []):
+        clean_name = str(name or "").strip()
+        clean_content = str(content or "").strip()
+        if not clean_name or not clean_content:
+            continue
+        out.append((clean_name, clean_content))
+    for path, _score, excerpt in list(ctx.get("rag_results", []) or []):
+        label = str(path or "").strip() or "RAG"
+        text = str(excerpt or "").strip()
+        if text:
+            out.append((label, text))
+    dedup: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for name, text in out:
+        key = (name.casefold(), text)
+        if key in seen:
+            continue
+        seen.add(key)
+        dedup.append((name, text))
+    return dedup
+
+
+def _prompt_map_depth_for_mode(self, *, mode: str) -> int | None:
+    mode_clean = str(mode or "").strip().casefold()
+    if mode_clean not in {"mindmap", "graph"}:
+        return 0
+
+    user_mode = str(getattr(self, "_user_mode", "") or "")
+    title = resolve_feature_label(
+        user_mode,
+        "mindmap.generate.dialog.depth.title",
+        "Ausbautiefe festlegen",
+    )
+    intro = resolve_feature_label(
+        user_mode,
+        "mindmap.generate.dialog.depth.intro",
+        "Wie tief soll der Agent den Graph/Mindmap iterativ ausbauen? 0 = deaktiviert.",
+    )
+    value_prefix = resolve_feature_label(
+        user_mode,
+        "mindmap.generate.dialog.depth.value_prefix",
+        "Tiefe",
+    )
+    ok_text = resolve_feature_label(
+        user_mode,
+        "mindmap.generate.dialog.button.ok",
+        "OK",
+    )
+    cancel_text = resolve_feature_label(
+        user_mode,
+        "mindmap.generate.dialog.button.cancel",
+        "Cancel",
+    )
+
+    dialog = QDialog(self)
+    dialog.setWindowTitle(title)
+    layout = QVBoxLayout(dialog)
+    layout.setContentsMargins(12, 12, 12, 12)
+    layout.setSpacing(10)
+
+    intro_label = QLabel(intro, dialog)
+    intro_label.setWordWrap(True)
+    layout.addWidget(intro_label)
+
+    slider = QSlider(Qt.Orientation.Horizontal, dialog)
+    slider.setRange(0, 6)
+    slider.setSingleStep(1)
+    slider.setPageStep(1)
+    slider.setTickInterval(1)
+    slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+    slider.setValue(2)
+    layout.addWidget(slider)
+
+    value_label = QLabel(dialog)
+    layout.addWidget(value_label)
+
+    def _sync_value(value: int) -> None:
+        value_label.setText(f"{value_prefix}: {int(value)}")
+
+    slider.valueChanged.connect(_sync_value)
+    _sync_value(int(slider.value()))
+
+    buttons = QDialogButtonBox(
+        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+        parent=dialog,
+    )
+    ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
+    if ok_btn is not None:
+        ok_btn.setText(ok_text)
+    cancel_btn = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+    if cancel_btn is not None:
+        cancel_btn.setText(cancel_text)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    layout.addWidget(buttons)
+
+    if dialog.exec() != QDialog.DialogCode.Accepted:
+        return None
+    return int(slider.value())
+
+
+def _try_send_agentic_chat(self, *, msg: str, ctx: dict) -> bool:
+    run_options = _resolve_agentic_run_options(
+        self,
+        workflow_key="chat",
+        env_enabled_key="D2C_AGENTIC_CHAT",
+        env_profile_key="D2C_AGENTIC_CHAT_PROFILE",
+        default_profile_id="chat_grounded_strict",
+    )
+    if not bool(run_options.get("enabled", False)):
+        return False
+    try:
+        from shared.services.agentic import AgenticWorkflowService, build_tools
+    except Exception:
+        return False
+    profile_id = str(
+        run_options.get("profile_id", "chat_grounded_strict")
+        or "chat_grounded_strict"
+    ).strip() or "chat_grounded_strict"
+    sources = _collect_agentic_sources(self, ctx)
+    try:
+        result = AgenticWorkflowService().run_chat(
+            request={"question": str(msg or "")},
+            profile_id=profile_id,
+            enabled=bool(run_options.get("enabled", False)),
+            policy_overrides=dict(run_options.get("policy_overrides", {}) or {}),
+            overlay_profile_ids=list(
+                run_options.get("overlay_profile_ids", []) or []
+            ),
+            env_name=str(run_options.get("env_name", "") or ""),
+            tools=build_tools(
+                llm_manager=self.llm,
+                source_texts=sources,
+            ),
+        )
+    except Exception:
+        return False
+    if not bool(result.ok):
+        return False
+
+    payload = dict(result.result.get("response", {}) or {})
+    answer = str(payload.get("text", "") or "").strip()
+    if not answer:
+        return False
+    citations = list(payload.get("citations", []) or [])
+    if citations:
+        lines = [answer, "", "Quellen:"]
+        for idx, row in enumerate(citations[:5], 1):
+            lines.append(f"{idx}. {row}")
+        answer = "\n".join(lines)
+    self.history.add_message("assistant", answer)
+    self._last_assistant_msg = answer
+    self._last_use_case = "chat_answer"
+    self._maybe_auto_read_response(answer)
+    self.history.activate_feedback("chat_answer")
+    return True
+
+
+def _try_send_agentic_canvas(
+    self,
+    *,
+    instruction: str,
+    selected_text: str,
+    selected_span: tuple[int, int] | None,
+    ctx: dict,
+) -> bool:
+    run_options = _resolve_agentic_run_options(
+        self,
+        workflow_key="canvas",
+        env_enabled_key="D2C_AGENTIC_CANVAS",
+        env_profile_key="D2C_AGENTIC_CANVAS_PROFILE",
+        default_profile_id="canvas_grounded_rewrite",
+    )
+    if not bool(run_options.get("enabled", False)):
+        return False
+    if self._selection_apply_handler is None:
+        return False
+    try:
+        from shared.services.agentic import AgenticWorkflowService, build_tools
+    except Exception:
+        return False
+
+    apply_state: dict[str, object] = {"ok": False, "info": "", "text": ""}
+
+    def _apply_target(text: str):
+        ok, info = self._selection_apply_handler(
+            str(text or ""),
+            str(selected_text or ""),
+            selected_span,
+        )
+        apply_state["ok"] = bool(ok)
+        apply_state["info"] = str(info or "")
+        apply_state["text"] = str(text or "")
+        if not ok:
+            raise RuntimeError(str(info or "apply_failed"))
+
+    profile_id = str(
+        run_options.get("profile_id", "canvas_grounded_rewrite")
+        or "canvas_grounded_rewrite"
+    ).strip() or "canvas_grounded_rewrite"
+    sources = _collect_agentic_sources(self, ctx)
+    try:
+        result = AgenticWorkflowService().run_canvas(
+            request={
+                "instruction": str(instruction or ""),
+                "selected_text": str(selected_text or ""),
+            },
+            profile_id=profile_id,
+            enabled=bool(run_options.get("enabled", False)),
+            policy_overrides=dict(run_options.get("policy_overrides", {}) or {}),
+            overlay_profile_ids=list(
+                run_options.get("overlay_profile_ids", []) or []
+            ),
+            env_name=str(run_options.get("env_name", "") or ""),
+            tools=build_tools(
+                llm_manager=self.llm,
+                source_texts=sources,
+                canvas_apply=_apply_target,
+            ),
+        )
+    except Exception:
+        return False
+    if not bool(result.ok):
+        return False
+    if not bool(apply_state.get("ok", False)):
+        return False
+
+    text = str(apply_state.get("text", "") or "")
+    info = str(apply_state.get("info", "") or "")
+    self._last_assistant_msg = text
+    self._last_use_case = "canvas_edit"
+    notify_success = getattr(self, "_notify_canvas_apply_success", None)
+    if callable(notify_success):
+        notify_success(info)
+    else:
+        self.history.add_message(
+            "system",
+            f"✅ Selection updated in draft workspace. {info}".strip(),
+        )
+        self.history.activate_feedback("canvas_edit")
+    return True
+
 
 def _send_glossary_generation(self):
     if not self._require_loaded_model():
@@ -33,7 +327,14 @@ def _send_glossary_generation(self):
         )
         return
 
-    self.history.add_message("user", "Glossar aus aktuellem Kontext")
+    query = str(ctx.get("user_query", "") or self.input_box.toPlainText() or "").strip()
+    if query:
+        self.history.add_message(
+            "user",
+            f"Glossar aus aktuellem Kontext\nFokus: {query}",
+        )
+    else:
+        self.history.add_message("user", "Glossar aus aktuellem Kontext")
     self.history.reset_feedback()
 
     def done(ok: bool, info: str):
@@ -47,7 +348,7 @@ def _send_glossary_generation(self):
             return
         self.history.add_message("system", f"⚠ Glossar fehlgeschlagen: {info}")
 
-    ok, info = self._glossary_request_handler(ctx, done)
+    ok, info = self._glossary_request_handler(ctx, query, done)
     if ok:
         self.history.add_message("system", "⏳ Glossar wird erstellt…")
         return
@@ -148,6 +449,10 @@ def _send_mindmap_generation(self):
         mode = "mindmap"
         mode_label = "MindMap"
 
+    map_depth = _prompt_map_depth_for_mode(self, mode=mode)
+    if map_depth is None:
+        return
+
     if mode != "chunkmap" and not self._require_loaded_model():
         return
     if mode != "chunkmap" and self.llm.worker.isRunning():
@@ -157,7 +462,9 @@ def _send_mindmap_generation(self):
         )
         return
 
-    query = self.input_box.toPlainText().strip()
+    query = str(
+        ctx.get("user_query", "") or self.input_box.toPlainText() or ""
+    ).strip()
     if query:
         self.history.add_message(
             "user",
@@ -171,9 +478,13 @@ def _send_mindmap_generation(self):
     def done(ok: bool, info: str):
         if ok:
             self._last_use_case = "mindmap"
+            detail = str(info or "").strip()
+            message = f"✅ {mode_label} erstellt."
+            if detail:
+                message = f"{message}\n{detail}"
             self.history.add_message(
                 "system",
-                f"✅ {mode_label} erstellt. {info}".strip(),
+                message,
             )
             self.history.activate_feedback("mindmap")
             return
@@ -182,7 +493,13 @@ def _send_mindmap_generation(self):
             f"⚠ {mode_label} fehlgeschlagen: {info}",
         )
 
-    ok, info = self._mindmap_request_handler(ctx, query, mode, done)
+    ok, info = self._mindmap_request_handler(
+        ctx,
+        query_raw=query,
+        mode_hint=mode,
+        map_depth=int(map_depth or 0),
+        done_cb=done,
+    )
     if ok:
         self.history.add_message("system", f"⏳ {mode_label} wird erstellt…")
         return
@@ -242,6 +559,20 @@ def _send(self):
     self.input_box.clear()
 
     self._reset_pending_canvas_rewrite()
+    if selection_apply_mode and _try_send_agentic_canvas(
+        self,
+        instruction=msg,
+        selected_text=str(selected_text or ""),
+        selected_span=selected_span,
+        ctx=ctx,
+    ):
+        return
+    if (not selection_apply_mode) and _try_send_agentic_chat(
+        self,
+        msg=msg,
+        ctx=ctx,
+    ):
+        return
     self._pending_apply_to_canvas = selection_apply_mode
     self._pending_selected_text = selected_text if selection_apply_mode else ""
     self._pending_selected_span = (

@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Step 4: Wire up Runtime and GUI</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <script defer src="assets/code-highlight.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1>Agentic Tutorial</h1>
+      <p>Step 4: Connect Service, Settings and User-Mode-UI correctly.</p>
+      <nav class="nav">
+        <a href="index.html">Step 0: Start</a>
+        <a href="system-overview.html">Step 1: Architecture</a>
+        <a href="workflow-graph.html">Step 2: Build Agent</a>
+        <a href="configuration.html">Step 3: Configure Workflow</a>
+        <a class="active" href="files-and-impact.html">Step 4: Runtime &amp; GUI</a>
+        <a href="code-deep-dive.html">Step 5: Deep Dive Snippets</a>
+        <a href="extending-workflows.html">Step 6: Tests &amp; Extension</a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <section class="card">
+        <span class="step">Step 4</span>
+        <h2>Goal of this step</h2>
+        <p>
+          A workflow is only really usable when it is completely wired from the GUI actions to the
+          service wrapper. This page shows the current actual state for
+          Mindmap v3 and the still existing Graph path.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>1) Service Entries: run_mindmap and run_graph</h2>
+        <div class="snippet-title"><code>shared/services/agentic/service.py</code></div>
+        <pre><code>def run_mindmap(
+    self,
+    *,
+    request: dict[str, Any],
+    tools: dict[str, Any] | None = None,
+    profile_id: str = "mindmap_grounded_graph",
+    enabled: bool | None = None,
+    ...
+) -> WorkflowRunResult:
+    if not _feature_enabled("D2C_AGENTIC_MINDMAP", enabled):
+        raise RuntimeError("Agentic mindmap disabled (D2C_AGENTIC_MINDMAP=1 to enable).")
+    return self.run(
+        workflow_id="mindmap_agentic",
+        request=request,
+        profile_id=profile_id,
+        ...
+    )
+
+
+def run_graph(
+    self,
+    *,
+    request: dict[str, Any],
+    tools: dict[str, Any] | None = None,
+    profile_id: str = "graph_connected_component",
+    enabled: bool | None = None,
+    ...
+) -> WorkflowRunResult:
+    if not _feature_enabled_any(("D2C_AGENTIC_GRAPH", "D2C_AGENTIC_MINDMAP"), enabled):
+        raise RuntimeError("Agentic graph disabled (D2C_AGENTIC_GRAPH=1 to enable).")
+    req = dict(request or {})
+    req["mode"] = "graph"
+    return self.run(workflow_id="graph_agentic", request=req, profile_id=profile_id, ...)
+</code></pre>
+        <p>
+          The wrappers encapsulate activation, default profile and the actual workflow name. The
+          rest of the app therefore does not need to know which internal TOML file is loaded.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>2) Persistent settings per workflow</h2>
+        <div class="snippet-title"><code>shared/config/setting_keys.py</code></div>
+        <pre><code>class AgenticSettingsKeys:
+    MINDMAP_ENABLED = "agentic/mindmap_enabled"
+    GRAPH_ENABLED = "agentic/graph_enabled"
+    MINDMAP_PROFILE_ID = "agentic/mindmap_profile_id"
+    GRAPH_PROFILE_ID = "agentic/graph_profile_id"
+    STRICT_POLICY = "agentic/strict_policy"
+    TRACE_ENABLED = "agentic/trace_enabled"
+    CACHE_ENABLED = "agentic/cache_enabled"
+    MAP_OUTPUT_DETAIL = "agentic/map_output_detail"
+</code></pre>
+        <div class="snippet-title"><code>shared/services/agentic/settings.py</code></div>
+        <pre><code>_WORKFLOW_KEYS = ("factcheck", "chat", "canvas", "mindmap", "graph")
+_DEFAULT_PROFILES = {
+    "factcheck": "factcheck_regex_only",
+    "chat": "chat_grounded_strict",
+    "canvas": "canvas_grounded_rewrite",
+    "mindmap": "mindmap_grounded_graph",
+    "graph": "graph_connected_component",
+}
+</code></pre>
+        <p>
+          This layer ensures that GUI, service and tests see the same default state.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>3) User-mode capable settings dialog</h2>
+        <div class="snippet-title"><code>studio/agentic/settings_dialog.py</code></div>
+        <pre><code>self.setWindowTitle(
+    resolve_feature_label(
+        self._user_mode,
+        "agentic.settings.window_title",
+        "Agentic Workflow Settings",
+    )
+)
+for workflow_key, fallback in _WORKFLOW_ROWS:
+    ...
+    label_widget.setText(
+        resolve_feature_label(
+            self._user_mode,
+            f"agentic.settings.workflow.{workflow_key}.row_label",
+            fallback,
+        )
+    )
+</code></pre>
+        <div class="note ok">
+          GUI texts thus remain user-mode capable. This is particularly important for alpha features,
+          because visibility, wording and explanatory texts can still change later.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>4) What the chat dock for Mindmap/Graph really passes</h2>
+        <div class="snippet-title"><code>studio/controllers/llm_tasks.py</code></div>
+        <pre><code>context_text = str(self._request.context_text or "")
+query = str(self._request.query or "")
+mode = str(self._request.mode or "mindmap")
+map_depth = max(0, min(12, int(self._request.map_depth or 0)))
+mode_clean = str(mode or "").strip().casefold()
+workflow_key = "graph" if mode_clean == "graph" else "mindmap"
+...
+policy_overrides = dict(agentic_opts.get("policy_overrides", {}) or {})
+policy_overrides["map_require_connected_graph"] = True
+policy_overrides.setdefault("map_cleanup_enabled", True)
+policy_overrides.setdefault("map_node_min_word_letters", 3)
+if mode_clean != "graph":
+    policy_overrides.setdefault(
+        "map_max_expansion_rounds",
+        max(4, map_depth * 3) if map_depth > 0 else 24,
+    )
+else:
+    if map_depth > 0:
+        policy_overrides["map_expand_enabled"] = True
+        policy_overrides["map_expand_target_depth"] = map_depth
+    else:
+        policy_overrides.setdefault("map_expand_enabled", False)
+        policy_overrides.setdefault("map_expand_target_depth", 0)
+
+run_kwargs = {
+  "request": {
+    "mode": mode,
+    "scope": "selection",
+    "query": query,
+    "depth": map_depth,
+    "context_text": context_text,
+  },
+  ...
+}
+</code></pre>
+        <p>
+          For Mindmap v3 it is important: The GUI now explicitly passes the desired depth as
+          <code>request.depth</code> and thus limits the expansion path. The full context is also
+          placed directly in the request.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>5) Useful final message in the chat</h2>
+        <p>
+          For Mindmap and Graph, the chat finalization today reads real runtime metadata from the run
+          and, depending on the user mode or setting, shows a compact or more detailed
+          summary.
+        </p>
+        <pre><code>✅ MindMap created.
+20 nodes, 19 connections, depth 6
+Focus: Technical risks of the bachelor thesis
+Structure: 1 component, 1 root
+Run: 6 LLM calls, 19 steps, 12.2 s
+</code></pre>
+        <div class="note">
+          This output does not come from a second analysis, but directly from the workflow state
+          and the runtime metrics.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>6) Trace for real debugging work</h2>
+        <p>
+          If <code>trace_enabled</code> is active, a
+          JSON file is created under <code>runs/agentic/...</code>. In the v3 path, it is visible per step which projection arrived, which
+          result was written and whether a candidate was currently in play.
+        </p>
+        <pre><code>{
+  "step_id": "validate_candidate_tree",
+  "runner": "map.validate_candidate_tree.v1",
+  "status": "ok",
+  "visit_index": 7,
+  "input": {
+    "state._candidates.map_result_candidate": {"meta": {"intent": "attach_children"}},
+    "state.map_result.root_label": "Bachelor's thesis",
+    "policy.map_node_min_word_letters": 3
+  },
+  "output": {
+    "value": {"ok": true, "reason": "ok"},
+    "candidate_writes": {
+      "map_result_candidate": {"meta": {"validated": true}}
+    },
+    "write_to": "map_validation"
+  },
+  "state_after": {
+    "map_validation": {"ok": true, "reason": "ok"},
+    "state._candidates.map_result_candidate": {"meta": {"validated": true}}
+  }
+}
+</code></pre>
+        <p>
+          Exactly this view makes it possible to trace whether a problem comes from GUI input, profile, worker
+          or commit logic.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>7) Two internal state areas you should know</h2>
+        <table>
+          <thead>
+            <tr><th>Path</th><th>Role</th><th>Why important</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>state._runtime.step_visits.*</code></td><td>Counts how often a step has already been entered.</td><td>Explains overflow paths and loops.</td></tr>
+            <tr><td><code>state._candidates.*</code></td><td>Contains staged candidates before the commit.</td><td>Shows whether a suggestion has already been accepted or is still only under review.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>If something doesn't arrive in the GUI</h2>
+        <ul class="checklist">
+          <li>First check <code>llm_tasks.py</code>: Is <code>request.query</code>, <code>request.depth</code> and <code>context_text</code> really set?</li>
+          <li>Then check the service wrapper: Is <code>run_mindmap</code> or <code>run_graph</code> started?</li>
+          <li>Then check settings and profile: Is the workflow active and the expected profile selected?</li>
+          <li>If loops seem strange, look in <code>state._runtime.step_visits</code> and in the trace.</li>
+          <li>If the workflow ran but nothing became visible, check <code>map.emit_result.v1</code> or the graph terminal step.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>Verification commands</h2>
+        <pre><code>python -m py_compile \
+  shared/services/agentic/service.py \
+  shared/services/agentic/settings.py \
+  studio/controllers/llm_tasks.py \
+  studio/controllers/agentic_settings_ctrl.py \
+  studio/agentic/settings_dialog.py
+
+PYTHONPATH=. pytest -q \
+  tests/services/test_agentic_settings.py \
+  tests/studio/test_llm_tasks_controller.py \
+  tests/studio/test_chat_mindmap_send_actions.py \
+  tests/studio/test_llm_tasks_finalize.py
+</code></pre>
+        <div class="pager">
+          <a class="btn secondary" href="configuration.html">Back</a>
+          <a class="btn" href="code-deep-dive.html">Next: Step 5</a>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

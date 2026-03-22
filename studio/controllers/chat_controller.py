@@ -65,6 +65,13 @@ class ChatController:
             self._canvas.get_selected_text(allow_cached=True) or ""
         )
         selected_span = self._canvas.get_selected_span(allow_cached=True)
+        query_hint = ""
+        query_getter = getattr(self._chat_dock, "get_user_query_hint", None)
+        if callable(query_getter):
+            try:
+                query_hint = str(query_getter() or "").strip()
+            except Exception:
+                query_hint = ""
 
         grounding_required = bool(use_rag or selected_doc_count > 0)
         grounding_has_sources = bool(rag_has_data or selected_doc_count > 0)
@@ -81,6 +88,7 @@ class ChatController:
             "grounding_selected_docs": selected_doc_count,
             "grounding_rag_selected": bool(use_rag),
             "grounding_rag_has_data": rag_has_data,
+            "user_query": query_hint,
         }
 
     def get_tts_mode(self) -> str:

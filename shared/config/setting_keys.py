@@ -133,3 +133,24 @@ class RAGSettingsKeys:
     ST_MODEL_NAME: Final[str] = "rag/st_model_name"
     TOP_K: Final[str] = "rag/top_k"
     SCORE_THRESHOLD: Final[str] = "rag/score_threshold"
+
+
+class AgenticSettingsKeys:
+    FACTCHECK_ENABLED: Final[str] = "agentic/factcheck_enabled"
+    CHAT_ENABLED: Final[str] = "agentic/chat_enabled"
+    CANVAS_ENABLED: Final[str] = "agentic/canvas_enabled"
+    MINDMAP_ENABLED: Final[str] = "agentic/mindmap_enabled"
+    GRAPH_ENABLED: Final[str] = "agentic/graph_enabled"
+
+    FACTCHECK_PROFILE_ID: Final[str] = "agentic/factcheck_profile_id"
+    CHAT_PROFILE_ID: Final[str] = "agentic/chat_profile_id"
+    CANVAS_PROFILE_ID: Final[str] = "agentic/canvas_profile_id"
+    MINDMAP_PROFILE_ID: Final[str] = "agentic/mindmap_profile_id"
+    GRAPH_PROFILE_ID: Final[str] = "agentic/graph_profile_id"
+
+    STRICT_POLICY: Final[str] = "agentic/strict_policy"
+    TRACE_ENABLED: Final[str] = "agentic/trace_enabled"
+    CACHE_ENABLED: Final[str] = "agentic/cache_enabled"
+    MAP_RESULT_DETAIL_LEVEL: Final[str] = "agentic/map_result_detail_level"
+    ENV_NAME: Final[str] = "agentic/env_name"
+    OVERLAY_PROFILE_IDS: Final[str] = "agentic/overlay_profile_ids"

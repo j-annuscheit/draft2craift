@@ -1,0 +1,57 @@
+schema_version = 1
+profile_id = "graph_connected_component"
+workflow_id = "graph_agentic"
+profile_version = "1.0.0"
+description = "Graph workflow with iterative closure loop until one connected component remains."
+
+[policy]
+max_runtime_seconds = 120
+max_llm_calls = 16
+map_min_nodes = 2
+map_max_nodes = 180
+map_max_edges = 520
+map_max_depth = 24
+map_require_single_root = false
+map_allow_cycles = true
+map_max_isolated_nodes = 0
+map_require_connected_graph = true
+map_parse_repair_enabled = true
+map_cleanup_enabled = true
+map_node_min_word_letters = 3
+map_merge_similar_nodes_enabled = false
+map_require_context_grounding = true
+map_min_grounded_nodes = 2
+map_min_grounded_ratio = 0.45
+map_max_meta_nodes = 1
+map_max_meta_node_ratio = 0.34
+graph_connect_max_tries = 3
+graph_force_connect_on_max_tries = true
+graph_bridge_label = "bridge"
+map_expand_enabled = false
+map_expand_target_depth = 0
+
+[model_routing]
+"graph.draft_map_raw" = "llm.default"
+"graph.parse_map_draft" = "llm.default"
+"graph.validate_schema" = "llm.default"
+"graph.ensure_connected" = "llm.default"
+"graph.expand_map" = "llm.default"
+
+[cache_policy]
+enabled = true
+default_ttl_seconds = 90
+
+[cache_policy.per_tool_ttl_seconds]
+"llm.generate" = 0
+
+[wiring]
+"graph.resolve_mode_scope" = "mindmap.resolve_mode_scope.v1"
+"graph.collect_context" = "mindmap.collect_context.v1"
+"graph.plan_focus" = "mindmap.plan_focus.v1"
+"graph.draft_map_raw" = "mindmap.draft_map_raw.v1"
+"graph.parse_map_draft" = "mindmap.parse_map_draft.v1"
+"graph.ground_map_draft" = "mindmap.ground_map_draft.v1"
+"graph.validate_schema" = "mindmap.validate_schema.v1"
+"graph.ensure_connected" = "mindmap.ensure_connected_graph.v1"
+"graph.expand_map" = "mindmap.expand_map_depth.v1"
+"graph.emit_to_canvas" = "mindmap.emit_to_canvas.v1"

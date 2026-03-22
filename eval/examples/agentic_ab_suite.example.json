@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "name": "agentic_ab_example",
+  "baseline_variant_id": "baseline",
+  "score_weights": {
+    "ok": 1.0,
+    "assertions": 1.0,
+    "speed": 0.15,
+    "speed_ref_ms": 150.0
+  },
+  "variants": [
+    {
+      "variant_id": "baseline",
+      "profile_by_workflow": {
+        "factcheck_agentic": "factcheck_regex_only",
+        "chat_agentic": "chat_grounded_strict",
+        "canvas_agentic": "canvas_grounded_rewrite",
+        "mindmap_agentic": "mindmap_grounded_graph"
+      }
+    },
+    {
+      "variant_id": "candidate",
+      "profile_by_workflow": {
+        "factcheck_agentic": "factcheck_regex_only",
+        "chat_agentic": "chat_grounded_strict",
+        "canvas_agentic": "canvas_grounded_rewrite",
+        "mindmap_agentic": "mindmap_grounded_graph"
+      },
+      "policy_overrides": {
+        "deprecation_policy": "warn"
+      }
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "factcheck_basic",
+      "workflow_id": "factcheck_agentic",
+      "request": {
+        "q": [
+          [
+            "Doc-A",
+            "Alice lebt in Berlin."
+          ],
+          [
+            "Doc-B",
+            "Bob lebt in Paris."
+          ]
+        ],
+        "c": "Alice lebt in Berlin. Bob lebt in Paris.",
+        "o": {
+          "rows": [
+            {
+              "fact": "Alice lebt in Berlin."
+            }
+          ]
+        }
+      },
+      "tools": {
+        "rag.search": {
+          "kind": "rag_from_possible_sources"
+        },
+        "nli.verify": {
+          "kind": "nli_contains_hypothesis"
+        },
+        "llm.generate": {
+          "kind": "constant",
+          "value": "ok"
+        }
+      },
+      "assertions": [
+        {
+          "path": "result.o",
+          "op": "len_gte",
+          "value": 1
+        },
+        {
+          "path": "result.o[*].fact",
+          "op": "contains",
+          "value": "Bob lebt in Paris."
+        }
+      ]
+    },
+    {
+      "case_id": "chat_basic",
+      "workflow_id": "chat_agentic",
+      "request": {
+        "question": "Welche Quellen wurden gefunden?"
+      },
+      "tools": {
+        "rag.search": {
+          "kind": "constant",
+          "value": [
+            "Quelle A: Kernfakt",
+            "Quelle B: Kontext"
+          ]
+        },
+        "llm.generate": {
+          "kind": "template",
+          "template": "Antwort auf Basis: {prompt}"
+        }
+      },
+      "assertions": [
+        {
+          "path": "result.response.text",
+          "op": "contains",
+          "value": "Antwort auf Basis"
+        },
+        {
+          "path": "result.response.citations",
+          "op": "len_gte",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "case_id": "canvas_basic",
+      "workflow_id": "canvas_agentic",
+      "request": {
+        "instruction": "Kürze den Text.",
+        "selected_text": "Das ist ein langer Beispielsatz."
+      },
+      "tools": {
+        "llm.generate": {
+          "kind": "constant",
+          "value": "Kurzer Satz."
+        },
+        "canvas.apply": {
+          "kind": "capture_text",
+          "return": true
+        }
+      },
+      "assertions": [
+        {
+          "path": "state.apply_result.applied",
+          "op": "equals",
+          "value": true
+        },
+        {
+          "path": "tool_calls.canvas.apply[0].text",
+          "op": "equals",
+          "value": "Kurzer Satz."
+        }
+      ]
+    },
+    {
+      "case_id": "mindmap_basic",
+      "workflow_id": "mindmap_agentic",
+      "request": {
+        "mode": "mindmap",
+        "scope": "selection",
+        "query": "Kernideen",
+        "context_text": "Thema A. Thema B."
+      },
+      "tools": {
+        "llm.generate": {
+          "kind": "constant",
+          "value": "```mindmap\n- Thema A\n  - Thema B\n```"
+        },
+        "canvas.open_text": {
+          "kind": "capture_text",
+          "return": true
+        }
+      },
+      "assertions": [
+        {
+          "path": "result.markdown",
+          "op": "contains",
+          "value": "```mindmap"
+        },
+        {
+          "path": "tool_calls.canvas.open_text[0].text",
+          "op": "contains",
+          "value": "Thema A"
+        }
+      ]
+    }
+  ]
+}

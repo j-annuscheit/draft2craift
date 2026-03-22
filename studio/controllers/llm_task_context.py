@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from shared.services.agentic.settings import AgenticRuntimeSettings
     from shared.services.llm.manager import LLMManager
     from shared.services.rag.orchestrator import RAGSystem
     from studio.canvas.tabs import CanvasTabWidget
@@ -31,5 +32,6 @@ class LLMTaskContext:
     autosave_schedule_fn: Callable[[int], None]
     build_llm_context: Callable[[], dict]
     get_user_mode: Callable[[], str]
+    get_agentic_settings: Callable[[], AgenticRuntimeSettings]
     is_prompt_editor_allowed: Callable[[str | None], bool]
     dialog_manager: object

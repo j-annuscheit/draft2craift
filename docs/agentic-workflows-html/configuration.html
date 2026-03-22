@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Step 3: Configure Workflow and Profile</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <script defer src="assets/code-highlight.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1>Agentic Tutorial</h1>
+      <p>Step 3: Configure definition, profile and runtime contract cleanly.</p>
+      <nav class="nav">
+        <a href="index.html">Step 0: Start</a>
+        <a href="system-overview.html">Step 1: Architecture</a>
+        <a href="workflow-graph.html">Step 2: Build Agent</a>
+        <a class="active" href="configuration.html">Step 3: Configure Workflow</a>
+        <a href="files-and-impact.html">Step 4: Runtime &amp; GUI</a>
+        <a href="code-deep-dive.html">Step 5: Deep Dive Snippets</a>
+        <a href="extending-workflows.html">Step 6: Tests &amp; Extension</a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <section class="card">
+        <span class="step">Step 3</span>
+        <h2>What is really configured on this page</h2>
+        <p>
+          This page describes the currently active Mindmap v3 workflow as it is actually
+          wired in the project. There is no v2 path here anymore. The productive mind map runs
+          via <code>mindmap_agentic</code> with the profile <code>mindmap_grounded_graph</code>.
+        </p>
+        <ul class="checklist">
+          <li>Definition: Steps, Edges, Projections, Budgets.</li>
+          <li>Profile: Policies, Model-Routing, Cache, Wiring.</li>
+          <li>Runtime: Commit/Discard of Candidates, Trace, Visit-Guards.</li>
+          <li>GUI: passes query, full context and desired depth to the request.</li>
+        </ul>
+        <div class="note ok">
+          For Graph, the following currently applies: It still has its own workflow and does not yet use the
+          complete v3 worker chain. Therefore, the mind map examples below deliberately only describe the
+          current Mindmap v3 path.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>1) Deliberately separate definition, profile and worker</h2>
+        <table>
+          <thead>
+            <tr><th>Layer</th><th>Path</th><th>Responsibility</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Definition</td><td><code>data/workflows/definitions/mindmap_agentic.toml</code></td><td>Flow graph, projections, terminal steps, budgets</td></tr>
+            <tr><td>Profile</td><td><code>data/workflows/profiles/mindmap_grounded_graph.toml</code></td><td>Policies, wiring and model routing</td></tr>
+            <tr><td>Worker</td><td><code>shared/services/agentic/workers/maps/**</code></td><td>small technical steps</td></tr>
+            <tr><td>Runtime</td><td><code>shared/services/agentic/engine.py</code></td><td>Step execution, visit guards, candidate commit, trace</td></tr>
+          </tbody>
+        </table>
+        <p>
+          This separation ensures that we can change policies or routing without having to
+          constantly rewrite the technical flow graph.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>2) State structure of the active Mindmap v3 workflow</h2>
+        <div class="snippet-title"><code>data/workflows/definitions/mindmap_agentic.toml</code></div>
+        <pre><code>[state_init]
+map_request = {}
+map_source = {}
+map_segments = {}
+map_outline = {}
+map_focus = {}
+map_seed = {}
+map_seed_concepts = {}
+map_seed_enrichment = {}
+map_frontier = {}
+map_evidence = {}
+map_candidate_hints = {}
+map_candidate = {}
+map_validation = {}
+map_gaps = {}
+map_gap = {}
+map_coverage = { covered_segment_ids = [], coverage_ratio = 0.0, total_segments = 0 }
+map_result = {}
+map_metrics = { frontier_visits = {}, candidate_commits = 0, candidate_discards = 0, expansion_round = 0, gap_round = 0 }
+</code></pre>
+        <p>
+          The runtime also creates two additional buckets during the run: <code>state._runtime</code>
+          for technical runtime data and <code>state._candidates</code> for staged candidates.
+        </p>
+        <ul class="checklist">
+          <li><code>map_result</code> is the currently accepted mind map state.</li>
+          <li><code>map_candidate</code> is not yet an accepted tree, but only the current suggestion.</li>
+          <li><code>map_seed_concepts</code> and <code>map_seed_enrichment</code> encapsulate the small initial expansion directly after the seed.</li>
+          <li><code>map_gaps</code> and <code>map_gap</code> encapsulate the later gap-fill loop.</li>
+          <li><code>map_metrics</code> shows expansion, gap rounds, commits and discards.</li>
+          <li><code>state._candidates.map_result_candidate</code> contains the next possible tree before the commit.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>3) Projections: the worker only sees what it really needs</h2>
+        <p>
+          In the v3 path, the projections are a real architectural contract. This keeps every worker
+          small and testable.
+        </p>
+        <div class="snippet-title"><code>propose_child_nodes_input_v1</code></div>
+        <pre><code>[projections.propose_child_nodes_input_v1]
+include = [
+  "state.map_frontier",
+  "state.map_evidence",
+  "state.map_candidate_hints",
+  "state.map_request.focus",
+  "state.map_result.markdown",
+  "state.map_source.normalized_text",
+  "policy.map_llm_child_limit",
+]
+</code></pre>
+        <div class="snippet-title"><code>select_gap_target_input_v1</code></div>
+        <pre><code>[projections.select_gap_target_input_v1]
+include = [
+  "state.map_gaps.gaps",
+  "state.map_metrics.gap_round",
+  "policy.map_max_gap_rounds",
+]
+</code></pre>
+        <div class="snippet-title"><code>validate_candidate_tree_input_v1</code></div>
+        <pre><code>[projections.validate_candidate_tree_input_v1]
+include = [
+  "state._candidates.map_result_candidate",
+  "state.map_result.root_label",
+  "state.map_request.topic",
+  "policy.map_min_nodes",
+  "policy.map_max_nodes",
+  "policy.map_max_edges",
+  "policy.map_max_depth",
+  "policy.map_require_single_root",
+  "policy.map_allow_cycles",
+  "policy.map_max_isolated_nodes",
+  "policy.map_require_connected_graph",
+  "policy.map_node_min_word_letters",
+]
+</code></pre>
+        <p>
+          This clearly shows the difference between a semantic suggestion worker and a
+          hard structure validator. One sees evidence and parent context, the other sees the
+          staged candidate and the validation limits.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>4) The actual Mindmap v3 flow graph</h2>
+        <p>
+          The core of the v3 workflow is now four-stage: deterministic seed,
+          small seed extension, controlled frontier loop and then a
+          targeted gap-fill round.
+        </p>
+        <pre><code>resolve_request
+-> collect_context
+-> normalize_context
+-> segment_context
+-> extract_outline
+-> score_focus_sections
+-> choose_root_label
+-> seed_from_outline
+-> extract_seed_concepts
+-> propose_seed_enrichment
+-> parse_seed_enrichment
+-> validate_seed_enrichment
+-> commit_initial_tree
+-> select_frontier_node
+  -> collect_frontier_evidence
+  -> extract_local_candidates
+  -> propose_child_nodes
+  -> parse_child_nodes
+  -> repair_child_nodes (only for format errors)
+  -> validate_child_nodes
+  -> attach_child_nodes
+  -> validate_candidate_tree
+  -> commit_candidate_tree
+  -> update_coverage
+  -> decide_continue_expansion
+  -> select_frontier_node (Loop)
+-> detect_coverage_gaps
+  -> select_gap_target
+  -> propose_gap_fill
+  -> parse_gap_fill
+  -> validate_gap_fill
+  -> attach_gap_fill
+  -> validate_candidate_tree
+  -> commit_candidate_tree
+  -> update_coverage
+  -> detect_coverage_gaps (Loop)
+-> normalize_labels
+-> merge_semantic_duplicates
+-> ensure_single_root
+-> ensure_connected_tree
+-> validate_final_tree
+-> render_markdown
+-> emit_result
+</code></pre>
+        <p>
+          This is the biggest difference to the older paths: The workflow no longer
+          repeatedly rewrites a complete map, but only extends a part in a controlled manner.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>5) Real step definitions with visit guards</h2>
+        <div class="snippet-title"><code>data/workflows/definitions/mindmap_agentic.toml</code></div>
+        <pre><code>[[steps]]
+id = "select_frontier_node"
+runner = "map.select_frontier_node.v1"
+input_projection = "select_frontier_node_input_v1"
+write_to = "map_frontier"
+on_error = "continue_with_defaults"
+max_visits = 96
+on_max_visits = "detect_coverage_gaps"
+
+[[steps]]
+id = "propose_child_nodes"
+runner = "map.propose_child_nodes.v1"
+input_projection = "propose_child_nodes_input_v1"
+write_to = "map_candidate"
+on_error = "continue_with_defaults"
+max_visits = 48
+on_max_visits = "decide_continue_expansion"
+
+[[steps]]
+id = "select_gap_target"
+runner = "map.select_gap_target.v1"
+input_projection = "select_gap_target_input_v1"
+write_to = "map_gap"
+on_error = "continue_with_defaults"
+max_visits = 32
+on_max_visits = "normalize_labels"
+</code></pre>
+        <p>
+          Each loop step thus has three possible paths: continue normally, branch differently via an edge condition
+          or run hard via <code>on_max_visits</code> into a safe end path.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>6) Candidate pattern: attach - validate - commit/discard</h2>
+        <p>
+          In v3, risky state changes always run via a staged candidate. Only then
+          is the new tree normalized, validated and accepted or discarded.
+        </p>
+        <pre><code># attach_child_nodes / attach_gap_fill
+accepted nodes become state._candidates.map_result_candidate
+
+# validate_candidate_tree
+the candidate is normalized and checked again
+
+# commit_candidate_tree
+on ok:   commit_candidates=("map_result_candidate",)
+on fail: discard_candidates=("map_result_candidate",)
+</code></pre>
+        <div class="note">
+          This is the central robustness gain. Bad LLM answers can no longer
+          silently destroy a good accepted state.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>7) Active profile for Mindmap v3</h2>
+        <div class="snippet-title"><code>data/workflows/profiles/mindmap_grounded_graph.toml</code></div>
+        <pre><code>[policy]
+max_runtime_seconds = 300
+max_llm_calls = 32
+
+map_min_nodes = 2
+map_max_nodes = 160
+map_max_edges = 320
+map_max_depth = 12
+map_require_single_root = true
+map_allow_cycles = false
+map_max_isolated_nodes = 0
+map_require_connected_graph = true
+map_node_min_word_letters = 3
+
+map_seed_concept_limit = 12
+map_seed_enrichment_enabled = true
+map_seed_enrichment_limit = 3
+
+map_frontier_evidence_limit = 5
+map_local_candidate_limit = 8
+map_llm_child_limit = 4
+map_max_frontier_visits_per_node = 2
+map_max_children_per_node = 6
+map_max_expansion_rounds = 24
+
+map_gap_fill_enabled = true
+map_gap_limit = 4
+map_max_gap_rounds = 6
+
+[model_routing]
+"mindmap.propose_seed_enrichment" = "llm.default"
+"mindmap.propose_child_nodes" = "llm.default"
+"mindmap.propose_gap_fill" = "llm.default"
+
+[cache_policy]
+enabled = true
+default_ttl_seconds = 180
+
+[cache_policy.per_tool_ttl_seconds]
+"llm.generate" = 0
+</code></pre>
+        <p>
+          The important point here is: Only <code>propose_seed_enrichment</code>,
+          <code>propose_child_nodes</code> and <code>propose_gap_fill</code> are real LLM steps.
+          Seed, parsing, repair, validation, merge and commit remain deterministic.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>8) Wiring: assign logical steps to worker IDs</h2>
+        <pre><code>[wiring]
+"mindmap.resolve_request" = "map.resolve_request.v1"
+"mindmap.collect_context" = "map.collect_context.v1"
+"mindmap.normalize_context" = "map.normalize_context.v1"
+"mindmap.segment_context" = "map.segment_context.v1"
+"mindmap.extract_outline" = "map.extract_outline.v1"
+"mindmap.score_focus_sections" = "map.score_focus_sections.v1"
+"mindmap.choose_root_label" = "map.choose_root_label.v1"
+"mindmap.seed_from_outline" = "map.seed_from_outline.v1"
+"mindmap.extract_seed_concepts" = "map.extract_seed_concepts.v1"
+"mindmap.propose_seed_enrichment" = "map.propose_seed_enrichment.v1"
+"mindmap.parse_seed_enrichment" = "map.parse_seed_enrichment.v1"
+"mindmap.validate_seed_enrichment" = "map.validate_seed_enrichment.v1"
+"mindmap.commit_initial_tree" = "map.commit_initial_tree.v1"
+"mindmap.select_frontier_node" = "map.select_frontier_node.v1"
+"mindmap.collect_frontier_evidence" = "map.collect_frontier_evidence.v1"
+"mindmap.extract_local_candidates" = "map.extract_local_candidates.v1"
+"mindmap.propose_child_nodes" = "map.propose_child_nodes.v1"
+"mindmap.parse_child_nodes" = "map.parse_child_nodes.v1"
+"mindmap.repair_child_nodes" = "map.repair_child_nodes.v1"
+"mindmap.validate_child_nodes" = "map.validate_child_nodes.v1"
+"mindmap.attach_child_nodes" = "map.attach_child_nodes.v1"
+"mindmap.detect_coverage_gaps" = "map.detect_coverage_gaps.v1"
+"mindmap.select_gap_target" = "map.select_gap_target.v1"
+"mindmap.propose_gap_fill" = "map.propose_gap_fill.v1"
+"mindmap.parse_gap_fill" = "map.parse_gap_fill.v1"
+"mindmap.validate_gap_fill" = "map.validate_gap_fill.v1"
+"mindmap.attach_gap_fill" = "map.attach_gap_fill.v1"
+"mindmap.validate_candidate_tree" = "map.validate_candidate_tree.v1"
+"mindmap.commit_candidate_tree" = "map.commit_candidate_tree.v1"
+"mindmap.update_coverage" = "map.update_coverage.v1"
+"mindmap.decide_continue_expansion" = "map.decide_continue_expansion.v1"
+"mindmap.normalize_labels" = "map.normalize_labels.v1"
+"mindmap.merge_semantic_duplicates" = "map.merge_semantic_duplicates.v1"
+"mindmap.ensure_single_root" = "map.ensure_single_root.v1"
+"mindmap.ensure_connected_tree" = "map.ensure_connected_tree.v1"
+"mindmap.validate_final_tree" = "map.validate_final_tree.v1"
+"mindmap.render_markdown" = "map.render_markdown.v1"
+"mindmap.emit_result" = "map.emit_result.v1"
+</code></pre>
+        <p>
+          If you write a worker and it never runs, it's almost always a wiring problem:
+          definition, profile and registry must all speak the same name.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>9) GUI/User-Mode: Depth is overwritten at runtime</h2>
+        <p>
+          The GUI passes the desired depth as <code>request.depth</code>. In the Mindmap v3 path, this
+          currently becomes the upper limit for <code>map_max_expansion_rounds</code>. In the graph path
+          , on the other hand, the older switches <code>map_expand_enabled</code> and
+          <code>map_expand_target_depth</code> remain active.
+        </p>
+        <div class="note">
+          This is precisely why this logic does not belong in the profile alone. The user mode and the chat dock
+          build the runtime request into the request and policy overrides.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>10) Typical errors when rebuilding</h2>
+        <ul class="checklist">
+          <li>Created a new policy key, but forgot it in the projection.</li>
+          <li>Registered a worker, but forgot the wiring entry in the profile.</li>
+          <li>Wrote candidates directly to <code>state.map_result</code> instead of staging.</li>
+          <li>Forgot <code>max_visits</code> on loop steps.</li>
+          <li>Mixed up Mindmap v3 and Graph legacy in the docs or wiring.</li>
+          <li>Tested GUI depth, but didn't check the runtime path in <code>llm_tasks.py</code>.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>Checkpoint</h2>
+        <pre><code>sed -n '1,320p' data/workflows/definitions/mindmap_agentic.toml
+sed -n '1,220p' data/workflows/profiles/mindmap_grounded_graph.toml
+sed -n '1,220p' shared/services/agentic/workers/README.md
+sed -n '1,220p' shared/services/agentic/workers/maps/source/resolve_request.py
+sed -n '1,220p' shared/services/agentic/workers/maps/seed/seed_from_outline.py
+sed -n '1,240p' shared/services/agentic/workers/maps/frontier/propose_child_nodes.py
+sed -n '1,240p' shared/services/agentic/workers/maps/validate/validate_candidate_tree.py
+sed -n '1,220p' shared/services/agentic/workers/maps/apply/commit_candidate_tree.py
+</code></pre>
+        <pre><code>PYTHONPATH=. pytest -q \
+  tests/services/test_agentic_definition_projections.py \
+  tests/services/test_agentic_workflows.py \
+  tests/services/test_agentic_settings.py
+</code></pre>
+        <div class="pager">
+          <a class="btn secondary" href="workflow-graph.html">Back</a>
+          <a class="btn" href="files-and-impact.html">Next: Step 4</a>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

@@ -19,6 +19,7 @@ def generate_glossary_sync(
     self,
     context_text: str,
     max_terms: int = 24,
+    focus_query: str = "",
 ) -> tuple[list[dict[str, object]], dict[str, Any]]:
     """Generate glossary entries from context text via local LLM."""
     context = str(context_text or "").strip()
@@ -41,23 +42,7 @@ def generate_glossary_sync(
         }
 
     limit = max(1, min(64, int(max_terms)))
-
-    def _compact_context(text: str, max_chars: int) -> tuple[str, bool]:
-        source = str(text or "")
-        cap = max(1200, int(max_chars))
-        if len(source) <= cap:
-            return source, False
-        marker = "\n\n[... Kontext gekürzt ...]\n\n"
-        if cap <= (len(marker) + 24):
-            return source[:cap], True
-        head_len = int(cap * 0.72)
-        tail_len = max(0, cap - head_len - len(marker))
-        compact = (
-            source[:head_len].rstrip()
-            + marker
-            + source[-tail_len:].lstrip()
-        )
-        return compact, True
+    focus = str(focus_query or "").strip()
 
     def _normalize_entries(parsed: Any) -> list[dict[str, object]]:
         if isinstance(parsed, dict):
@@ -222,15 +207,23 @@ def generate_glossary_sync(
         self._log_llm_io(call_name, prompt, raw_full)
         return str(raw_full or "")
 
-    # Compact very long contexts for small models so they still produce output.
-    n_ctx = int(self._n_ctx())
-    context_char_budget = min(26000, max(7000, int(n_ctx * 2.8)))
-    compact_context, was_compacted = _compact_context(context, context_char_budget)
-
     user_block = self._render_prompt_template(
         "glossary_user",
-        {"context": compact_context, "max_terms": str(limit)},
+        {
+            "context": context,
+            "max_terms": str(limit),
+            "query": focus,
+            "focus_query": focus,
+        },
     )
+    if focus:
+        user_block = (
+            f"{str(user_block or '').strip()}\n\n"
+            "NUTZERFOKUS (streng priorisieren):\n"
+            f"{focus}\n"
+            "- Wähle Begriffe primär passend zu diesem Fokus.\n"
+            "- Nicht-relevante Nebenaspekte weglassen.\n"
+        ).strip()
     prompt = (
         "<|system|>\n"
         f"{self._prompts['glossary_system']}\n"
@@ -267,17 +260,20 @@ def generate_glossary_sync(
                 "generated": len(primary_entries),
                 "parse": primary_parse_reason,
                 "retried": False,
-                "context_compacted": was_compacted,
-                "context_chars_used": len(compact_context),
+                "context_compacted": False,
+                "context_chars_used": len(context),
+                "focus_query": focus,
             }
 
         if self._log:
             self._log.warning(
                 "LLM",
-                "Glossary primary parse empty/failed. Retrying with compact strict prompt.",
+                "Glossary primary parse empty/failed. Retrying with strict full-context prompt.",
             )
 
-        retry_context, retry_compacted = _compact_context(compact_context, 9000)
+        focus_line = (
+            f"Nutzerfokus (streng priorisieren): {focus}\n" if focus else ""
+        )
         retry_prompt = (
             "<|system|>\n"
             "Extrahiere ein Glossar aus dem Kontext.\n"
@@ -287,8 +283,9 @@ def generate_glossary_sync(
             "<|user|>\n"
             f"Maximal {limit} Einträge.\n"
             "Nur Begriffe aus dem Kontext verwenden.\n"
+            f"{focus_line}"
             "Kontext:\n"
-            f"{retry_context}\n"
+            f"{context}\n"
             "<|assistant|>\n"
         )
         retry_window_err = self._check_prompt_window(retry_prompt, max_out_tokens)
@@ -318,8 +315,9 @@ def generate_glossary_sync(
                 "generated": len(retry_entries),
                 "parse": retry_parse_reason,
                 "retried": True,
-                "context_compacted": bool(was_compacted or retry_compacted),
-                "context_chars_used": len(retry_context),
+                "context_compacted": False,
+                "context_chars_used": len(context),
+                "focus_query": focus,
             }
 
         final_reason = (
@@ -334,8 +332,9 @@ def generate_glossary_sync(
             "retried": True,
             "parse": retry_parse_reason or primary_parse_reason,
             "raw_preview": str(raw_retry or raw_primary or "")[:320],
-            "context_compacted": bool(was_compacted or retry_compacted),
-            "context_chars_used": len(retry_context),
+            "context_compacted": False,
+            "context_chars_used": len(context),
+            "focus_query": focus,
         }
     except Exception as exc:
         self._log_llm_io("Glossary", prompt, error=str(exc))

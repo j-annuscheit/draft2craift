@@ -1,0 +1,23 @@
+schema_version = 1
+profile_id = "canvas_grounded_rewrite"
+workflow_id = "canvas_agentic"
+profile_version = "1.0.0"
+description = "Conservative rewrite workflow for canvas updates."
+
+[policy]
+max_runtime_seconds = 60
+max_llm_calls = 8
+
+[model_routing]
+"canvas.draft_patch" = "llm.default"
+
+[cache_policy]
+enabled = true
+default_ttl_seconds = 60
+
+[wiring]
+"canvas.understand_edit_goal" = "canvas.understand_edit_goal.v1"
+"canvas.collect_context" = "canvas.collect_context.v1"
+"canvas.draft_patch" = "canvas.draft_patch.v1"
+"canvas.validate_patch" = "canvas.validate_patch_constraints.v1"
+"canvas.preview_and_apply" = "canvas.preview_and_apply.v1"

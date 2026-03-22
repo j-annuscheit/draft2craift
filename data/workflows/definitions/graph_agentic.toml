@@ -1,0 +1,267 @@
+schema_version = 1
+workflow_id = "graph_agentic"
+workflow_version = "1.0.0"
+job_type = "graph"
+entry_step = "resolve_mode_scope"
+terminal_steps = ["emit_to_canvas", "fail_hard"]
+
+[state_init]
+map_mode_scope = {}
+map_context = {}
+map_focus = {}
+map_draft_raw = {}
+map_draft = {}
+map_validation = {}
+graph_closure_decision = {}
+graph_closure_round = 0
+graph_force_applied = false
+expand_round = 0
+expand_decision = {}
+
+[projections.resolve_mode_scope_input_v1]
+include = ["request.mode", "request.scope"]
+
+[projections.collect_context_input_v1]
+include = ["request.context_text"]
+
+[projections.plan_focus_input_v1]
+include = ["request.query", "state.map_mode_scope"]
+
+[projections.draft_map_raw_input_v1]
+include = ["state.map_context", "state.map_focus"]
+
+[projections.parse_map_draft_input_v1]
+include = [
+  "state.map_draft_raw",
+  "state.map_context",
+  "state.map_focus",
+  "policy.map_parse_repair_enabled",
+]
+
+[projections.ground_map_draft_input_v1]
+include = [
+  "state.map_draft",
+  "state.map_context",
+  "state.map_focus",
+  "policy.map_require_context_grounding",
+  "policy.map_min_grounded_nodes",
+  "policy.map_min_grounded_ratio",
+  "policy.map_max_meta_nodes",
+  "policy.map_max_meta_node_ratio",
+]
+
+[projections.validate_schema_input_v1]
+include = [
+  "state.map_draft",
+  "state._candidates.map_draft_candidate",
+  "state.map_context",
+  "state.map_focus",
+  "policy.map_min_nodes",
+  "policy.map_max_nodes",
+  "policy.map_max_edges",
+  "policy.map_max_depth",
+  "policy.map_require_single_root",
+  "policy.map_allow_cycles",
+  "policy.map_max_isolated_nodes",
+  "policy.map_require_connected_graph",
+  "policy.map_node_min_word_letters",
+  "policy.map_merge_similar_nodes_enabled",
+  "policy.map_cleanup_enabled",
+]
+
+[projections.ensure_connected_input_v1]
+include = [
+  "state.map_validation",
+  "state.map_draft",
+  "state.map_context",
+  "state.map_focus",
+  "state.graph_closure_round",
+  "state.graph_force_applied",
+  "policy.graph_connect_max_tries",
+  "policy.graph_force_connect_on_max_tries",
+  "policy.graph_bridge_label",
+  "policy.map_cleanup_enabled",
+  "policy.map_node_min_word_letters",
+  "policy.map_merge_similar_nodes_enabled",
+]
+
+[projections.expand_input_v1]
+include = [
+  "state.map_validation",
+  "state.map_draft",
+  "state.map_context",
+  "state.map_focus",
+  "state.expand_round",
+  "policy.map_expand_enabled",
+  "policy.map_expand_target_depth",
+  "policy.map_cleanup_enabled",
+  "policy.map_node_min_word_letters",
+  "policy.map_merge_similar_nodes_enabled",
+  "policy.graph_bridge_label",
+]
+
+[projections.emit_to_canvas_input_v1]
+include = ["state.map_draft", "state.map_validation"]
+
+[[steps]]
+id = "resolve_mode_scope"
+runner = "mindmap.resolve_mode_scope.v1"
+input_projection = "resolve_mode_scope_input_v1"
+write_to = "map_mode_scope"
+on_error = "continue_with_defaults"
+
+[[steps]]
+id = "collect_context"
+runner = "mindmap.collect_context.v1"
+input_projection = "collect_context_input_v1"
+write_to = "map_context"
+on_error = "continue_with_defaults"
+
+[[steps]]
+id = "plan_focus"
+runner = "mindmap.plan_focus.v1"
+input_projection = "plan_focus_input_v1"
+write_to = "map_focus"
+on_error = "continue_with_defaults"
+
+[[steps]]
+id = "draft_map_raw"
+runner = "mindmap.draft_map_raw.v1"
+input_projection = "draft_map_raw_input_v1"
+write_to = "map_draft_raw"
+on_error = "continue_with_defaults"
+
+[[steps]]
+id = "parse_map_draft"
+runner = "mindmap.parse_map_draft.v1"
+input_projection = "parse_map_draft_input_v1"
+write_to = "map_draft"
+on_error = "continue_with_defaults"
+
+[[steps]]
+id = "ground_map_draft"
+runner = "mindmap.ground_map_draft.v1"
+input_projection = "ground_map_draft_input_v1"
+write_to = "map_draft"
+on_error = "continue_with_defaults"
+
+[[steps]]
+id = "validate_schema"
+runner = "mindmap.validate_schema.v1"
+input_projection = "validate_schema_input_v1"
+write_to = "map_validation"
+on_error = "continue_with_defaults"
+max_visits = 24
+on_max_visits = "fail_hard"
+
+[[steps]]
+id = "ensure_connected"
+runner = "mindmap.ensure_connected_graph.v1"
+input_projection = "ensure_connected_input_v1"
+write_to = "graph_closure_decision"
+on_error = "continue_with_defaults"
+max_visits = 24
+on_max_visits = "fail_hard"
+
+[[steps]]
+id = "expand_map"
+runner = "mindmap.expand_map_depth.v1"
+input_projection = "expand_input_v1"
+write_to = "expand_decision"
+on_error = "continue_with_defaults"
+max_visits = 16
+on_max_visits = "fail_hard"
+
+[[steps]]
+id = "emit_to_canvas"
+runner = "mindmap.emit_to_canvas.v1"
+input_projection = "emit_to_canvas_input_v1"
+
+[[steps]]
+id = "fail_hard"
+runner = "control.fail.v1"
+
+[[edges]]
+from = "resolve_mode_scope"
+to = "collect_context"
+color = "#27ae60"
+
+[[edges]]
+from = "collect_context"
+to = "plan_focus"
+color = "#27ae60"
+
+[[edges]]
+from = "plan_focus"
+to = "draft_map_raw"
+color = "#27ae60"
+
+[[edges]]
+from = "draft_map_raw"
+to = "parse_map_draft"
+color = "#27ae60"
+
+[[edges]]
+from = "parse_map_draft"
+to = "ground_map_draft"
+color = "#27ae60"
+
+[[edges]]
+from = "ground_map_draft"
+to = "validate_schema"
+color = "#27ae60"
+
+[[edges]]
+from = "validate_schema"
+to = "ensure_connected"
+color = "#27ae60"
+
+[[edges]]
+from = "ensure_connected"
+to = "validate_schema"
+when = "state.graph_closure_decision.retry == true"
+color = "#e67e22"
+
+[[edges]]
+from = "ensure_connected"
+to = "expand_map"
+when = "state.graph_closure_decision.retry != true and state.map_validation.ok == true"
+color = "#27ae60"
+
+[[edges]]
+from = "ensure_connected"
+to = "fail_hard"
+when = "state.graph_closure_decision.retry != true and state.map_validation.ok != true"
+color = "#c0392b"
+
+[[edges]]
+from = "expand_map"
+to = "validate_schema"
+when = "state.expand_decision.retry == true"
+color = "#e67e22"
+
+[[edges]]
+from = "expand_map"
+to = "emit_to_canvas"
+when = "state.expand_decision.retry != true and state.map_validation.ok == true"
+color = "#27ae60"
+
+[[edges]]
+from = "expand_map"
+to = "fail_hard"
+when = "state.expand_decision.retry != true and state.map_validation.ok != true"
+color = "#c0392b"
+
+[budgets]
+max_runtime_seconds = 120
+max_llm_calls = 20
+max_rag_calls = 0
+max_nli_calls = 0
+
+[step_tool_allowlist]
+draft_map_raw = ["llm.generate"]
+parse_map_draft = ["llm.generate"]
+validate_schema = ["llm.generate"]
+ensure_connected = ["llm.generate"]
+expand_map = ["llm.generate"]
+emit_to_canvas = ["canvas.open_text"]

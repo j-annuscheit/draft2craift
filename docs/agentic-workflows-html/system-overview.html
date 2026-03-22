@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Step 1: Understand Architecture</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <script defer src="assets/code-highlight.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1>Agentic Tutorial</h1>
+      <p>Step 1: Architecture and Data Flow Basics.</p>
+      <nav class="nav">
+        <a href="index.html">Step 0: Start</a>
+        <a class="active" href="system-overview.html">Step 1: Architecture</a>
+        <a href="workflow-graph.html">Step 2: Build Agent</a>
+        <a href="configuration.html">Step 3: Configure Workflow</a>
+        <a href="files-and-impact.html">Step 4: Runtime & GUI</a>
+        <a href="code-deep-dive.html">Step 5: Deep Dive Snippets</a>
+        <a href="extending-workflows.html">Step 6: Tests & Extension</a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <section class="card">
+        <span class="step">Step 1</span>
+        <h2>Runtime Model in One Picture</h2>
+        <pre><code>User Request
+  -> AgenticWorkflowService.run_*()
+    -> load definition + profile + overlays
+      -> engine: execute step graph
+        -> runner(ctx, step, projected)
+          -> tools.call(...)
+        -> StepOutcome (value/updates/jump/candidates)
+        -> engine commits or discards staged candidates
+        -> edge conditions + max_visits decide next step
+      -> terminal step writes result
+  -> UI gets markdown + meta
+</code></pre>
+        <p>
+          The crucial point: The workflow definition controls the flow, not the runner alone.
+          Runners are functional building blocks; edges + conditions determine the orchestration.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Definition vs. Profile vs. Runner</h2>
+        <div class="grid-2">
+          <div>
+            <div class="snippet-title"><code>definition (TOML)</code></div>
+            <ul class="checklist">
+              <li>Defines step order and edges.</li>
+              <li>Defines projections (Least Privilege for steps).</li>
+              <li>Defines terminal steps and budgets.</li>
+            </ul>
+          </div>
+          <div>
+            <div class="snippet-title"><code>profile (TOML)</code></div>
+            <ul class="checklist">
+              <li>Defines policies (e.g., max tries, depth, filter).</li>
+              <li>Defines model_routing and wiring overrides.</li>
+              <li>Is interchangeable depending on environment/use case.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="note">
+          The runner remains the same, but its behavior changes via policy values from the profile.
+          For mind maps, the current productive path is the small worker chain with
+          <code>map.*.v1</code>. The graph workflow also uses an older,
+          separately wired path with <code>mindmap.*.v1</code> runners for the graph logic.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>What Data a Step Really Gets</h2>
+        <p>
+          A step does not operate freely in the entire system, but within a small contract.
+          When you later read or write a runner yourself, these are the fields that matter.
+        </p>
+        <table>
+          <thead>
+            <tr><th>Source</th><th>Content</th><th>Typical Questions</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>ctx.request</code></td><td>Original user request and runtime parameters.</td><td>What did the user want? Which mode is active?</td></tr>
+            <tr><td><code>ctx.state</code></td><td>Results of previous steps.</td><td>What did the previous step already calculate?</td></tr>
+            <tr><td><code>ctx.policy</code></td><td>Configurable limits and switches.</td><td>How many retries? What limits? Which filters?</td></tr>
+            <tr><td><code>projected</code></td><td>The filtered input intended for this step.</td><td>Which fields should the step officially use?</td></tr>
+            <tr><td><code>ctx.tools</code></td><td>Allowed tools like LLM, RAG, Canvas.</td><td>Which external actions may the step trigger?</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Important Contracts (Concrete)</h2>
+        <div class="snippet-title"><code>shared/services/agentic/contracts.py</code></div>
+        <pre><code>@dataclass(slots=True)
+class StepDef:
+    id: str
+    runner: str
+    input_projection: str = ""
+    args: dict[str, Any] = field(default_factory=dict)
+    write_to: str = ""
+    on_error: str = "fail_hard"
+    max_visits: int = 0
+    on_max_visits: str = ""
+
+@dataclass(slots=True)
+class StepOutcome:
+    value: Any = None
+    updates: dict[str, Any] = field(default_factory=dict)
+    jump: str = ""
+    stop: bool = False
+    meta: dict[str, Any] = field(default_factory=dict)
+    candidate_writes: dict[str, dict[str, Any]] = field(default_factory=dict)
+    commit_candidates: tuple[str, ...] = ()
+    discard_candidates: tuple[str, ...] = ()
+
+@dataclass(slots=True)
+class WorkflowRunResult:
+    ok: bool
+    workflow_id: str
+    profile_id: str
+    result: dict[str, Any]
+    state: dict[str, Any]
+    trace: list[StepTrace]
+    errors: list[str]
+    metrics: dict[str, Any]
+
+@dataclass(slots=True)
+class StepTrace:
+    step_id: str
+    runner: str
+    status: str
+    duration_ms: float
+    reason: str = ""
+    visit_index: int = 0
+    input: dict[str, Any] = field(default_factory=dict)
+    output: dict[str, Any] = field(default_factory=dict)
+    state_after: dict[str, Any] = field(default_factory=dict)
+</code></pre>
+        <p>
+          <code>StepOutcome</code> is the central return object. Only with it can a runner
+          mutate the state, trigger a retry, or stop cleanly.
+        </p>
+        <div class="note">
+          In practice, this means: A runner never writes directly to the GUI or global variables.
+          It only returns a <code>StepOutcome</code>, and the engine takes care of the rest.
+        </div>
+        <p>
+          Also new is that the trace per step now stores not only status and duration,
+          but also the projected input, the direct step result, and the written
+          state after the step. This makes debugging much more concrete.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Three Control Paths per Step</h2>
+        <p>
+          In the current system, a step no longer has just "next edge yes or no," but
+          three levels of control.
+        </p>
+        <ul class="checklist">
+          <li>Normal edge conditions via <code>when = "..."</code>.</li>
+          <li>Direct jumps by the runner via <code>StepOutcome.jump</code>.</li>
+          <li>Overflow path via <code>max_visits</code> + <code>on_max_visits</code> if the same step is reached too often.</li>
+        </ul>
+        <pre><code>[[steps]]
+id = "select_frontier_node"
+runner = "map.select_frontier_node.v1"
+input_projection = "select_frontier_node_input_v1"
+write_to = "map_frontier"
+max_visits = 96
+on_max_visits = "detect_coverage_gaps"
+</code></pre>
+        <p>
+          In practice, this prevents broken loops. So if a step lands in the same
+          place sixteen times, it doesn't continue silently but is redirected to another step in a controlled manner.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Why Projections Are Important</h2>
+        <p>
+          Ideally, each step only sees the necessary part of the request/state/policy.
+          This reduces coupling and lowers the risk of a runner implicitly relying on other fields.
+        </p>
+        <pre><code>[projections.validate_candidate_tree_input_v1]
+include = [
+  "state._candidates.map_result_candidate",
+  "state.map_result.root_label",
+  "state.map_request.topic",
+  "policy.map_min_nodes",
+  "policy.map_max_nodes",
+  "policy.map_max_edges",
+  "policy.map_max_depth",
+  "policy.map_require_single_root",
+  "policy.map_allow_cycles",
+  "policy.map_max_isolated_nodes",
+  "policy.map_require_connected_graph",
+  "policy.map_node_min_word_letters"
+]
+</code></pre>
+        <div class="note warn">
+          Without projection discipline, workflows become difficult to maintain because runners then expect "global" state.
+        </div>
+        <p>
+          This also applies to candidate validators. If a validator is to decide between the old and new
+          output, the projection must contain both the current state and the
+          staged candidate.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>How to Classify Errors Architecturally</h2>
+        <ul class="checklist">
+          <li>If user input is missing in the step, first check the GUI request and service call.</li>
+          <li>If a policy value is missing, check the profile and projection.</li>
+          <li>If a runner is not found, check the export, registry, and wiring.</li>
+          <li>If the output structure is wrong, check the runner logic and edge conditions.</li>
+          <li>If you see no result at all, check the terminal step and the GUI finalization.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>Domain Rules in this Tutorial</h2>
+        <span class="chip">Only 1 component at the end</span>
+        <span class="chip">Nodes must have word labels</span>
+        <span class="chip">Mind map duplicates are merged</span>
+        <span class="chip">Risky changes are staged as candidates first</span>
+        <span class="chip">Loops have visit guards</span>
+        <span class="chip">Expansion in controlled rounds</span>
+        <span class="chip">UI controls depth via slider</span>
+        <p>
+          These rules are intentionally strict so that the output for downstream processing
+          (Canvas, graph analysis, QA) remains structurally stable.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Checkpoint: Really Understood the Architecture?</h2>
+        <pre><code># View definition + profile
+sed -n '1,260p' data/workflows/definitions/graph_agentic.toml
+sed -n '1,260p' data/workflows/definitions/mindmap_agentic.toml
+sed -n '1,220p' data/workflows/profiles/graph_connected_component.toml
+
+# View runner contract
+sed -n '1,220p' shared/services/agentic/contracts.py
+</code></pre>
+        <div class="pager">
+          <a class="btn secondary" href="index.html">Back</a>
+          <a class="btn" href="workflow-graph.html">Next: Step 2</a>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

@@ -53,6 +53,23 @@ def bind_context_ports(self, ports: ChatDockContextPorts) -> None:
     self._context_getter = ports.build_context
     self._canvas_selection_getter = ports.canvas_selection_text
 
+def set_agentic_settings_getter(self, getter: Callable[[], object] | None) -> None:
+    self._agentic_settings_getter = getter if callable(getter) else None
+
+def get_agentic_settings(self):
+    getter = getattr(self, "_agentic_settings_getter", None)
+    if callable(getter):
+        try:
+            return getter()
+        except Exception:
+            pass
+    try:
+        from shared.services.agentic.settings import AgenticRuntimeSettings
+
+        return AgenticRuntimeSettings.defaults()
+    except Exception:
+        return None
+
 def bind_action_ports(self, ports: ChatDockActionPorts) -> None:
     self._selection_apply_handler = ports.apply_selection_rewrite
     self._fact_result_handler = ports.open_fact_result
@@ -86,6 +103,21 @@ def get_context_document_content(self, name: str) -> str:
 def get_context_documents(self) -> dict[str, str]:
     """Return all registered context documents as ``{name: content}`` copy."""
     return self.context_panel.get_all_documents()
+
+def get_user_query_hint(self) -> str:
+    """Return current chat input text, fallback to last sent user message."""
+    text = ""
+    box = getattr(self, "input_box", None)
+    if box is not None:
+        getter = getattr(box, "toPlainText", None)
+        if callable(getter):
+            try:
+                text = str(getter() or "").strip()
+            except Exception:
+                text = ""
+    if text:
+        return text
+    return str(getattr(self, "_last_user_msg", "") or "").strip()
 
 def update_context_bar(self, parts: list[str]):
     """Update the context indicator bar with part labels."""
@@ -392,6 +424,8 @@ def toggle_model_panel(self) -> bool:
 __all__ = [
     "set_feedback_service",
     "bind_context_ports",
+    "set_agentic_settings_getter",
+    "get_agentic_settings",
     "bind_action_ports",
     "set_aux_task_running",
     "add_document",
@@ -400,6 +434,7 @@ __all__ = [
     "get_context_selection",
     "get_context_document_content",
     "get_context_documents",
+    "get_user_query_hint",
     "update_context_bar",
     "set_user_mode",
     "set_chat_tts_mode",
