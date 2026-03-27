@@ -147,6 +147,9 @@ class RAGResultsPanel(QWidget):
 
     def set_user_mode(self, mode: str) -> None:
         self._user_mode = normalize_user_mode(mode)
+        tabs_mode_setter = getattr(self.tabs, "set_user_mode", None)
+        if callable(tabs_mode_setter):
+            tabs_mode_setter(self._user_mode)
         self.search_input.setPlaceholderText(
             resolve_feature_label(
                 self._user_mode,

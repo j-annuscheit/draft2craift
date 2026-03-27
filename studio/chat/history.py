@@ -7,6 +7,12 @@ from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QMenu, QSizePolicy, QTabWidget, QVBoxLayout, QWidget
 
+from shared.domain.user_mode import (
+    default_user_mode,
+    is_feature_visible,
+    normalize_user_mode,
+    resolve_feature_label,
+)
 from studio.canvas.file_actions import CanvasFileActions
 from studio.canvas.split_view import MarkdownSplitPanel
 from studio.feedback.bar import FeedbackBar
@@ -55,15 +61,24 @@ def _sync_think_tooltips(session: HistorySession) -> None:
 class ChatHistoryWidget(QWidget):
     feedback_submitted = Signal(str, str, list, str)
     content_changed = Signal()
+    annotation_export_requested = Signal(object, str, str)  # panel, scope, tab_name
+    _ANNOTATION_EXTRACT_KEY = "editor.tab.context.annotation_extract"
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self._user_mode = default_user_mode()
         self._sessions: dict[QWidget, HistorySession] = {}
         self._tab_counter = 0
         self._stream_page: QWidget | None = None
         self._tabs: QTabWidget | None = None
         self._setup_ui()
         self.add_tab("Chat 1")
+
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+
+    def _label(self, key: str, default: str) -> str:
+        return resolve_feature_label(self._user_mode, key, default)
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -469,6 +484,18 @@ class ChatHistoryWidget(QWidget):
         panel = session.display
         menu = QMenu(self)
         export_action = menu.addAction("Exportieren…")
+        annotation_extract_action = None
+        if is_feature_visible(
+            self._user_mode,
+            self._ANNOTATION_EXTRACT_KEY,
+            default=True,
+        ):
+            annotation_extract_action = menu.addAction(
+                self._label(
+                    self._ANNOTATION_EXTRACT_KEY,
+                    "Annotationen extrahieren…",
+                )
+            )
         menu.addSeparator()
         preview_action = menu.addAction("Zeige HTML-View")
         markdown_action = menu.addAction("Zeige Markdown")
@@ -486,6 +513,13 @@ class ChatHistoryWidget(QWidget):
                 default_format="pdf",
                 panel_scope="chat",
                 tab_name=str(tabs.tabText(index) or "").strip(),
+            )
+            return
+        if annotation_extract_action is not None and picked is annotation_extract_action:
+            self.annotation_export_requested.emit(
+                panel,
+                "chat",
+                str(tabs.tabText(index) or "").strip(),
             )
             return
         if picked is preview_action:

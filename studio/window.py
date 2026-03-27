@@ -430,6 +430,13 @@ class MainWindow(QMainWindow):
     def _decrease_preview_text_size(self): self._zoom_ctrl.decrease_preview()
     def _reset_preview_text_size(self): self._zoom_ctrl.reset_preview()
     def _export_active_canvas_document(self): self._canvas_controller.export_active_canvas_document()
+    def _export_annotations_from_panel(self, panel: object, panel_scope: str, tab_name: str):
+        self._canvas_controller.export_panel_annotations_to_canvas(
+            panel=panel,
+            panel_scope=panel_scope,
+            tab_name=tab_name,
+            user_mode=self._user_mode,
+        )
 
     # ── Glossary ──────────────────────────────────────────────────────
 

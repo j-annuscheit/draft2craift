@@ -23,6 +23,16 @@ def connect_global_signals(window: Any) -> None:
     window.canvas.tabs.read_aloud_requested.connect(window._speak_selection_text)
     window.knowledge_dock.doc_viewer.tabs.read_aloud_requested.connect(window._speak_selection_text)
     window.knowledge_dock.rag_panel.tabs.read_aloud_requested.connect(window._speak_selection_text)
+    window.canvas.tabs.annotation_export_requested.connect(window._export_annotations_from_panel)
+    window.knowledge_dock.doc_viewer.tabs.annotation_export_requested.connect(
+        window._export_annotations_from_panel
+    )
+    window.knowledge_dock.rag_panel.tabs.annotation_export_requested.connect(
+        window._export_annotations_from_panel
+    )
+    window.chat_dock.history.annotation_export_requested.connect(
+        window._export_annotations_from_panel
+    )
 
     try:
         window.chat_dock.history.content_changed.connect(window._on_chat_history_content_changed)

@@ -197,6 +197,23 @@ class MarkdownSplitPanel(QWidget):
     def get_preview_selected_text(self) -> str:
         return self._preview.get_selected_text()
 
+    def annotation_export_text(self) -> str:
+        """
+        Return preview-equivalent plain text used for annotation matching.
+
+        Pending HTML edits are committed before text extraction so export
+        always uses the latest content state.
+        """
+        self.flush_pending_preview_edits()
+        markdown_text = str(self.editor.get_full_text() or "")
+        resolver = getattr(self._preview, "plain_text_for_markdown", None)
+        if callable(resolver):
+            try:
+                return str(resolver(markdown_text) or "")
+            except Exception:
+                return markdown_text
+        return markdown_text
+
     def find_preview_text(
         self,
         query: str,

@@ -4,8 +4,13 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 import pytest
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QDialog, QWidget
 
+from studio.canvas.exporting.annotation_export import (
+    AnnotationExportData,
+    AnnotationExportEntry,
+    AnnotationExportOptions,
+)
 from studio.controllers.canvas_controller import CanvasController
 from studio.controllers.chat_controller import ChatController
 from studio.controllers.project_controller import ProjectController
@@ -124,6 +129,76 @@ class CanvasControllerIntegrationTests(unittest.TestCase):
         controller._show_status.assert_called_once_with(
             "Kein exportierbares Canvas aktiv.",
             2800,
+        )
+
+    def test_export_panel_annotations_to_canvas_creates_new_draft_tab(self):
+        parent = QWidget()
+        canvas = _CanvasStub(QWidget())
+        canvas.tabs.add_tab = Mock()
+        show_status = Mock()
+        controller = CanvasController(
+            parent=parent,
+            canvas=canvas,  # type: ignore[arg-type]
+            knowledge_dock=QWidget(),  # type: ignore[arg-type]
+            chat_dock=QWidget(),  # type: ignore[arg-type]
+            show_status=show_status,
+        )
+        panel = Mock()
+        panel.annotation_export_text.return_value = "Alpha Beta"
+        export_data = AnnotationExportData(
+            entries=(
+                AnnotationExportEntry(
+                    highlight_id="hl_1",
+                    kind="user",
+                    color="#F9E2AF",
+                    text="Alpha",
+                    comment="Kommentar",
+                    created_at="2026-03-01T10:00:00+00:00",
+                    start=0,
+                    end=5,
+                ),
+            ),
+            color_counts=(("#F9E2AF", 1),),
+            glossary_count=0,
+        )
+
+        with (
+            patch(
+                "studio.controllers.canvas_controller.collect_annotation_export_data",
+                return_value=export_data,
+            ),
+            patch(
+                "studio.controllers.canvas_controller.build_annotation_export_markdown",
+                return_value="# Export",
+            ),
+            patch("studio.controllers.canvas_controller.AnnotationExportDialog") as dialog_cls,
+        ):
+            dialog = dialog_cls.return_value
+            dialog.exec.return_value = QDialog.DialogCode.Accepted
+            dialog.options.return_value = AnnotationExportOptions(
+                include_colors=("#F9E2AF",),
+                include_glossary=False,
+                include_comments=True,
+                sort_mode="chronological",
+                keep_markers=True,
+            )
+            ok = controller.export_panel_annotations_to_canvas(
+                panel=panel,
+                panel_scope="draft",
+                tab_name="Draft 1",
+                user_mode="standard",
+            )
+
+        self.assertTrue(ok)
+        canvas.tabs.add_tab.assert_called_once_with(
+            title="Annotationen: Draft 1",
+            content="# Export",
+            read_only=False,
+            activate=True,
+        )
+        show_status.assert_called_once_with(
+            "Annotationen in neuem Canvas-Tab extrahiert.",
+            4200,
         )
 
 

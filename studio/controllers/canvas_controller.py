@@ -5,10 +5,17 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from PySide6.QtWidgets import QApplication, QTabWidget, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QTabWidget, QWidget
 
+from shared.domain.user_mode import resolve_feature_label
+from studio.canvas.exporting.annotation_export import (
+    AnnotationExportOptions,
+    build_annotation_export_markdown,
+    collect_annotation_export_data,
+)
 from studio.canvas.file_actions import CanvasFileActions
 from studio.canvas.editor import MarkdownEditor
+from studio.dialogs.annotation_export_dialog import AnnotationExportDialog
 
 _LOG = logging.getLogger(__name__)
 
@@ -191,6 +198,115 @@ class CanvasController:
             panel_scope=scope,
             tab_name=tab_name,
         )
+
+    @staticmethod
+    def _resolve_annotation_source_text(panel: object) -> str:
+        payload_getter = getattr(panel, "annotation_export_text", None)
+        if callable(payload_getter):
+            try:
+                return str(payload_getter() or "")
+            except Exception:
+                return ""
+        editor = getattr(panel, "editor", None)
+        if editor is None:
+            return ""
+        getter = getattr(editor, "get_full_text", None)
+        if callable(getter):
+            try:
+                return str(getter() or "")
+            except Exception:
+                return ""
+        return str(getattr(editor, "toPlainText", lambda: "")() or "")
+
+    @staticmethod
+    def _label(mode: str, key: str, default: str) -> str:
+        return resolve_feature_label(str(mode or ""), key, default)
+
+    def export_panel_annotations_to_canvas(
+        self,
+        *,
+        panel: object,
+        panel_scope: str,
+        tab_name: str,
+        user_mode: str = "",
+    ) -> bool:
+        source_text = self._resolve_annotation_source_text(panel)
+        if not source_text.strip():
+            self._show_status(
+                self._label(
+                    user_mode,
+                    "annotation.extract.status.empty",
+                    "Keine Annotationen im aktiven Reiter gefunden.",
+                ),
+                3200,
+            )
+            return False
+
+        scope = str(panel_scope or "").strip().lower() or "generic"
+        title = str(tab_name or "").strip()
+        data = collect_annotation_export_data(
+            panel_scope=scope,
+            tab_name=title,
+            source_text=source_text,
+        )
+        if not data.has_entries:
+            self._show_status(
+                self._label(
+                    user_mode,
+                    "annotation.extract.status.empty",
+                    "Keine Annotationen im aktiven Reiter gefunden.",
+                ),
+                3200,
+            )
+            return False
+
+        dialog = AnnotationExportDialog(
+            color_counts=list(data.color_counts),
+            glossary_count=int(data.glossary_count),
+            user_mode=user_mode,
+            parent=self._parent,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+
+        options = AnnotationExportOptions.normalize(dialog.options())
+        content = build_annotation_export_markdown(
+            panel_scope=scope,
+            tab_name=title,
+            data=data,
+            options=options,
+        )
+        if title:
+            title_template = self._label(
+                user_mode,
+                "annotation.extract.canvas_tab_title.template",
+                "Annotationen: {tab}",
+            )
+            try:
+                tab_title = str(title_template).format(tab=title)
+            except Exception:
+                tab_title = f"Annotationen: {title}"
+        else:
+            tab_title = self._label(
+                user_mode,
+                "annotation.extract.canvas_tab_title.default",
+                "Annotationen Extraktion",
+            )
+        self._canvas.tabs.add_tab(
+            title=tab_title,
+            content=content,
+            read_only=False,
+            activate=True,
+        )
+        self._show_status(
+            self._label(
+                user_mode,
+                "annotation.extract.status.done",
+                "Annotationen in neuem Canvas-Tab extrahiert.",
+            ),
+            4200,
+        )
+        return True
 
     def select_next_draft_tab(self) -> None:
         tabs = self._canvas.tabs.tab_widget

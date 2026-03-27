@@ -61,6 +61,9 @@ class DocumentViewerPanel(QWidget):
 
     def set_user_mode(self, mode: str) -> None:
         self._user_mode = normalize_user_mode(mode)
+        tabs_mode_setter = getattr(self.tabs, "set_user_mode", None)
+        if callable(tabs_mode_setter):
+            tabs_mode_setter(self._user_mode)
         tab_widget = self.tabs.tab_widget
         for idx in range(tab_widget.count()):
             self._apply_panel_user_mode(tab_widget.widget(idx))

@@ -18,6 +18,12 @@ from PySide6.QtWidgets import (
 from studio.canvas.editor_panel import EditorPanel
 from studio.canvas.editor_styles import TAB_STYLE, TAB_STYLE_COMPACT
 from studio.canvas.file_actions import CanvasFileActions
+from shared.domain.user_mode import (
+    default_user_mode,
+    is_feature_visible,
+    normalize_user_mode,
+    resolve_feature_label,
+)
 
 
 class TabbedEditorWidget(QWidget):
@@ -29,6 +35,8 @@ class TabbedEditorWidget(QWidget):
 
     tab_renamed = Signal(str, str)   # old_title, new_title
     read_aloud_requested = Signal(str)
+    annotation_export_requested = Signal(object, str, str)  # panel, scope, tab_name
+    _ANNOTATION_EXTRACT_KEY = "editor.tab.context.annotation_extract"
 
     def __init__(
         self,
@@ -46,6 +54,7 @@ class TabbedEditorWidget(QWidget):
     ):
         super().__init__(parent)
         self.default_read_only = default_read_only
+        self._user_mode = default_user_mode()
         self.tab_title_prefix = tab_title_prefix
         self.editable_tab_titles = bool(editable_tab_titles)
         self.compact_inactive_tabs = bool(compact_inactive_tabs)
@@ -77,6 +86,12 @@ class TabbedEditorWidget(QWidget):
 
         layout.addWidget(self.tab_widget)
         self.add_tab()
+
+    def set_user_mode(self, mode: str) -> None:
+        self._user_mode = normalize_user_mode(mode)
+
+    def _label(self, key: str, default: str) -> str:
+        return resolve_feature_label(self._user_mode, key, default)
 
     def add_tab(
         self,
@@ -254,6 +269,18 @@ class TabbedEditorWidget(QWidget):
 
         menu = QMenu(self)
         export_action = menu.addAction("Exportieren…")
+        annotation_extract_action = None
+        if is_feature_visible(
+            self._user_mode,
+            self._ANNOTATION_EXTRACT_KEY,
+            default=True,
+        ):
+            annotation_extract_action = menu.addAction(
+                self._label(
+                    self._ANNOTATION_EXTRACT_KEY,
+                    "Annotationen extrahieren…",
+                )
+            )
         menu.addSeparator()
         read_only_action = menu.addAction("🔒 Read-Only")
         read_only_action.setCheckable(True)
@@ -302,6 +329,15 @@ class TabbedEditorWidget(QWidget):
                 default_format="pdf",
                 panel_scope=self.export_scope,
                 tab_name=tab_name,
+            )
+            return
+
+        if annotation_extract_action is not None and picked is annotation_extract_action:
+            tab_name = self.get_tab_full_title(index)
+            self.annotation_export_requested.emit(
+                panel,
+                self.export_scope,
+                tab_name,
             )
             return
 

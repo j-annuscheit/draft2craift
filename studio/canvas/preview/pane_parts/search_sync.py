@@ -143,6 +143,29 @@ def _preview_plain_text(self) -> str:
     if self._structured_view_active:
         return str(self._graph_plain_text or "")
     return (self._view.toPlainText() or "").replace("\r\n", "\n")
+
+
+def preview_plain_text(self) -> str:
+    """Return currently rendered preview plain text."""
+    return self._preview_plain_text()
+
+
+def plain_text_for_markdown(self, markdown_text: str) -> str:
+    """
+    Build preview-equivalent plain text for markdown input.
+
+    This does not depend on current widget visibility and can be used by
+    export routines that must resolve highlight anchors while the preview
+    pane is hidden.
+    """
+    source = str(markdown_text or "").replace("\r\n", "\n")
+    if not source.strip():
+        return ""
+    render_md = self._markdown_for_render(source)
+    render_md = self._apply_render_unordered_marker_gap(render_md)
+    doc = QTextDocument()
+    doc.setMarkdown(render_md)
+    return (doc.toPlainText() or "").replace("\r\n", "\n")
 @classmethod
 def _tail_probe_from_markdown(cls, markdown: str) -> str:
     lines = str(markdown or "").splitlines()
@@ -201,6 +224,8 @@ __all__ = [
     "schedule_cursor_sync",
     "_current_tab_name",
     "_preview_plain_text",
+    "preview_plain_text",
+    "plain_text_for_markdown",
     "_tail_probe_from_markdown",
     "_contains_tail_probe",
     "_copy_selection_to_clipboard",

@@ -143,6 +143,9 @@ def update_context_bar(self, parts: list[str]):
 
 def set_user_mode(self, mode: str):
     self._user_mode = normalize_user_mode(mode)
+    history_setter = getattr(self.history, "set_user_mode", None)
+    if callable(history_setter):
+        history_setter(self._user_mode)
     self.model_panel.set_user_mode(self._user_mode)
     panel_setter = getattr(self.context_panel, "set_user_mode", None)
     if callable(panel_setter):
