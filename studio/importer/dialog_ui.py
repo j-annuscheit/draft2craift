@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -94,7 +95,12 @@ class FileImportDialogUIMixin:
 
         self._pdf_viewer = PDFViewerPanel()
         self._pdf_viewer.zone_changed.connect(self._on_zone_changed)
-        self._pdf_tab_index = self._tabs.addTab(self._pdf_viewer, "PDF View")
+        self._pdf_tab_widget = QWidget()
+        pdf_layout = QVBoxLayout(self._pdf_tab_widget)
+        pdf_layout.setContentsMargins(0, 0, 0, 0)
+        pdf_layout.setSpacing(0)
+        pdf_layout.addWidget(self._pdf_viewer)
+        self._pdf_tab_index = self._tabs.addTab(self._pdf_tab_widget, "PDF View")
 
         md_widget = QWidget()
         md_layout = QVBoxLayout(md_widget)
@@ -131,13 +137,39 @@ class FileImportDialogUIMixin:
             "For PDFs: adjust settings, then click  ▶ Preview."
         )
         md_layout.addWidget(self._preview)
-        self._markdown_tab_index = self._tabs.addTab(md_widget, "🔒 Markdown")
+        self._markdown_tab_widget = md_widget
+        self._markdown_tab_index = self._tabs.addTab(self._markdown_tab_widget, "🔒 Markdown")
         self._tabs.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tabs.tabBar().customContextMenuRequested.connect(
             self._open_tab_context_menu
         )
+        self._split_view_active = False
+        self._split_view_origin_tab_index = -1
+        self._tabs_page_index = 0
+        self._dual_view_page_index = 1
+        self._dual_view_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._dual_view_splitter.setChildrenCollapsible(False)
+        self._dual_view_splitter.setHandleWidth(8)
+        self._dual_markdown_tabs = QTabWidget()
+        self._dual_markdown_tabs.setStyleSheet(
+            "QTabWidget::pane { border: none; }"
+            "QTabBar::tab { background: palette(alternate-base); color: palette(text);"
+            "               padding: 4px 12px; border-radius: 3px 3px 0 0; font-size: 11px; }"
+            "QTabBar::tab:selected { background: palette(base); color: palette(text); }"
+            "QTabBar::tab:hover { background: palette(highlight); color: palette(highlighted-text); }"
+        )
+        self._dual_markdown_tabs.tabBar().setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self._dual_markdown_tabs.tabBar().customContextMenuRequested.connect(
+            self._open_dual_markdown_tab_context_menu
+        )
+        self._right_stack = QStackedWidget()
+        self._right_stack.addWidget(self._tabs)
+        self._right_stack.addWidget(self._dual_view_splitter)
+        self._right_stack.setCurrentIndex(self._tabs_page_index)
 
-        self._splitter.addWidget(self._tabs)
+        self._splitter.addWidget(self._right_stack)
         if bool(getattr(self, "_settings_visible", True)):
             self._splitter.setSizes([220, 320, 560])
         else:
@@ -174,11 +206,14 @@ class FileImportDialogUIMixin:
         self._btn_open = QPushButton("Import and Close")
         self._btn_open.setEnabled(False)
         self._btn_open.clicked.connect(self._open_in_viewer)
+        self._btn_toggle_split_view = QPushButton("Show PDF + Markdown")
+        self._btn_toggle_split_view.clicked.connect(self._toggle_split_view)
         self._btn_cancel = QPushButton("Abbrechen")
         self._btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(self._btn_import)
         btn_row.addWidget(self._btn_llm_fix)
         btn_row.addWidget(self._btn_open)
+        btn_row.addWidget(self._btn_toggle_split_view)
         btn_row.addWidget(self._btn_cancel)
         root.addLayout(btn_row)
         refresh = getattr(self, "_refresh_llm_fix_button", None)
@@ -283,6 +318,7 @@ class FileImportDialogUIMixin:
                 "Import and Close",
             )
         )
+        self._refresh_split_view_button()
         self._btn_cancel.setText(
             resolve_feature_label(
                 self._user_mode,
@@ -427,6 +463,21 @@ class FileImportDialogUIMixin:
         if index != getattr(self, "_markdown_tab_index", -1):
             return
 
+        self._open_markdown_context_menu_for_bar(bar, pos)
+
+    def _open_dual_markdown_tab_context_menu(self, pos):
+        tabs = getattr(self, "_dual_markdown_tabs", None)
+        if tabs is None:
+            return
+        bar = tabs.tabBar()
+        index = bar.tabAt(pos)
+        if index != tabs.indexOf(self._markdown_tab_widget):
+            return
+
+        self._open_markdown_context_menu_for_bar(bar, pos)
+
+    def _open_markdown_context_menu_for_bar(self, bar, pos):
+        
         menu = QMenu(self)
         read_only_action = menu.addAction(
             resolve_feature_label(
@@ -487,15 +538,116 @@ class FileImportDialogUIMixin:
             self._preview.set_view_mode("both")
 
     def _refresh_markdown_tab_title(self):
-        if getattr(self, "_markdown_tab_index", -1) < 0:
-            return
         prefix = "🔒" if self._preview.editor.isReadOnly() else "✏"
         title = resolve_feature_label(
             self._user_mode,
             "importer.dialog.tab.markdown",
             "Markdown",
         )
-        self._tabs.setTabText(self._markdown_tab_index, f"{prefix} {title}")
+        label = f"{prefix} {title}"
+        if getattr(self, "_markdown_tab_index", -1) >= 0 and self._markdown_tab_index < self._tabs.count():
+            self._tabs.setTabText(self._markdown_tab_index, label)
+        dual_tabs = getattr(self, "_dual_markdown_tabs", None)
+        if dual_tabs is not None:
+            dual_idx = dual_tabs.indexOf(self._markdown_tab_widget)
+            if dual_idx >= 0:
+                dual_tabs.setTabText(dual_idx, label)
+
+    def _refresh_split_view_button(self):
+        active = bool(getattr(self, "_split_view_active", False))
+        key = (
+            "importer.dialog.button.toggle_split.exit"
+            if active
+            else "importer.dialog.button.toggle_split.enter"
+        )
+        fallback = (
+            "Zurück zur Tab-Ansicht"
+            if active
+            else "PDF + Markdown parallel"
+        )
+        self._btn_toggle_split_view.setText(
+            resolve_feature_label(self._user_mode, key, fallback)
+        )
+        tip_key = (
+            "importer.dialog.button.toggle_split.tooltip.exit"
+            if active
+            else "importer.dialog.button.toggle_split.tooltip.enter"
+        )
+        tip_fallback = (
+            "Zurück zur vorherigen Tab-Ansicht wechseln."
+            if active
+            else "Links Original-PDF, rechts Markdown-Fenster (Markdown/HTML/beides)."
+        )
+        self._btn_toggle_split_view.setToolTip(
+            resolve_feature_label(self._user_mode, tip_key, tip_fallback)
+        )
+
+    def _detach_tabs_for_dual_view(self):
+        pdf_index = self._tabs.indexOf(self._pdf_tab_widget)
+        if pdf_index >= 0:
+            self._tabs.removeTab(pdf_index)
+        markdown_index = self._tabs.indexOf(self._markdown_tab_widget)
+        if markdown_index >= 0:
+            self._tabs.removeTab(markdown_index)
+        self._pdf_tab_index = -1
+        self._markdown_tab_index = -1
+
+    def _detach_dual_view_widgets(self):
+        dual_tabs = getattr(self, "_dual_markdown_tabs", None)
+        if dual_tabs is not None:
+            dual_idx = dual_tabs.indexOf(self._markdown_tab_widget)
+            if dual_idx >= 0:
+                dual_tabs.removeTab(dual_idx)
+        try:
+            self._pdf_tab_widget.setParent(None)
+        except Exception:
+            pass
+        try:
+            self._markdown_tab_widget.setParent(None)
+        except Exception:
+            pass
+
+    def _rebuild_tabs_after_dual_view(self):
+        self._tabs.clear()
+        self._pdf_tab_index = self._tabs.addTab(
+            self._pdf_tab_widget,
+            resolve_feature_label(
+                self._user_mode,
+                "importer.dialog.tab.pdf_view",
+                "PDF View",
+            ),
+        )
+        self._markdown_tab_index = self._tabs.addTab(self._markdown_tab_widget, "")
+        self._refresh_markdown_tab_title()
+
+    def _toggle_split_view(self):
+        if bool(getattr(self, "_split_view_active", False)):
+            self._detach_dual_view_widgets()
+            self._rebuild_tabs_after_dual_view()
+            self._right_stack.setCurrentIndex(self._tabs_page_index)
+            previous_index = int(getattr(self, "_split_view_origin_tab_index", -1))
+            if 0 <= previous_index < self._tabs.count():
+                self._tabs.setCurrentIndex(previous_index)
+            self._split_view_active = False
+            self._split_view_origin_tab_index = -1
+            self._refresh_split_view_button()
+            return
+
+        self._split_view_origin_tab_index = int(self._tabs.currentIndex())
+        self._detach_tabs_for_dual_view()
+        self._dual_view_splitter.addWidget(self._pdf_tab_widget)
+        self._dual_view_splitter.addWidget(self._dual_markdown_tabs)
+        self._dual_markdown_tabs.addTab(self._markdown_tab_widget, "")
+        self._refresh_markdown_tab_title()
+        self._dual_markdown_tabs.setCurrentIndex(0)
+        if hasattr(self._pdf_tab_widget, "show"):
+            self._pdf_tab_widget.show()
+        if hasattr(self._dual_markdown_tabs, "show"):
+            self._dual_markdown_tabs.show()
+        self._dual_view_splitter.setSizes([560, 740])
+        self._right_stack.setCurrentIndex(self._dual_view_page_index)
+        self._split_view_active = True
+        self._refresh_split_view_button()
 
     def _on_import_feedback(self, sentiment: str, tags: list[str], note: str):
         service = getattr(self, "_feedback_service", None)
