@@ -312,6 +312,9 @@ def _run_llm_fix_current_markdown(self):
     running = self._llm_fix_worker
     if running is not None and running.isRunning():
         return
+    sync_markdown = getattr(self, "_sync_current_markdown_from_preview", None)
+    if callable(sync_markdown):
+        sync_markdown()
 
     candidates = self._llm_fix_candidate_paths()
     if not candidates:

@@ -347,6 +347,9 @@ class FileImportDialogUIMixin:
                 )
             except Exception:
                 pass
+        sync_markdown = getattr(self, "_sync_current_markdown_from_preview", None)
+        if callable(sync_markdown):
+            sync_markdown()
         busy_check = getattr(self, "_has_running_background_worker", None)
         if callable(busy_check) and bool(busy_check()):
             self._preview_status.setText(

@@ -13,11 +13,33 @@ from shared.services.importer.entry import (
     preview_placeholder_text,
 )
 from shared.services.importer.models import _SUPPORTED_FILTER
-from .ui_constants import _ICON, _STATUS_PENDING
+from .ui_constants import _ICON, _STATUS_DONE, _STATUS_PENDING
 
 
 class FileImportSelectionMixin:
     """File list and selection handling."""
+
+    def _sync_current_markdown_from_preview(self, path: str | None = None):
+        key = str(path or self._current_path or "").strip()
+        if not key:
+            return
+        entry = self._entries.get(key)
+        if entry is None or str(entry.status or "") != _STATUS_DONE:
+            return
+
+        preview = getattr(self, "_preview", None)
+        if preview is None:
+            return
+        flush = getattr(preview, "flush_pending_preview_edits", None)
+        if callable(flush):
+            try:
+                flush()
+            except Exception:
+                pass
+        editor = getattr(preview, "editor", None)
+        if editor is None or not hasattr(editor, "toPlainText"):
+            return
+        entry.markdown = str(editor.toPlainText() or "")
 
     def _unique_entry_name(self, desired: str, current_path: str) -> str:
         target = str(desired or "").strip()
@@ -137,6 +159,7 @@ class FileImportSelectionMixin:
 
     def _on_item_selected(self, current: QListWidgetItem, previous: QListWidgetItem):
         if previous is not None and self._current_path:
+            self._sync_current_markdown_from_preview(self._current_path)
             self._save_panel_settings(self._current_path)
 
         if not current:
