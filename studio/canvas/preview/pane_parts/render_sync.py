@@ -43,6 +43,7 @@ def _render(self):
                 return
 
             render_md = self._markdown_for_render(md)
+            render_md = self._apply_render_unordered_marker_gap(render_md)
             if render_md != self._last_rendered_markdown:
                 self._set_markdown_or_graph_content(render_md)
                 self._last_rendered_markdown = render_md
@@ -63,6 +64,8 @@ def _render(self):
         finally:
             self._suppress_preview_change = False
 
+        self._apply_block_spacing_overrides()
+        self._apply_code_typography_overrides()
         self._apply_highlights()
         if not did_replace_document:
             self._preserve_view_state_once = False

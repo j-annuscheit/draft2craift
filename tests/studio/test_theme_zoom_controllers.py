@@ -8,6 +8,8 @@ from PySide6.QtWidgets import QMainWindow
 
 from shared.config.setting_keys import ThemeSettingsKeys
 from studio.canvas.preview.pane import CanvasPreviewPane
+from studio.canvas.preview.style_settings import default_preview_style_settings
+from studio.canvas.editor import MarkdownEditor
 from studio.controllers.theme_ctrl import ThemeController
 from studio.controllers.zoom_ctrl import ZoomController
 
@@ -79,6 +81,27 @@ class ThemeControllerIntegrationTests(unittest.TestCase):
             )
             window.deleteLater()
 
+    def test_apply_preview_style_settings_updates_global_markdown_editor_font(self):
+        previous_font = MarkdownEditor.global_font_family()
+        settings = _SettingsStub()
+        window = QMainWindow()
+        controller = ThemeController(
+            app_settings=settings,  # type: ignore[arg-type]
+            parent_window=window,
+            autosave_schedule_fn=Mock(),
+        )
+        try:
+            style = default_preview_style_settings()
+            style["markdown_font_family"] = "DejaVu Sans Mono"
+            controller.apply_preview_style_settings(style, persist=False, force=True)
+            self.assertEqual(
+                MarkdownEditor.global_font_family(),
+                "DejaVu Sans Mono",
+            )
+        finally:
+            MarkdownEditor.apply_global_font_family(previous_font, force=True)
+            window.deleteLater()
+
 
 class ZoomControllerIntegrationTests(unittest.TestCase):
     def test_increase_active_prefers_focused_markdown_editor(self):
@@ -128,4 +151,3 @@ class ZoomControllerIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

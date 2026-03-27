@@ -110,6 +110,9 @@ def set_preview_zoom_percent(self, percent: int) -> bool:
     self._zoom_percent = clamped
     self._apply_title_style()
     self._apply_view_document_style()
+    # Keep visible spacing/code metrics in sync immediately on zoom change.
+    self._apply_block_spacing_overrides()
+    self._apply_code_typography_overrides()
     self.schedule_update()
     return True
 def increase_preview_text_size(self) -> bool:

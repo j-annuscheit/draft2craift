@@ -27,7 +27,6 @@ from shared.services.project.project_variables import (
     normalize_project_variables,
     resolve_project_variables_text,
 )
-from studio.canvas.preview.pane import CanvasPreviewPane
 from studio.canvas.tabs import CanvasTabWidget
 from studio.controllers.feedback_ctrl import FeedbackController
 from studio.controllers.agentic_settings_ctrl import AgenticSettingsController
@@ -64,6 +63,21 @@ _WELCOME_TEXT = _read_data_file(
 
 _ABOUT_TEXT = _read_data_file("about.md", "")
 _SHORTCUTS_TEXT = _read_data_file("shortcuts.md", "")
+
+
+def _apply_project_variables(
+    window: QMainWindow,
+    raw: object,
+    *,
+    notify: bool = True,
+) -> None:
+    setattr(window, "_project_variables", normalize_project_variables(raw))
+    if not notify:
+        return
+    bar = window.statusBar()
+    if bar is not None:
+        bar.showMessage("Project variables updated.", 3000)
+
 
 # ── Main Window ────────────────────────────────────────────────────────────────
 
@@ -112,8 +126,6 @@ class MainWindow(QMainWindow):
                 log_dock=self.log_dock,
                 llm_stop=self.llm_manager.stop,
                 user_mode_changed=self.set_user_mode,
-                apply_theme_id=self.apply_theme_id,
-                apply_preview_theme_id=self.apply_preview_theme_id,
                 bind_feature_visibility=self._bind_feature_visibility,
                 bind_feature_label=self._bind_feature_label,
                 action_handlers={
@@ -130,6 +142,7 @@ class MainWindow(QMainWindow):
                     "increase_preview_text_size": self._increase_preview_text_size,
                     "decrease_preview_text_size": self._decrease_preview_text_size,
                     "reset_preview_text_size": self._reset_preview_text_size,
+                    "open_preview_layout_settings": self._open_preview_layout_settings,
                     "toggle_glossary_overlays": self._toggle_glossary_overlays,
                     "open_glossary_editor": self._open_glossary_editor,
                     "reset_layout": self._reset_layout,
@@ -165,13 +178,6 @@ class MainWindow(QMainWindow):
         self._model_controls_toggle_action = menu_result.model_controls_toggle_action
         self._mode_group = menu_result.mode_group
         self._mode_actions = menu_result.mode_actions
-        self._theme_group = menu_result.theme_group
-        self._theme_actions = menu_result.theme_actions
-        self._action_page_margin_enabled = menu_result.action_page_margin_enabled
-        self._page_margin_group = menu_result.page_margin_group
-        self._page_margin_actions = menu_result.page_margin_actions
-        self._preview_theme_group = menu_result.preview_theme_group
-        self._preview_theme_actions = menu_result.preview_theme_actions
         self._action_glossary_overlay = menu_result.action_glossary_overlay
         self._action_autosave_toggle = menu_result.action_autosave_toggle
         self._action_edit_prompts = menu_result.action_edit_prompts
@@ -211,8 +217,6 @@ class MainWindow(QMainWindow):
         self._app_settings = services.app_settings
         self._mode_actions = {}
         self._model_status_success = None
-        self._theme_actions = {}
-        self._preview_theme_actions = {}
         self._feature_bindings = FeatureBindingRegistry()
 
     def _init_early_controllers(self):
@@ -222,9 +226,7 @@ class MainWindow(QMainWindow):
         )
         self._context.bind_theme_controller(self._theme_ctrl)
         self._theme_ctrl.apply_theme_id(self._theme_ctrl.get_theme_id(), persist=False)
-        margin_enabled, margin_em = self._theme_ctrl._load_preview_page_margin_settings()
-        CanvasPreviewPane.apply_global_page_margin_settings(enabled=margin_enabled, em=margin_em)
-        CanvasPreviewPane.apply_global_preview_theme(self._theme_ctrl._load_preview_theme_id())
+        self._theme_ctrl.bootstrap_preview_runtime_from_settings()
         self._feedback_ctrl = FeedbackController(
             app_settings=self._app_settings,
             show_status=self._context.show_status,
@@ -339,16 +341,13 @@ class MainWindow(QMainWindow):
     def apply_preview_page_margin_settings(self, raw: object): self._theme_ctrl.apply_preview_page_margin_settings(raw)
     def get_preview_theme_id(self) -> str: return self._theme_ctrl.get_preview_theme_id()
     def apply_preview_theme_id(self, theme_id: object, *, persist: bool = True): self._theme_ctrl.apply_preview_theme_id(theme_id, persist=persist)
+    def get_preview_style_settings(self) -> dict: return self._theme_ctrl.get_preview_style_settings()
+    def apply_preview_style_settings(self, raw: object, *, persist: bool = True): self._theme_ctrl.apply_preview_style_settings(raw, persist=persist)
     def get_speech_settings(self) -> dict: return self._speech_ctrl.get_speech_settings()
     def apply_speech_settings(self, raw: object): self._speech_ctrl.apply_speech_settings(raw)
     def get_project_variables(self) -> dict[str, str]:
         return dict(self._project_variables)
-    def set_project_variables(self, raw: object, *, notify: bool = True) -> None:
-        self._project_variables = normalize_project_variables(raw)
-        if notify:
-            bar = self.statusBar()
-            if bar is not None:
-                bar.showMessage("Project variables updated.", 3000)
+    def set_project_variables(self, raw: object, *, notify: bool = True) -> None: _apply_project_variables(self, raw, notify=notify)
     def resolve_project_variables_text(self, text: object) -> str:
         return resolve_project_variables_text(
             text,
@@ -489,6 +488,7 @@ class MainWindow(QMainWindow):
 
     def _open_rag_settings(self): self._knowledge_controller.open_rag_settings_dialog()
     def _try_sentence_transformers(self): self._knowledge_controller.try_load_sentence_transformers()
+    def _open_preview_layout_settings(self): self._theme_ctrl.open_preview_layout_settings_dialog()
     def _edit_system_prompt(self): self._llm_tasks.edit_system_prompt()
     def _focus_model_panel(self):
         self._chat_controller.focus_model_panel(
@@ -548,8 +548,7 @@ class MainWindow(QMainWindow):
                 "Bitte warten, bis Import, Analyse oder LLM-Optimierung abgeschlossen ist.",
             )
             event.ignore(); return
-        self._theme_ctrl._persist_preview_page_margin_settings()
-        self._theme_ctrl._persist_theme_id(self.get_theme_id())
+        self._theme_ctrl.persist_runtime_settings()
         self._autosave_ctrl.flush_before_close()
         self._speech_ctrl.stop_all()
         self._dialog_manager.close_all()

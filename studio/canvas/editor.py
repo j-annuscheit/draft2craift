@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import weakref
 
 from PySide6.QtCore import QMimeData, Qt, Signal
 from PySide6.QtGui import QAction, QContextMenuEvent, QFont
@@ -32,35 +33,68 @@ class MarkdownEditor(QPlainTextEdit):
     _ZOOM_MAX = 260
     _ZOOM_STEP = 10
     _READ_ALOUD_FEATURE_KEY = "editor.context.read_aloud_selection"
+    _DEFAULT_FONT_FAMILY = "Cascadia Code"
+    _GLOBAL_FONT_FAMILY = _DEFAULT_FONT_FAMILY
+    _INSTANCES: "weakref.WeakSet[MarkdownEditor]" = weakref.WeakSet()
 
     def __init__(self, parent: QWidget | None = None, read_only: bool = False):
         super().__init__(parent)
         self._font_size_pt = self._BASE_FONT_PT
+        self._font_family = self._normalize_font_family(self._GLOBAL_FONT_FAMILY)
         self._user_mode = default_user_mode()
+        self._INSTANCES.add(self)
         self._setup_font()
         self.highlighter = MarkdownHighlighter(self.document())
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.setTabStopDistance(32)
         self.setReadOnly(read_only)
 
+    @classmethod
+    def _normalize_font_family(cls, value: object) -> str:
+        text = str(value or "").strip()
+        if len(text) > 120:
+            text = text[:120].strip()
+        return text or str(cls._DEFAULT_FONT_FAMILY)
+
+    @classmethod
+    def global_font_family(cls) -> str:
+        return cls._normalize_font_family(cls._GLOBAL_FONT_FAMILY)
+
+    @classmethod
+    def apply_global_font_family(cls, family: object, *, force: bool = False) -> None:
+        normalized = cls._normalize_font_family(family)
+        if (not force) and normalized == cls._normalize_font_family(cls._GLOBAL_FONT_FAMILY):
+            return
+        cls._GLOBAL_FONT_FAMILY = normalized
+        for editor in list(cls._INSTANCES):
+            try:
+                editor.set_editor_font_family(normalized, force=force)
+            except Exception:
+                continue
+
+    def set_editor_font_family(self, family: object, *, force: bool = False) -> bool:
+        normalized = self._normalize_font_family(family)
+        if (not force) and normalized == str(self._font_family):
+            return False
+        self._font_family = normalized
+        self._setup_font()
+        self._apply_style()
+        return True
+
     def _setup_font(self):
-        for family in (
-            "Cascadia Code",
-            "JetBrains Mono",
-            "Fira Code",
-            "Consolas",
-            "DejaVu Sans Mono",
-            "Monospace",
-        ):
-            font = QFont(family)
-            font.setStyleHint(QFont.StyleHint.Monospace)
-            font.setFixedPitch(True)
-            font.setPointSizeF(self._font_size_pt)
-            self.setFont(font)
-            break
+        font = QFont(str(self._font_family))
+        font.setStyleHint(QFont.StyleHint.AnyStyle)
+        font.setPointSizeF(self._font_size_pt)
+        self.setFont(font)
 
     def _apply_style(self):
-        self.setStyleSheet(editor_style(self.isReadOnly(), self._font_size_pt))
+        self.setStyleSheet(
+            editor_style(
+                self.isReadOnly(),
+                self._font_size_pt,
+                str(self._font_family),
+            )
+        )
 
     def setReadOnly(self, read_only: bool):
         super().setReadOnly(read_only)

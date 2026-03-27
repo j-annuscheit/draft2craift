@@ -16,6 +16,17 @@ from shared.services.project.project_loader import ProjectLoader
 from shared.services.project.project_saver import ProjectSaver
 
 
+def _settings_payload() -> dict[str, object]:
+    return {
+        "prompts": {},
+        "speech": {},
+        "preview_page_margin": {"enabled": True, "em": 2.2},
+        "preview_theme": "classic",
+        "preview_style": {},
+        "theme": "dark",
+    }
+
+
 def _create_project_folder(base: Path) -> None:
     for folder in ("canvas", "knowledge", "rag", "chat", "logs"):
         (base / folder).mkdir(parents=True, exist_ok=True)
@@ -25,7 +36,7 @@ def _create_project_folder(base: Path) -> None:
         "rag_config": {},
         "canvas": {"tabs": [], "current_tab": 0},
         "knowledge": {"files": []},
-        "settings": {},
+        "settings": _settings_payload(),
         "llm": {},
         "ui": {},
     }

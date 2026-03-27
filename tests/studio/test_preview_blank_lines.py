@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 import pytest
-from PySide6.QtGui import QTextCursor
+from PySide6.QtGui import QTextCursor, QTextFormat
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -345,6 +345,124 @@ class PreviewBlankLineTests(unittest.TestCase):
             stylesheet = pane._markdown_stylesheet()
             self.assertIn("blockquote", stylesheet)
             self.assertIn("border-left", stylesheet)
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            _process_events()
+
+    def test_markdown_stylesheet_contains_code_block_box_rules(self):
+        pane, editor = self._build_pane()
+        try:
+            stylesheet = pane._markdown_stylesheet()
+            self.assertIn("pre {", stylesheet)
+            self.assertIn("border-radius: 6px;", stylesheet)
+            self.assertIn("padding: 0.55em 0.75em;", stylesheet)
+            self.assertIn("pre code {", stylesheet)
+            self.assertIn("background: transparent;", stylesheet)
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            _process_events()
+
+    def test_fenced_code_block_receives_single_box_spacing_and_background(self):
+        pane, editor = self._build_pane()
+        try:
+            editor.setPlainText(
+                "Vorher\n\n"
+                "```python\nx = 1\ny = 2\n```\n\n"
+                "Mitte\n\n"
+                "```\nabc\n```\n"
+            )
+            pane._render()
+            _process_events()
+
+            doc = pane._view.document()
+            runs: list[list] = []
+            current: list = []
+            block = doc.begin()
+            while block.isValid():
+                fmt = block.blockFormat()
+                has_fence = bool(
+                    str(
+                        fmt.stringProperty(int(QTextFormat.Property.BlockCodeFence))
+                        or ""
+                    ).strip()
+                )
+                if has_fence:
+                    current.append(block)
+                elif current:
+                    runs.append(current)
+                    current = []
+                block = block.next()
+            if current:
+                runs.append(current)
+
+            self.assertGreaterEqual(len(runs), 2)
+            first_run = runs[0]
+            self.assertGreaterEqual(len(first_run), 2)
+            first_fmt = first_run[0].blockFormat()
+            second_fmt = first_run[1].blockFormat()
+
+            self.assertGreater(first_fmt.leftMargin(), 0.5)
+            self.assertGreater(first_fmt.rightMargin(), 0.5)
+            self.assertGreater(first_fmt.topMargin(), second_fmt.topMargin() + 0.25)
+            self.assertGreater(first_run[-1].blockFormat().bottomMargin(), 0.5)
+
+            first_bg = first_fmt.background().color()
+            self.assertTrue(first_bg.isValid())
+            self.assertGreater(first_bg.alpha(), 0)
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            _process_events()
+
+    def test_view_colors_apply_to_widget_and_custom_paint_properties(self):
+        pane, editor = self._build_pane()
+        try:
+            style = pane.preview_style_settings()
+            style["body_background_color"] = "#123456"
+            style["body_text_color"] = "#F0E0D0"
+            style["quote_border_color"] = "#13579B"
+            style["hr_color"] = "#B97531"
+            pane.set_preview_style_settings(style, force=True)
+            _process_events()
+
+            sheet = str(pane._view.styleSheet() or "").upper()
+            self.assertIn("#123456", sheet)
+            self.assertIn("#F0E0D0", sheet)
+            self.assertEqual(
+                str(pane._view.property("_quote_border_color") or "").upper(),
+                "#13579B",
+            )
+            self.assertEqual(
+                str(pane._view.property("_hr_color") or "").upper(),
+                "#B97531",
+            )
+        finally:
+            pane.deleteLater()
+            editor.deleteLater()
+            _process_events()
+
+    def test_heading_size_factors_are_applied_to_stylesheet(self):
+        pane, editor = self._build_pane()
+        try:
+            style = pane.preview_style_settings()
+            style["heading_h1_size_em"] = 2.35
+            style["heading_h2_size_em"] = 1.95
+            style["heading_h3_size_em"] = 1.55
+            style["heading_h4_size_em"] = 1.30
+            style["heading_h5_size_em"] = 1.05
+            style["heading_h6_size_em"] = 0.85
+            pane.set_preview_style_settings(style, force=True)
+            _process_events()
+
+            stylesheet = pane._markdown_stylesheet()
+            self.assertIn("h1 { font-size: 2.35em;", stylesheet)
+            self.assertIn("h2 { font-size: 1.95em;", stylesheet)
+            self.assertIn("h3 { font-size: 1.55em;", stylesheet)
+            self.assertIn("h4 { font-size: 1.30em;", stylesheet)
+            self.assertIn("h5 { font-size: 1.05em;", stylesheet)
+            self.assertIn("h6 { font-size: 0.85em;", stylesheet)
         finally:
             pane.deleteLater()
             editor.deleteLater()
@@ -820,36 +938,46 @@ class PreviewBlankLineTests(unittest.TestCase):
             editor.deleteLater()
             _process_events()
 
-    def test_heading_levels_have_distinct_accent_colors(self):
+    def test_heading_levels_have_distinct_non_classic_theme_colors(self):
         pane, editor = self._build_pane()
         try:
             editor.setPlainText(
-                "# Überschrift 1\n\n## Überschrift 2\n\n### Überschrift 3"
+                "# Überschrift 1\n\n"
+                "## Überschrift 2\n\n"
+                "### Überschrift 3\n\n"
+                "#### Überschrift 4\n\n"
+                "##### Überschrift 5\n\n"
+                "###### Überschrift 6"
             )
             pane._render()
             _process_events()
 
-            pane.set_preview_theme_id("accent")
-            _process_events()
-            selections = pane._view.extraSelections()
-            self.assertGreater(len(selections), 0)
-            colors_by_text: dict[str, str] = {}
-            for sel in selections:
-                fg = sel.format.foreground().color()
-                if not fg.isValid():
-                    continue
-                token = sel.cursor.selectedText().replace("\u2029", "\n").strip()
-                if token in {"Überschrift 1", "Überschrift 2", "Überschrift 3"}:
-                    colors_by_text[token] = fg.name()
-            self.assertIn("Überschrift 1", colors_by_text)
-            self.assertIn("Überschrift 2", colors_by_text)
-            self.assertIn("Überschrift 3", colors_by_text)
-            unique = {
-                colors_by_text["Überschrift 1"],
-                colors_by_text["Überschrift 2"],
-                colors_by_text["Überschrift 3"],
+            expected = {
+                "Überschrift 1",
+                "Überschrift 2",
+                "Überschrift 3",
+                "Überschrift 4",
+                "Überschrift 5",
+                "Überschrift 6",
             }
-            self.assertGreaterEqual(len(unique), 3)
+
+            for theme_id in ("accent", "vivid"):
+                pane.set_preview_theme_id(theme_id)
+                _process_events()
+                selections = pane._view.extraSelections()
+                self.assertGreater(len(selections), 0)
+
+                colors_by_text: dict[str, str] = {}
+                for sel in selections:
+                    fg = sel.format.foreground().color()
+                    if not fg.isValid():
+                        continue
+                    token = sel.cursor.selectedText().replace("\u2029", "\n").strip()
+                    if token in expected:
+                        colors_by_text[token] = fg.name()
+
+                self.assertEqual(set(colors_by_text.keys()), expected)
+                self.assertEqual(len(set(colors_by_text.values())), 6)
         finally:
             pane.deleteLater()
             editor.deleteLater()

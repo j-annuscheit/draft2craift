@@ -7,6 +7,17 @@ from shared.services.project.manager import ProjectManager
 from shared.services.project.project_loader import ProjectLoader, ProjectSchemaError
 
 
+def _settings_payload() -> dict[str, object]:
+    return {
+        "prompts": {},
+        "speech": {},
+        "preview_page_margin": {"enabled": True, "em": 2.2},
+        "preview_theme": "classic",
+        "preview_style": {},
+        "theme": "dark",
+    }
+
+
 def _write_manifest(folder: Path, payload: object) -> None:
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "project.json").write_text(
@@ -36,7 +47,7 @@ def test_load_project_rejects_missing_required_manifest_fields(tmp_path: Path):
             "rag_config": {},
             "canvas": {"tabs": [], "current_tab": 0},
             "knowledge": {"files": []},
-            "settings": {},
+            "settings": _settings_payload(),
             "ui": {},
             # "llm" intentionally missing
         },
@@ -58,7 +69,7 @@ def test_load_project_rejects_missing_required_rag_config(tmp_path: Path):
             "version": 2,
             "canvas": {"tabs": [], "current_tab": 0},
             "knowledge": {"files": []},
-            "settings": {},
+            "settings": _settings_payload(),
             "llm": {},
             "ui": {},
         },
@@ -81,7 +92,7 @@ def test_load_project_rejects_wrong_nested_types(tmp_path: Path):
             "rag_config": {},
             "canvas": {"tabs": {}, "current_tab": 0},
             "knowledge": {"files": []},
-            "settings": {},
+            "settings": _settings_payload(),
             "llm": {},
             "ui": {},
         },
@@ -101,7 +112,7 @@ def test_validate_manifest_accepts_project_variables_dict() -> None:
         "rag_config": {},
         "canvas": {"tabs": [], "current_tab": 0},
         "knowledge": {"files": []},
-        "settings": {},
+        "settings": _settings_payload(),
         "llm": {},
         "ui": {},
         "project_variables": {"applicant_name": "Alice"},
@@ -116,7 +127,7 @@ def test_validate_manifest_rejects_non_string_project_variable_value() -> None:
         "rag_config": {},
         "canvas": {"tabs": [], "current_tab": 0},
         "knowledge": {"files": []},
-        "settings": {},
+        "settings": _settings_payload(),
         "llm": {},
         "ui": {},
         "project_variables": {"applicant_name": 123},

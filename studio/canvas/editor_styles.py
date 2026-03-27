@@ -1,14 +1,50 @@
 """Shared styles for markdown editor widgets and tab containers."""
 from __future__ import annotations
 
-_FONT_STACK = "'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace"
+_FONT_FALLBACKS: tuple[str, ...] = (
+    "Cascadia Code",
+    "JetBrains Mono",
+    "Fira Code",
+    "Consolas",
+    "monospace",
+)
 
 
-def editor_style(read_only: bool, font_size_pt: float) -> str:
+def _css_quote_font_family(value: str) -> str:
+    return "'" + str(value or "").replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def _build_font_stack(primary_family: str | None) -> str:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    primary = str(primary_family or "").strip()
+    if primary:
+        key = primary.casefold()
+        if key not in seen:
+            seen.add(key)
+            ordered.append(_css_quote_font_family(primary))
+    for fallback in _FONT_FALLBACKS:
+        key = fallback.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        if fallback.lower() == "monospace":
+            ordered.append("monospace")
+        else:
+            ordered.append(_css_quote_font_family(fallback))
+    return ", ".join(ordered)
+
+
+def editor_style(
+    read_only: bool,
+    font_size_pt: float,
+    font_family: str | None = None,
+) -> str:
     if read_only:
         bg, fg, border = "palette(base)", "palette(text)", "palette(mid)"
     else:
         bg, fg, border = "palette(base)", "palette(text)", "palette(highlight)"
+    font_stack = _build_font_stack(font_family)
     return f"""
 QPlainTextEdit {{
     background-color: {bg};
@@ -17,7 +53,7 @@ QPlainTextEdit {{
     padding: 8px;
     selection-background-color: palette(highlight);
     selection-color: palette(highlighted-text);
-    font-family: {_FONT_STACK};
+    font-family: {font_stack};
     font-size: {font_size_pt:.1f}pt;
 }}
 """

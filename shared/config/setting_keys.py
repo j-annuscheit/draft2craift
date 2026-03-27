@@ -13,6 +13,7 @@ class ThemeSettingsKeys:
     PREVIEW_PAGE_MARGIN_ENABLED: Final[str] = "preview/page_margin_enabled"
     PREVIEW_PAGE_MARGIN_EM: Final[str] = "preview/page_margin_em"
     PREVIEW_MARKDOWN_THEME: Final[str] = "preview/markdown_theme"
+    PREVIEW_STYLE_SETTINGS: Final[str] = "preview/style_settings"
 
 
 class FeedbackSettingsKeys:

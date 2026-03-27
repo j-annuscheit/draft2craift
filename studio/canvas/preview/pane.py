@@ -6,6 +6,7 @@ import weakref
 
 from PySide6.QtWidgets import QWidget
 
+from .style_settings import default_preview_style_settings
 from .pane_parts import bind_canvas_preview_pane
 from .pane_parts.models import _RenderedHighlight
 
@@ -24,7 +25,9 @@ class CanvasPreviewPane(QWidget):
     _HEADING_LINE_RE = re.compile(r"^#{1,6}\s+")
     _BLOCKQUOTE_LINE_RE = re.compile(r"^\s{0,3}(?:>\s?)+")
     _LIST_LINE_RE = re.compile(r"^\s{0,3}(?:[-*+]|\d+[.)])\s+")
-    _THEMATIC_BREAK_LINE_RE = re.compile(r"^\s*[-*_]{3,}\s*$")
+    _THEMATIC_BREAK_LINE_RE = re.compile(
+        r"^\s{0,3}(?:(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$"
+    )
     _TABLE_ROW_PREFIX_RE = re.compile(r"^\s*\|")
     _HTML_LINE_RE = re.compile(r"^\s*<[^>]+>\s*$")
     _MD_HEADING_PREFIX_RE = re.compile(r"^#{1,6}\s*")
@@ -61,6 +64,7 @@ class CanvasPreviewPane(QWidget):
     _GLOBAL_PAGE_MARGIN_ENABLED = True
     _GLOBAL_PAGE_MARGIN_EM = _PAGE_MARGIN_DEFAULT_EM
     _GLOBAL_PREVIEW_THEME = _PREVIEW_THEME_DEFAULT
+    _GLOBAL_PREVIEW_STYLE_SETTINGS = default_preview_style_settings()
     _INSTANCES: "weakref.WeakSet[CanvasPreviewPane]" = weakref.WeakSet()
     _PREVIEW_TO_MARKDOWN_DELAY_MS = 140
     _HIGHLIGHT_SYNC_DELAY_MS = 240

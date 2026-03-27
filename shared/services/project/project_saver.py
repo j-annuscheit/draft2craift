@@ -296,6 +296,7 @@ class ProjectSaver:
                 "speech": mw.get_speech_settings(),
                 "preview_page_margin": mw.get_preview_page_margin_settings(),
                 "preview_theme": mw.get_preview_theme_id(),
+                "preview_style": mw.get_preview_style_settings(),
                 "theme": mw.get_theme_id(),
             },
             "llm": llm_data,

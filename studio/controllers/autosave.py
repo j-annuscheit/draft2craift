@@ -413,6 +413,7 @@ class AutosaveController(QObject):
             "chat_tts_mode": tts_mode,
             "preview_page_margin": extras.get("preview_page_margin", {}),
             "preview_theme": extras.get("preview_theme", ""),
+            "preview_style": extras.get("preview_style", {}),
             "highlights": self._highlight_store_signature(),
         }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True)
@@ -422,6 +423,7 @@ class AutosaveController(QObject):
         theme = ""
         preview_margin: dict[str, object] = {}
         preview_theme = ""
+        preview_style: dict[str, object] = {}
         ctrl = self._context.theme_controller
         if ctrl is not None:
             try:
@@ -440,12 +442,19 @@ class AutosaveController(QObject):
                 self._app_logger.warning(
                     "SYS", f"[AUTOSAVE] get_preview_theme_id failed: {exc}"
                 )
+            try:
+                preview_style = dict(ctrl.get_preview_style_settings() or {})
+            except Exception as exc:
+                self._app_logger.warning(
+                    "SYS", f"[AUTOSAVE] get_preview_style_settings failed: {exc}"
+                )
         return {
             "user_mode": self._context.get_user_mode(),
             "theme": theme,
             "imported_docs": sorted(self._context.file_registry.keys()),
             "preview_page_margin": preview_margin,
             "preview_theme": preview_theme,
+            "preview_style": preview_style,
         }
 
     def _highlight_store_signature(self) -> dict[str, object]:

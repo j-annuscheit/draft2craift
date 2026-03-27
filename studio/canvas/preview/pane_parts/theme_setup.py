@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .deps import *  # noqa: F403
+from ..style_settings import normalize_preview_style_settings
 
 def __init__(
     self,
@@ -23,6 +24,9 @@ def __init__(
     )
     self._preview_theme_id = self._normalize_preview_theme_id(
         self._GLOBAL_PREVIEW_THEME
+    )
+    self._preview_style_settings = normalize_preview_style_settings(
+        self._GLOBAL_PREVIEW_STYLE_SETTINGS
     )
     self._format_bar: QWidget | None = None
     self._title: QLabel | None = None
@@ -103,6 +107,17 @@ def _normalize_preview_theme_id(cls, value: object) -> str:
     valid = {name for name, _label in cls._PREVIEW_THEME_OPTIONS}
     if token in valid:
         return token
+    return str(cls._PREVIEW_THEME_DEFAULT)
+
+
+@classmethod
+def normalize_preview_theme_id(cls, value: object) -> str:
+    """Public wrapper for theme-id normalization."""
+    return cls._normalize_preview_theme_id(value)
+
+
+@classmethod
+def preview_theme_default_id(cls) -> str:
     return str(cls._PREVIEW_THEME_DEFAULT)
 @classmethod
 def preview_theme_options(cls) -> tuple[tuple[str, str], ...]:
@@ -374,6 +389,8 @@ __all__ = [
     "_palette_hex",
     "_mix_hex_colors",
     "_normalize_preview_theme_id",
+    "normalize_preview_theme_id",
+    "preview_theme_default_id",
     "preview_theme_options",
     "global_preview_theme_id",
     "apply_global_preview_theme",

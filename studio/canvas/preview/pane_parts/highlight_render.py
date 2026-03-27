@@ -11,6 +11,7 @@ def _sync_highlights_from_editor(self):
     if editor is None:
         return
     md = self._markdown_for_render(editor.get_full_text())
+    md = self._apply_render_unordered_marker_gap(md)
     doc = QTextDocument()
     spec = extract_graph_spec(md)
     if spec is None:
@@ -77,6 +78,10 @@ def _render_highlight_matches(
 ):
     self._ensure_index_maps()
     doc = self._view.document()
+    resolved = self._resolved_preview_style_tokens()
+    glossary_color = str(
+        resolved.get("glossary_highlight_color", "#94E2D5") or "#94E2D5"
+    )
     selections: list[QTextEdit.ExtraSelection] = list(theme_selections or [])
     for item in matches:
         start_py = max(0, int(item.start))
@@ -91,7 +96,10 @@ def _render_highlight_matches(
         cursor.setPosition(start)
         cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
         fmt = QTextCharFormat()
-        bg_color = QColor(item.color or "#F9E2AF")
+        color_value = item.color or "#F9E2AF"
+        if str(getattr(item, "kind", "") or "").strip().lower() == "glossary":
+            color_value = glossary_color
+        bg_color = QColor(color_value)
         if bg_color.isValid():
             bg_color.setAlpha(120)
             fmt.setBackground(bg_color)
@@ -104,7 +112,7 @@ def _render_highlight_matches(
                 highlight_id=item.highlight_id,
                 start=start,
                 end=end,
-                color=item.color,
+                color=color_value,
                 hover_text=item.hover_text,
                 jump_to=item.jump_to,
                 kind=item.kind,

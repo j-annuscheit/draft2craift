@@ -15,6 +15,76 @@ def _markdown_for_render(cls, text: str) -> str:
     normalized = cls._replace_hr_markers(normalized)
     normalized = cls._inject_render_soft_break_tags(normalized)
     return cls._inject_render_spacers_for_extra_blank_lines(normalized)
+
+
+def _apply_render_unordered_marker_gap(self, text: str) -> str:
+    """
+    Widen marker-to-text gap for unordered lists in preview rendering only.
+
+    Qt rich-text formatting exposes marker suffix spacing for ordered lists,
+    but not for bullet lists. To keep user-configurable marker spacing
+    consistent, we inject non-breaking spaces at the beginning of unordered
+    list item text. Commit normalization removes these display-only paddings.
+    """
+    try:
+        resolved = self._resolved_preview_style_tokens()
+        marker_gap_em = float(resolved.get("list_marker_gap_em", 0.0))
+    except Exception:
+        marker_gap_em = 0.0
+    marker_space_count = max(1, min(12, 1 + int(marker_gap_em * 4.0)))
+    extra_spaces = max(0, marker_space_count - 1)
+    if extra_spaces <= 0:
+        return str(text or "")
+
+    nbsp_pad = "\u00A0" * extra_spaces
+    lines = str(text or "").split("\n")
+    out: list[str] = []
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+    bullet_line_re = re.compile(r"^(\s*)([-+*])(\s+)(.*)$")
+
+    for line in lines:
+        raw = str(line or "")
+        stripped = raw.lstrip()
+        fence_match = self._FENCE_MARKER_RE.match(stripped)
+        if fence_match is not None:
+            marker = fence_match.group(1)
+            marker_char = marker[0]
+            marker_len = len(marker)
+            if not in_fence:
+                in_fence = True
+                fence_char = marker_char
+                fence_len = marker_len
+            elif marker_char == fence_char and marker_len >= fence_len:
+                in_fence = False
+                fence_char = ""
+                fence_len = 0
+            out.append(raw)
+            continue
+
+        if in_fence:
+            out.append(raw)
+            continue
+
+        if self._THEMATIC_BREAK_LINE_RE.match(raw):
+            out.append(raw)
+            continue
+
+        m = bullet_line_re.match(raw)
+        if m is None:
+            out.append(raw)
+            continue
+        indent = m.group(1)
+        marker = m.group(2)
+        tail = str(m.group(4) or "")
+        tail = tail.lstrip(" \t\u00A0")
+        if tail:
+            out.append(f"{indent}{marker} {nbsp_pad}{tail}")
+        else:
+            out.append(f"{indent}{marker}")
+
+    return "\n".join(out)
 @classmethod
 def _escape_internal_word_asterisks(cls, text: str) -> str:
     """
@@ -27,7 +97,8 @@ def _hr_marker_line_regex(cls) -> re.Pattern[str]:
     cached = cls._HR_MARKER_LINE_RE
     if cached is None:
         cached = re.compile(
-            rf"(?m)^[ \t]*{re.escape(cls._HR_MARKER)}[ \t]*$"
+            rf"(?m)^[ \t]*(?:>\s*)*(?:(?:#{1,6}|[-+*]|\d+[.)])\s+)?"
+            rf"{re.escape(cls._HR_MARKER)}[ \t]*$"
         )
         cls._HR_MARKER_LINE_RE = cached
     return cached
@@ -294,6 +365,7 @@ def _normalize_ordered_sublist_indent(cls, text: str) -> str:
 
 __all__ = [
     "_markdown_for_render",
+    "_apply_render_unordered_marker_gap",
     "_escape_internal_word_asterisks",
     "_hr_marker_line_regex",
     "_replace_hr_markers",

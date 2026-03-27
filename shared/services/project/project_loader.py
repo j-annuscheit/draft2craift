@@ -159,6 +159,65 @@ class ProjectLoader:
                         f"Field 'knowledge.files[{idx}].{field_name}' must be string, got {type(field_value).__name__}."
                     )
 
+        settings = raw["settings"]
+        required_settings_fields = (
+            "prompts",
+            "speech",
+            "preview_page_margin",
+            "preview_theme",
+            "preview_style",
+            "theme",
+        )
+        for key in required_settings_fields:
+            if key not in settings:
+                raise ProjectSchemaError(f"Missing required field 'settings.{key}'.")
+
+        prompts = settings.get("prompts")
+        if not isinstance(prompts, dict):
+            raise ProjectSchemaError(
+                f"Field 'settings.prompts' must be an object, got {type(prompts).__name__}."
+            )
+
+        speech = settings.get("speech")
+        if not isinstance(speech, dict):
+            raise ProjectSchemaError(
+                f"Field 'settings.speech' must be an object, got {type(speech).__name__}."
+            )
+
+        preview_page_margin = settings.get("preview_page_margin")
+        if not isinstance(preview_page_margin, dict):
+            raise ProjectSchemaError(
+                "Field 'settings.preview_page_margin' must be an object."
+            )
+        margin_enabled = preview_page_margin.get("enabled")
+        margin_em = preview_page_margin.get("em")
+        if not isinstance(margin_enabled, bool):
+            raise ProjectSchemaError(
+                f"Field 'settings.preview_page_margin.enabled' must be bool, got {type(margin_enabled).__name__}."
+            )
+        if not isinstance(margin_em, (int, float)):
+            raise ProjectSchemaError(
+                f"Field 'settings.preview_page_margin.em' must be number, got {type(margin_em).__name__}."
+            )
+
+        preview_theme = settings.get("preview_theme")
+        if not isinstance(preview_theme, str):
+            raise ProjectSchemaError(
+                f"Field 'settings.preview_theme' must be string, got {type(preview_theme).__name__}."
+            )
+
+        preview_style = settings.get("preview_style")
+        if not isinstance(preview_style, dict):
+            raise ProjectSchemaError(
+                f"Field 'settings.preview_style' must be an object, got {type(preview_style).__name__}."
+            )
+
+        theme = settings.get("theme")
+        if not isinstance(theme, str):
+            raise ProjectSchemaError(
+                f"Field 'settings.theme' must be string, got {type(theme).__name__}."
+            )
+
         rag_results = raw.get("rag_results")
         if rag_results is not None:
             if not isinstance(rag_results, list):
@@ -348,22 +407,42 @@ class ProjectLoader:
     def _restore_settings(mw: Any, data: dict) -> None:
         settings = data.get("settings", {})
         if not isinstance(settings, dict):
-            return
+            raise ProjectSchemaError("Invalid field 'settings': expected object.")
 
-        prompts = settings.get("prompts", {})
-        if isinstance(prompts, dict):
-            mw.llm_manager.set_prompt_set(prompts)
+        prompts = settings.get("prompts")
+        if not isinstance(prompts, dict):
+            raise ProjectSchemaError("Invalid field 'settings.prompts': expected object.")
+        mw.llm_manager.set_prompt_set(prompts)
 
-        speech = settings.get("speech", {})
+        speech = settings.get("speech")
+        if not isinstance(speech, dict):
+            raise ProjectSchemaError("Invalid field 'settings.speech': expected object.")
         mw.apply_speech_settings(speech)
 
-        preview_page_margin = settings.get("preview_page_margin", {})
+        preview_page_margin = settings.get("preview_page_margin")
+        if not isinstance(preview_page_margin, dict):
+            raise ProjectSchemaError(
+                "Invalid field 'settings.preview_page_margin': expected object."
+            )
         mw.apply_preview_page_margin_settings(preview_page_margin)
 
-        preview_theme = settings.get("preview_theme", "classic")
+        preview_theme = settings.get("preview_theme")
+        if not isinstance(preview_theme, str):
+            raise ProjectSchemaError(
+                "Invalid field 'settings.preview_theme': expected string."
+            )
         mw.apply_preview_theme_id(preview_theme, persist=True)
 
-        theme = settings.get("theme", "dark")
+        preview_style = settings.get("preview_style")
+        if not isinstance(preview_style, dict):
+            raise ProjectSchemaError(
+                "Invalid field 'settings.preview_style': expected object."
+            )
+        mw.apply_preview_style_settings(preview_style, persist=True)
+
+        theme = settings.get("theme")
+        if not isinstance(theme, str):
+            raise ProjectSchemaError("Invalid field 'settings.theme': expected string.")
         mw.apply_theme_id(theme, persist=True)
 
     @staticmethod

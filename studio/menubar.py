@@ -10,8 +10,6 @@ from PySide6.QtWidgets import QMainWindow
 
 from shared.domain.user_mode import available_user_modes, user_mode_label
 from shared.services.highlights.store import get_highlight_store
-from studio.canvas.preview.pane import CanvasPreviewPane
-from studio.theme import available_themes
 
 
 @dataclass(slots=True)
@@ -25,8 +23,6 @@ class MenuBuildInputs:
     log_dock: object
     llm_stop: Callable[[], None]
     user_mode_changed: Callable[[str], None]
-    apply_theme_id: Callable[[object], None]
-    apply_preview_theme_id: Callable[[object], None]
     bind_feature_visibility: Callable[[object, str, bool], None]
     bind_feature_label: Callable[[object, str, str], None]
     action_handlers: Mapping[str, Callable[..., object]]
@@ -44,13 +40,6 @@ class MenuBuildResult:
     model_controls_toggle_action: QAction
     mode_group: QActionGroup
     mode_actions: dict[str, QAction]
-    theme_group: QActionGroup
-    theme_actions: dict[str, QAction]
-    action_page_margin_enabled: QAction
-    page_margin_group: QActionGroup
-    page_margin_actions: list[tuple[float, QAction]]
-    preview_theme_group: QActionGroup
-    preview_theme_actions: dict[str, QAction]
     action_glossary_overlay: QAction
     action_autosave_toggle: QAction
     action_edit_prompts: QAction
@@ -211,124 +200,14 @@ def build_menubar(inputs: MenuBuildInputs) -> MenuBuildResult:
         mode_menu.addAction(act)
         mode_actions[mode] = act
 
-    theme_menu = view_menu.addMenu("Theme")
-    _bind_menu(theme_menu, "menu.view.theme", "Theme")
-    theme_group = QActionGroup(host)
-    theme_group.setExclusive(True)
-    theme_actions: dict[str, QAction] = {}
-    for theme_id, label in available_themes():
-        act = QAction(label, host)
-        act.setCheckable(True)
-        act.triggered.connect(
-            lambda _checked=False, t=theme_id: inputs.apply_theme_id(t)
-        )
-        _bind_action(
-            act,
-            f"menu.view.theme.option.{theme_id}",
-            str(label),
-        )
-        theme_group.addAction(act)
-        theme_menu.addAction(act)
-        theme_actions[theme_id] = act
-    inputs.theme_ctrl.sync_theme_actions(theme_actions)
-
     view_menu.addSeparator()
-    text_size_menu = view_menu.addMenu("Textgröße")
-    _bind_menu(text_size_menu, "menu.view.text_size", "Textgröße")
     _add_action(
-        text_size_menu,
-        "Aktive Ansicht größer",
-        "Ctrl+=",
-        _require_handler("increase_active_text_size"),
-        "menu.view.text_size.active_increase",
-    )
-    _add_action(
-        text_size_menu,
-        "Aktive Ansicht kleiner",
-        "Ctrl+-",
-        _require_handler("decrease_active_text_size"),
-        "menu.view.text_size.active_decrease",
-    )
-    _add_action(
-        text_size_menu,
-        "Aktive Ansicht Standard (100%)",
-        "Ctrl+0",
-        _require_handler("reset_active_text_size"),
-        "menu.view.text_size.active_reset",
-    )
-    text_size_menu.addSeparator()
-    _add_action(
-        text_size_menu,
-        "HTML-Vorschau größer",
+        view_menu,
+        "Layout + HTML-Ansicht…",
         "",
-        _require_handler("increase_preview_text_size"),
-        "menu.view.text_size.preview_increase",
+        _require_handler("open_preview_layout_settings"),
+        "menu.view.preview_layout_settings",
     )
-    _add_action(
-        text_size_menu,
-        "HTML-Vorschau kleiner",
-        "",
-        _require_handler("decrease_preview_text_size"),
-        "menu.view.text_size.preview_decrease",
-    )
-    _add_action(
-        text_size_menu,
-        "HTML-Vorschau Standard (100%)",
-        "",
-        _require_handler("reset_preview_text_size"),
-        "menu.view.text_size.preview_reset",
-    )
-
-    page_margin_menu = view_menu.addMenu("Seitenrand")
-    _bind_menu(page_margin_menu, "menu.view.page_margin", "Seitenrand")
-    act_margin = QAction("Seitenrand aktiv", host)
-    act_margin.setCheckable(True)
-    act_margin.triggered.connect(inputs.theme_ctrl.toggle_preview_page_margin_enabled)
-    _bind_action(act_margin, "menu.view.page_margin.enabled", "Seitenrand aktiv")
-    page_margin_menu.addAction(act_margin)
-    page_margin_menu.addSeparator()
-    page_margin_group = QActionGroup(host)
-    page_margin_group.setExclusive(True)
-    page_margin_actions: list[tuple[float, QAction]] = []
-    for label, em_value in CanvasPreviewPane._PAGE_MARGIN_PRESETS:
-        action = QAction(str(label), host)
-        action.setCheckable(True)
-        action.triggered.connect(
-            lambda _checked=False, em=float(em_value): inputs.theme_ctrl.set_preview_page_margin_preset(em)
-        )
-        _bind_action(
-            action,
-            f"menu.view.page_margin.preset.{float(em_value):g}",
-            str(label),
-        )
-        page_margin_group.addAction(action)
-        page_margin_menu.addAction(action)
-        page_margin_actions.append((float(em_value), action))
-    inputs.theme_ctrl.sync_preview_page_margin_actions(
-        act_margin,
-        page_margin_actions,
-    )
-
-    preview_theme_menu = view_menu.addMenu("HTML-Stil")
-    _bind_menu(preview_theme_menu, "menu.view.preview_theme", "HTML-Stil")
-    preview_theme_group = QActionGroup(host)
-    preview_theme_group.setExclusive(True)
-    preview_theme_actions: dict[str, QAction] = {}
-    for theme_id, label in CanvasPreviewPane.preview_theme_options():
-        action = QAction(str(label), host)
-        action.setCheckable(True)
-        action.triggered.connect(
-            lambda _checked=False, t=theme_id: inputs.apply_preview_theme_id(t)
-        )
-        _bind_action(
-            action,
-            f"menu.view.preview_theme.option.{theme_id}",
-            str(label),
-        )
-        preview_theme_group.addAction(action)
-        preview_theme_menu.addAction(action)
-        preview_theme_actions[str(theme_id)] = action
-    inputs.theme_ctrl.sync_preview_theme_actions(preview_theme_actions)
 
     view_menu.addSeparator()
     act_glossary = QAction("Glossar-Overlay anzeigen", host)
@@ -486,13 +365,6 @@ def build_menubar(inputs: MenuBuildInputs) -> MenuBuildResult:
         model_controls_toggle_action=act_model,
         mode_group=mode_group,
         mode_actions=mode_actions,
-        theme_group=theme_group,
-        theme_actions=theme_actions,
-        action_page_margin_enabled=act_margin,
-        page_margin_group=page_margin_group,
-        page_margin_actions=page_margin_actions,
-        preview_theme_group=preview_theme_group,
-        preview_theme_actions=preview_theme_actions,
         action_glossary_overlay=act_glossary,
         action_autosave_toggle=act_autosave,
         action_edit_prompts=action_edit_prompts,
