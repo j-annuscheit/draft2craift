@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import re
 
+from .helpers_pronunciation import _apply_pronunciation_overrides
+
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 _MARKDOWN_PREFIX_RE = re.compile(
     r"^\s{0,3}(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)"
@@ -112,6 +114,7 @@ def _normalize_text_for_tts(text: str) -> str:
         .replace("\r\n", "\n")
         .replace("\r", "\n")
     )
+    raw = _apply_pronunciation_overrides(raw)
     if not raw.strip():
         return ""
 
