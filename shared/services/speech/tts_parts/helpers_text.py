@@ -18,15 +18,16 @@ def _build_speech_jobs(
     backend: str,
     pause_triggers: str = "",
 ) -> list[tuple[str, int]]:
-    # Keep exactly one queue job to avoid playback restarts that can clip
-    # leading words on some audio setups.
     _ = (pause_ms, backend, pause_triggers)
     normalized = _normalize_text_for_tts(text)
     if not normalized:
         return []
-    merged = " ".join(_split_text_units(normalized)).strip()
+    units = _split_text_units(normalized)
+    merged = " ".join(units).strip()
     if not merged:
         return []
+    # Keep one manager job; Piper preloading is handled inside the worker so
+    # playback can stay continuous across sentence groups.
     return [(merged, 0)]
 
 def _parse_pause_triggers(raw: str) -> list[str]:

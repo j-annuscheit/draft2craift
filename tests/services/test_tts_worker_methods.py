@@ -32,6 +32,34 @@ def test_is_piper_no_audio_error_detects_wave_channel_traceback():
     assert not worker_methods._is_piper_no_audio_error("model not found")
 
 
+def test_build_piper_sentence_groups_starts_with_short_first_group():
+    text = (
+        "Das ist ein erster etwas laengerer Satz, der moeglichst frueh starten soll. "
+        "Hier kommt Satz zwei mit weiteren Informationen. "
+        "Satz drei folgt ebenfalls."
+    )
+
+    groups = worker_methods._build_piper_sentence_groups(text)
+
+    assert len(groups) >= 2
+    assert len(groups[0]) <= 240
+    assert all(worker_methods._has_speakable_text(group) for group in groups)
+
+
+def test_build_piper_sentence_groups_ignores_comma_splitting():
+    text = (
+        "Erster Satz, mit Komma, aber ohne Komma-Chunking. "
+        "Zweiter Satz, ebenfalls mit mehreren, Kommas."
+    )
+
+    groups = worker_methods._build_piper_sentence_groups(text)
+
+    assert len(groups) >= 1
+    joined = " ".join(groups)
+    assert "," in joined
+    assert "Komma-Chunking" in joined
+
+
 def test_synthesize_piper_to_wav_returns_false_for_unspeakable_text():
     called = {"count": 0}
 
@@ -83,4 +111,3 @@ def test_synthesize_piper_to_wav_raises_for_unrelated_errors():
             wav_path="/tmp/out.wav",
             sentence_pause_s=0.0,
         )
-

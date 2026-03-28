@@ -62,6 +62,7 @@ class _SpeechWorker(QThread):
         self._pause_after_ms = max(0, int(pause_after_ms))
         self._stop_requested = threading.Event()
         self._process: subprocess.Popen | None = None
+        self._processes: set[subprocess.Popen] = set()
         self._engine = None
         self._lock = threading.Lock()
 

@@ -2,27 +2,30 @@
 from __future__ import annotations
 
 import os
+import queue
 import shutil
 import subprocess
+import threading
 import time
 
 from shared.services.speech.piper_models import ensure_local_piper_model
 
 from .helpers_backend import _espeak_cmd, _read_process_stderr, _spd_say_cmd, _stop_process
+from .helpers_backend import _resolve_tts_backend
 from .helpers_piper_audio import (
     _apply_start_trigger,
-    _concat_wav_files,
     _new_temp_wav_path,
     _piper_lead_in_ms,
     _piper_length_scale,
     _prepend_wav_silence,
     _resolve_piper_model_path,
 )
-from .helpers_text import (
-    _parse_pause_triggers,
-    _split_for_trigger_pauses,
-)
-from .helpers_backend import _resolve_tts_backend
+from .helpers_text import _split_long_unit, _split_text_units
+
+_PIPER_FIRST_GROUP_MAX_CHARS = 220
+_PIPER_GROUP_MAX_CHARS = 420
+_PIPER_GROUP_MAX_SENTENCES = 2
+_PIPER_PREFETCH_QUEUE_SIZE = 4
 
 
 def _has_speakable_text(text: str) -> bool:
@@ -33,18 +36,89 @@ def _is_piper_no_audio_error(message: str) -> bool:
     return "channels not specified" in str(message or "").casefold()
 
 
+def _is_stop_requested(self) -> bool:
+    event = getattr(self, "_stop_requested", None)
+    if event is None:
+        return False
+    try:
+        return bool(event.is_set())
+    except Exception:
+        return False
+
+
+def _build_piper_sentence_groups(text: str) -> list[str]:
+    units = [unit for unit in _split_text_units(text) if _has_speakable_text(unit)]
+    if not units:
+        fallback = str(text or "").strip()
+        return [fallback] if _has_speakable_text(fallback) else []
+
+    first = units[0]
+    first_parts = _split_long_unit(first, max_chars=_PIPER_FIRST_GROUP_MAX_CHARS)
+    if not first_parts:
+        first_parts = [first]
+
+    groups: list[str] = [first_parts[0]]
+    pending_units: list[str] = first_parts[1:] + units[1:]
+
+    current: list[str] = []
+    current_chars = 0
+    current_sentences = 0
+
+    for raw_unit in pending_units:
+        unit = str(raw_unit or "").strip()
+        if not _has_speakable_text(unit):
+            continue
+        parts = _split_long_unit(unit, max_chars=_PIPER_GROUP_MAX_CHARS)
+        if not parts:
+            parts = [unit]
+
+        for part in parts:
+            clean = str(part or "").strip()
+            if not _has_speakable_text(clean):
+                continue
+            if not current:
+                current = [clean]
+                current_chars = len(clean)
+                current_sentences = 1
+                continue
+
+            next_chars = current_chars + 1 + len(clean)
+            if (
+                current_sentences >= _PIPER_GROUP_MAX_SENTENCES
+                or next_chars > _PIPER_GROUP_MAX_CHARS
+            ):
+                groups.append(" ".join(current).strip())
+                current = [clean]
+                current_chars = len(clean)
+                current_sentences = 1
+                continue
+
+            current.append(clean)
+            current_chars = next_chars
+            current_sentences += 1
+
+    if current:
+        groups.append(" ".join(current).strip())
+
+    return [group for group in groups if _has_speakable_text(group)]
+
+
 def request_stop(self):
     self._stop_requested.set()
     with self._lock:
         proc = self._process
         engine = self._engine
-    if proc is not None:
+        processes = list(getattr(self, "_processes", set()))
+    for active in processes:
+        _stop_process(active)
+    if proc is not None and not any(active is proc for active in processes):
         _stop_process(proc)
     if engine is not None:
         try:
             engine.stop()
         except Exception:
             pass
+
 
 def run(self):
     if not self._text:
@@ -72,34 +146,10 @@ def run(self):
     except Exception as exc:
         self.failed.emit(str(exc))
 
+
 def _speak_command(self, text: str, cmd: list[str]):
-    proc = subprocess.Popen(
-        cmd + [text],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    with self._lock:
-        self._process = proc
-    try:
-        while proc.poll() is None:
-            if self._stop_requested.is_set():
-                _stop_process(proc)
-                break
-            time.sleep(0.05)
-        if proc.returncode not in (0, None):
-            err = ""
-            try:
-                if proc.stderr is not None:
-                    err = (proc.stderr.read() or "").strip()
-            except Exception:
-                err = ""
-            raise RuntimeError(
-                err or f"TTS command failed ({proc.returncode})"
-            )
-    finally:
-        with self._lock:
-            self._process = None
+    self._run_process(cmd=cmd + [text])
+
 
 def _speak_piper(self, text: str):
     if not shutil.which("piper"):
@@ -133,93 +183,143 @@ def _speak_piper(self, text: str):
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 
-    wav_path = _new_temp_wav_path()
-    segment_paths: list[str] = []
-
     synth_text = _apply_start_trigger(
         text,
         getattr(self._settings, "tts_start_trigger", ""),
     )
+    groups = _build_piper_sentence_groups(synth_text)
+    if not groups:
+        self.status.emit("TTS: Kein aussprechbarer Text erkannt.")
+        return
+
     sentence_pause_s = max(
         0.0,
         min(2.0, float(self._settings.tts_pause_ms) / 1000.0),
     )
-    trigger_pause_ms = max(
-        0,
-        min(4000, int(getattr(self._settings, "tts_trigger_pause_ms", 320))),
+    self._play_prefetched_piper_groups(
+        groups=groups,
+        model_path=model_path,
+        sentence_pause_s=sentence_pause_s,
     )
-    trigger_list = _parse_pause_triggers(
-        getattr(self._settings, "tts_pause_triggers", ""),
-    )
-    if trigger_list and trigger_pause_ms > 0:
-        segments = _split_for_trigger_pauses(
-            synth_text,
-            trigger_list,
-        )
-    else:
-        segments = [synth_text]
-    segments = [part for part in segments if str(part or "").strip()]
-    segments = [part for part in segments if _has_speakable_text(part)]
-    if not segments:
-        self.status.emit("TTS: Kein aussprechbarer Text erkannt.")
-        return
 
-    try:
-        if len(segments) == 1:
-            if not self._synthesize_piper_to_wav(
-                text=segments[0],
-                model_path=model_path,
-                wav_path=wav_path,
-                sentence_pause_s=sentence_pause_s,
-            ):
-                self.status.emit("TTS: Kein Audio für den Text erzeugt.")
-                return
-        else:
-            for segment in segments:
-                if self._stop_requested.is_set():
-                    return
-                seg_path = _new_temp_wav_path()
-                if not self._synthesize_piper_to_wav(
-                    text=segment,
-                    model_path=model_path,
-                    wav_path=seg_path,
-                    sentence_pause_s=sentence_pause_s,
-                ):
-                    try:
-                        os.remove(seg_path)
-                    except Exception:
-                        pass
-                    continue
-                segment_paths.append(seg_path)
-            if not segment_paths:
-                self.status.emit("TTS: Kein Audio für den Text erzeugt.")
-                return
-            _concat_wav_files(
-                segment_paths,
-                wav_path,
-                inter_silence_ms=trigger_pause_ms,
-                guard_ms=min(
-                    trigger_pause_ms,
-                    max(80, min(450, _piper_lead_in_ms(self._settings))),
-                ),
-            )
-        if self._stop_requested.is_set():
-            return
-        _prepend_wav_silence(
-            wav_path,
-            milliseconds=_piper_lead_in_ms(self._settings),
-        )
-        self._play_wav_file(wav_path)
-    finally:
+
+def _play_prefetched_piper_groups(
+    self,
+    *,
+    groups: list[str],
+    model_path: str,
+    sentence_pause_s: float,
+):
+    ready: queue.Queue[object] = queue.Queue(maxsize=_PIPER_PREFETCH_QUEUE_SIZE)
+    sentinel = object()
+    cleanup_lock = threading.Lock()
+    pending_paths: set[str] = set()
+    synth_error: list[Exception] = []
+
+    def _track(path: str):
+        with cleanup_lock:
+            pending_paths.add(path)
+
+    def _drop(path: str):
+        with cleanup_lock:
+            pending_paths.discard(path)
+
+    def _cleanup(path: str):
+        _drop(path)
         try:
-            os.remove(wav_path)
+            os.remove(path)
         except Exception:
             pass
-        for seg_path in segment_paths:
+
+    def _synth_loop():
+        try:
+            for group in groups:
+                if self._stop_requested.is_set():
+                    break
+                wav_path = _new_temp_wav_path()
+                _track(wav_path)
+                try:
+                    ok = self._synthesize_piper_to_wav(
+                        text=group,
+                        model_path=model_path,
+                        wav_path=wav_path,
+                        sentence_pause_s=sentence_pause_s,
+                    )
+                except Exception as exc:
+                    _cleanup(wav_path)
+                    if not self._stop_requested.is_set():
+                        synth_error.append(exc)
+                    break
+                if not ok:
+                    _cleanup(wav_path)
+                    continue
+
+                while not self._stop_requested.is_set():
+                    try:
+                        ready.put(wav_path, timeout=0.1)
+                        break
+                    except queue.Full:
+                        continue
+                else:
+                    _cleanup(wav_path)
+                    break
+        finally:
+            while True:
+                try:
+                    ready.put(sentinel, timeout=0.1)
+                    break
+                except queue.Full:
+                    if self._stop_requested.is_set():
+                        continue
+
+    synth_thread = threading.Thread(
+        target=_synth_loop,
+        name="tts-piper-prefetch",
+        daemon=True,
+    )
+    synth_thread.start()
+
+    first_played = False
+    try:
+        while True:
             try:
-                os.remove(seg_path)
-            except Exception:
+                item = ready.get(timeout=0.1)
+            except queue.Empty:
+                if not synth_thread.is_alive():
+                    break
+                if self._stop_requested.is_set():
+                    continue
                 continue
+
+            if item is sentinel:
+                break
+            wav_path = str(item)
+            try:
+                if not first_played:
+                    _prepend_wav_silence(
+                        wav_path,
+                        milliseconds=_piper_lead_in_ms(self._settings),
+                    )
+                self._play_wav_file(wav_path)
+                first_played = True
+            except RuntimeError:
+                if self._stop_requested.is_set():
+                    break
+                raise
+            finally:
+                _cleanup(wav_path)
+
+        if synth_error and not self._stop_requested.is_set():
+            raise synth_error[0]
+        if not first_played and not self._stop_requested.is_set():
+            self.status.emit("TTS: Kein Audio für den Text erzeugt.")
+    finally:
+        synth_thread.join(timeout=1.0)
+        with cleanup_lock:
+            leftovers = list(pending_paths)
+        for path in leftovers:
+            _cleanup(path)
+
 
 def _synthesize_piper_to_wav(
     self,
@@ -257,6 +357,8 @@ def _synthesize_piper_to_wav(
         )
     except RuntimeError as exc:
         err_text = str(exc)
+        if _is_stop_requested(self):
+            return False
         if _is_piper_no_audio_error(err_text):
             return False
         if (
@@ -271,6 +373,7 @@ def _synthesize_piper_to_wav(
             ) from exc
         raise
     return True
+
 
 def _play_wav_file(self, wav_path: str):
     device = str(self._settings.tts_output_device or "").strip()
@@ -303,6 +406,7 @@ def _play_wav_file(self, wav_path: str):
         "Kein lokaler Audio-Player gefunden (aplay/paplay/ffplay)."
     )
 
+
 def _run_process(
     self,
     *,
@@ -318,6 +422,9 @@ def _run_process(
     )
     with self._lock:
         self._process = proc
+        processes = getattr(self, "_processes", None)
+        if isinstance(processes, set):
+            processes.add(proc)
 
     try:
         if stdin_text and proc.stdin is not None:
@@ -343,7 +450,12 @@ def _run_process(
             )
     finally:
         with self._lock:
-            self._process = None
+            processes = getattr(self, "_processes", None)
+            if isinstance(processes, set):
+                processes.discard(proc)
+            if self._process is proc:
+                self._process = None
+
 
 def _speak_pyttsx3(self, text: str):
     try:
@@ -377,6 +489,7 @@ def _speak_pyttsx3(self, text: str):
         with self._lock:
             self._engine = None
 
+
 def _wait_after_chunk(self):
     if self._pause_after_ms <= 0:
         return
@@ -388,13 +501,16 @@ def _wait_after_chunk(self):
         time.sleep(step)
         remaining -= step
 
+
 __all__ = [
     "request_stop",
     "run",
     "_has_speakable_text",
     "_is_piper_no_audio_error",
+    "_build_piper_sentence_groups",
     "_speak_command",
     "_speak_piper",
+    "_play_prefetched_piper_groups",
     "_synthesize_piper_to_wav",
     "_play_wav_file",
     "_run_process",
