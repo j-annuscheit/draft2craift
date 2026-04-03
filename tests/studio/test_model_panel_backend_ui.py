@@ -112,6 +112,26 @@ def test_browse_uses_file_dialog_for_llama_backend(qt_app, monkeypatch):
     assert panel.model_path.text() == "/tmp/model.gguf"
 
 
+def test_request_load_switches_to_llama_for_local_gguf_file(qt_app, monkeypatch):
+    _ = qt_app
+    panel = ModelLoadPanel()
+    panel.set_model_backend(BACKEND_TRANSFORMERS)
+    panel.model_path.setText("/home/be/Downloads/model.gguf")
+
+    monkeypatch.setattr("studio.chat.model_panel.os.path.isfile", lambda _path: True)
+
+    calls: list[tuple[str, dict]] = []
+    panel.load_requested.connect(lambda path, params: calls.append((path, dict(params))))
+
+    panel._request_load()
+
+    assert panel.get_model_backend() == BACKEND_LLAMA_CPP
+    assert calls
+    path, params = calls[-1]
+    assert path == "/home/be/Downloads/model.gguf"
+    assert params["backend"] == BACKEND_LLAMA_CPP
+
+
 def test_trust_remote_code_visibility_depends_on_mode_and_backend(qt_app):
     _ = qt_app
     panel = ModelLoadPanel()

@@ -7,6 +7,73 @@ from typing import Any
 
 from .base import BaseLLMBackend
 
+_LLAMA_CPP_CLEANUP_PATCHED = False
+_QWEN35_HINT_TOKENS = ("qwen3.5", "qwen35")
+
+
+def _looks_like_qwen35_model(model_ref: str) -> bool:
+    text = str(model_ref or "").casefold()
+    return any(token in text for token in _QWEN35_HINT_TOKENS)
+
+
+def _patch_llama_cpp_cleanup() -> None:
+    """Work around a cleanup bug in some llama_cpp builds.
+
+    Older builds can create a partially initialized LlamaModel when load fails.
+    The bundled __del__ path then assumes ``sampler`` always exists and emits a
+    noisy AttributeError while Python is already unwinding the original load
+    failure.
+    """
+    global _LLAMA_CPP_CLEANUP_PATCHED
+    if _LLAMA_CPP_CLEANUP_PATCHED:
+        return
+
+    try:
+        import llama_cpp  # type: ignore
+        from llama_cpp import _internals as llama_internals  # type: ignore
+    except Exception:
+        return
+
+    llama_model_cls = getattr(llama_internals, "LlamaModel", None)
+    if llama_model_cls is None:
+        return
+
+    original_close = getattr(llama_model_cls, "close", None)
+    if not callable(original_close):
+        return
+    if getattr(original_close, "_d2c_safe_close", False):
+        _LLAMA_CPP_CLEANUP_PATCHED = True
+        return
+
+    def _safe_close(self):  # noqa: ANN001
+        sampler = getattr(self, "sampler", None)
+        if sampler is not None:
+            custom_samplers = getattr(self, "custom_samplers", ())
+            for i, _ in reversed(custom_samplers):
+                llama_cpp.llama_sampler_chain_remove(sampler, i)
+            if hasattr(custom_samplers, "clear"):
+                custom_samplers.clear()
+
+        exit_stack = getattr(self, "_exit_stack", None)
+        if exit_stack is not None:
+            exit_stack.close()
+
+    _safe_close._d2c_safe_close = True  # type: ignore[attr-defined]
+    llama_model_cls.close = _safe_close
+    _LLAMA_CPP_CLEANUP_PATCHED = True
+
+
+def _format_load_failure(model_ref: str, exc: Exception) -> str:
+    message = str(exc or "").strip()
+    if "Failed to load model from file" in message and _looks_like_qwen35_model(model_ref):
+        return (
+            "Load failed: this model appears to use the Qwen3.5/qwen35 "
+            "architecture, but the installed llama.cpp build does not "
+            "recognize it yet. Update llama-cpp-python / llama.cpp to a "
+            "newer build with qwen35 support."
+        )
+    return f"Load failed: {exc}"
+
 
 class LlamaCppBackend(BaseLLMBackend):
     """Inference backend for local GGUF models via ``llama-cpp-python``."""
@@ -50,6 +117,7 @@ class LlamaCppBackend(BaseLLMBackend):
         }
 
         try:
+            _patch_llama_cpp_cleanup()
             from llama_cpp import Llama  # type: ignore
         except ImportError:
             return (
@@ -76,7 +144,7 @@ class LlamaCppBackend(BaseLLMBackend):
             return True, f"✓ {os.path.basename(self._model_ref)}{load_note}"
         except Exception as exc:
             self.unload_model()
-            return False, f"Load failed: {exc}"
+            return False, _format_load_failure(self._model_ref, exc)
 
     def unload_model(self) -> None:
         model = self._model

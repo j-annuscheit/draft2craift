@@ -539,10 +539,29 @@ class ModelLoadPanel(QWidget):
         if path:
             self.model_path.setText(path)
 
+    @staticmethod
+    def _is_local_gguf_model_path(path: str) -> bool:
+        text = str(path or "").strip()
+        if not text:
+            return False
+        lowered = text.casefold()
+        if not lowered.endswith((".gguf", ".bin")):
+            return False
+        if lowered.startswith(("http://", "https://")):
+            return False
+        return os.path.isfile(text)
+
+    def _maybe_switch_backend_for_path(self, path: str) -> None:
+        if self.get_model_backend() != BACKEND_TRANSFORMERS:
+            return
+        if self._is_local_gguf_model_path(path):
+            self.set_model_backend(BACKEND_LLAMA_CPP)
+
     def _request_load(self):
         path = self.model_path.text().strip()
         if not path:
             return
+        self._maybe_switch_backend_for_path(path)
         params = {
             "n_ctx": self.ctx_spin.value(),
             "n_gpu_layers": self.gpu_spin.value(),
