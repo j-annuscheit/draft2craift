@@ -279,6 +279,8 @@ def convert_pdf_with_settings(
     settings: PDFImportSettings,
     *,
     parse_page_range: ParsePageRange | None = None,
+    # NOTE: When settings.backend == "docling" all keyword overrides below are
+    # ignored — the Docling pipeline manages everything internally.
     detect_pdf_hf_layout: DetectHfLayout | None = None,
     compute_body_font_size: ComputeBodyFontSize | None = None,
     custom_header_detector_factory: CustomHeaderDetectorFactory | None = None,
@@ -290,7 +292,33 @@ def convert_pdf_with_settings(
     replace_html_br_with_space: TextTransform | None = None,
     limit_dot_leaders: TextTransform | None = None,
 ) -> str:
-    """Convert a PDF to Markdown using pymupdf4llm with the given settings."""
+    """Convert a PDF to Markdown using the selected backend.
+
+    ``settings.backend == "pymupdf"`` (default) — full manual-control pipeline
+    via pymupdf4llm.  All keyword overrides are honoured.
+
+    ``settings.backend == "docling"`` — AI-based pipeline via Docling.  Handles
+    header/footer removal, headings, and table structure automatically.  The
+    keyword overrides below are ignored in this mode.
+    """
+    if getattr(settings, "backend", "pymupdf") == "docling":
+        from .docling_backend import convert_pdf_with_docling
+        return convert_pdf_with_docling(path, settings)
+
+    # ── URL → download to temp file for the PyMuPDF pipeline ─────────────────
+    from ..url_utils import is_url, normalize_arxiv_url, download_pdf_to_tempfile, url_display_name
+
+    _temp_path: str | None = None
+    _display_name: str | None = None
+    if is_url(path):
+        path = normalize_arxiv_url(path)
+        _display_name = url_display_name(path)
+        try:
+            _temp_path = download_pdf_to_tempfile(path)
+            path = _temp_path
+        except Exception as exc:
+            return f"# {_display_name}\n\n*Download fehlgeschlagen: {exc}*\n"
+
     parse_page_range_fn = parse_page_range or _parse_page_range
     detect_pdf_hf_layout_fn = detect_pdf_hf_layout or detect_pdf_hf_layout_impl
     compute_body_font_size_fn = compute_body_font_size or _compute_body_font_size
@@ -307,7 +335,7 @@ def convert_pdf_with_settings(
     replace_html_br_with_space_fn = replace_html_br_with_space or _replace_html_br_with_space
     limit_dot_leaders_fn = limit_dot_leaders or _limit_dot_leaders
 
-    name = os.path.basename(path)
+    name = _display_name or os.path.basename(path)
 
     try:
         import pymupdf4llm  # type: ignore
@@ -359,6 +387,11 @@ def convert_pdf_with_settings(
             return f"# {name}\n\n*Conversion failed: {error}*\n"
     finally:
         doc.close()
+        if _temp_path:
+            try:
+                os.unlink(_temp_path)
+            except OSError:
+                pass
 
     return _finalize_pdf_markdown(
         name,

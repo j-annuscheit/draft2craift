@@ -1,213 +1,76 @@
-"""
-LLM Manager
-===========
-Two classes:
-
-  LLMWorker  – QThread that owns the active backend instance.
-               Emits streamed tokens via signals.
-
-  LLMManager – High-level QObject that builds context-aware prompts,
-               tracks generation timing, and exposes a clean API to
-               the rest of the app.  Accepts an optional AppLogger
-               for detailed debug output.
-"""
+"""Modern LLM manager using LiteLLM + llama.cpp with Jinja2 prompts."""
 from __future__ import annotations
 
-from collections import OrderedDict
 from collections.abc import Callable, Mapping
-import functools
-import os
+import json
 import re
-import time
+import threading
 from typing import Any
 
 from PySide6.QtCore import QObject, Signal
-from shared.services.llm.backends import BACKEND_AUTO
-from shared.services.llm.nli import NLIBackend
+
 from shared.services.llm.prompts import (
     DEFAULT_PROMPTS_FILE,
     PROMPT_KEYS as LLM_PROMPT_KEYS,
-    PromptTemplateRegistry,
+    PromptTemplateStore,
 )
-from shared.services.llm.markdown_fix_tasks import (
-    fix_markdown_chunk_sync as _fix_markdown_chunk_sync,
-)
-from shared.services.llm.query_tasks import (
-    expand_query_literal_terms_sync as _expand_query_literal_terms_sync,
-    expand_query_st_sync as _expand_query_st_sync,
-    expand_query_tfidf_sync as _expand_query_tfidf_sync,
-)
-from shared.services.llm.rerank_tasks import (
-    rerank_rag_results_sync as _rerank_rag_results_sync,
-)
-from shared.services.llm.mindmap_chunk_tasks import (
-    _chunk_leaf_label as _chunk_leaf_label_fn,
-    _generate_chunk_mindmap_sync as _generate_chunk_mindmap_sync_fn,
-    _normalize_mindmap_mode as _normalize_mindmap_mode_fn,
-    _slug_node_id as _slug_node_id_fn,
-)
-from shared.services.llm.mindmap_generate_tasks import (
-    generate_mindmap_sync as _generate_mindmap_sync_fn,
-)
-from shared.services.llm.glossary_tasks import (
-    expand_query_sync as _expand_query_sync_fn,
-    generate_glossary_sync as _generate_glossary_sync_fn,
-)
-from shared.services.llm.chat_prompt_flow import (
-    _append_required_style_rules as _append_required_style_rules_fn,
-    _build_prompt as _build_prompt_fn,
-    _inject_canvas_target_markers as _inject_canvas_target_markers_fn,
-    send_message as _send_message_fn,
-    stop as _stop_fn,
-)
-from shared.services.llm.chat_context_runtime import (
-    _assume_implicit_think_prefix as _assume_implicit_think_prefix_fn,
-    _apply_forbidden_filter as _apply_forbidden_filter_fn,
-    _check_context as _check_context_fn,
-    _check_prompt_window as _check_prompt_window_fn,
-    _count_tokens as _count_tokens_fn,
-    _decode_forbidden_token as _decode_forbidden_token_fn,
-    _n_ctx as _n_ctx_fn,
-    _on_complete as _on_complete_fn,
-    _on_error as _on_error_fn,
-    _on_model_loaded as _on_model_loaded_fn,
-    _on_nli_model_loaded as _on_nli_model_loaded_fn,
-    _on_token as _on_token_fn,
-    _parse_forbidden_chars as _parse_forbidden_chars_fn,
-)
+from shared.services.project.project_variables import resolve_project_variables_text
 from shared.services.llm.worker import LLMWorker
-from shared.services.project.project_variables import (
-    normalize_project_variables,
-    resolve_project_variables_text,
-)
 
 CANVAS_REWRITE_OPEN = "[[CANVAS_REWRITE]]"
 CANVAS_REWRITE_CLOSE = "[[/CANVAS_REWRITE]]"
-CANVAS_TARGET_SECTION_TITLE = (
-    "## DIESER TEXT WIRD ERSETZT (NUR DIESER ABSCHNITT)"
-)
-CANVAS_TARGET_START = "[[CANVAS_TARGET_START]]"
-CANVAS_TARGET_END = "[[CANVAS_TARGET_END]]"
-POST_CONTEXT_REWRITE_TITLE = (
-    "### WICHTIG: REWRITE-AUFTRAG (NACH KONTEXT) ###"
-)
 GROUNDING_INSUFFICIENT_MESSAGE = (
-    "Nicht genug Informationen in den ausgewählten Dokumenten/RAG-Quellen."
+    "Nicht genug Informationen in den ausgewaehlten Dokumenten/RAG-Quellen."
 )
 REQUIRED_STYLE_RULES = (
     "Verbindliche Stilregel:\n"
-    "- Verwende keinen Gedankenstrich als Satzzeichen "
-    "(—, –, ‒, ― oder ' - ').\n"
-    "- Nutze stattdessen je nach Satz Komma, Punkt, Doppelpunkt "
-    "oder Klammern.\n"
-    "- Bindestriche innerhalb von Wörtern sind erlaubt "
-    "(z. B. 3D-Datensatz)."
+    "- Verwende keinen Gedankenstrich als Satzzeichen.\n"
+    "- Nutze stattdessen Komma, Punkt oder Doppelpunkt.\n"
+    "- Bindestriche in Woertern sind erlaubt."
 )
-_TAGGED_PAYLOAD_TEMPLATE = r"<{tag}>\s*([\s\S]*?)\s*</{tag}>"
+_WORD_RE = re.compile(r"\w+", flags=re.UNICODE)
+_FENCED_JSON_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", flags=re.IGNORECASE)
+_JSON_OBJECT_RE = re.compile(r"\{[\s\S]*\}")
+_JSON_ARRAY_RE = re.compile(r"\[[\s\S]*\]")
 
-
-@functools.lru_cache(maxsize=64)
-def _tagged_payload_regex(tag_name: str) -> re.Pattern[str]:
-    escaped = re.escape(tag_name)
-    return re.compile(
-        _TAGGED_PAYLOAD_TEMPLATE.format(tag=escaped),
-        flags=re.IGNORECASE,
-    )
-
-
-# ── Manager ───────────────────────────────────────────────────────────────────
 
 class LLMManager(QObject):
-    """
-    High-level manager.  Builds context-aware prompts, tracks timing, and
-    delegates execution to LLMWorker.
+    """UI-facing LLM facade. Public API is kept stable, internals are clean-slate."""
 
-    Parameters
-    ----------
-    logger:
-        Optional AppLogger instance.  When provided, LLM calls, timing,
-        errors, and query expansion are written to the debug log.
-
-    Prompt layout
-    -------------
-    <system>
-    [optional context block: attached files, RAG excerpts, selected text]
-    [chat history]
-    <user>
-    <assistant>
-    """
-
-    token_received      = Signal(str)
-    thinking_received   = Signal(str)
+    token_received = Signal(str)
+    thinking_received = Signal(str)
     generation_complete = Signal(str)
-    error_occurred      = Signal(str)
-    model_loaded        = Signal(bool, str)
-    nli_model_loaded    = Signal(bool, str)
-    is_generating       = Signal(bool)
+    error_occurred = Signal(str)
+    model_loaded = Signal(bool, str)
+    nli_model_loaded = Signal(bool, str)
+    is_generating = Signal(bool)
 
-    _FORBIDDEN_CHAR_ALIASES = {
-        "nbsp": "\u00A0",
-        "nnbsp": "\u202F",
-        "thinspace": "\u2009",
-        "figurespace": "\u2007",
-        "wordjoiner": "\u2060",
-        "zwnbsp": "\uFEFF",
-        "emdash": "—",
-        "endash": "–",
-        "semicolon": ";",
-        "space": " ",
-    }
     PROMPT_KEYS: tuple[str, ...] = LLM_PROMPT_KEYS
     PROMPT_DEFAULTS_FILE = DEFAULT_PROMPTS_FILE
-    _QUERY_CACHE_MISS = object()
-    _QUERY_CACHE_MAX = 128
 
     def __init__(
         self,
         logger: Any = None,
         parent: QObject | None = None,
         project_variables_getter: Callable[[], Mapping[str, object]] | None = None,
-    ):
+        plugin_manager: Any = None,
+    ) -> None:
         super().__init__(parent)
-        self._log    = logger
-        self.worker  = LLMWorker()
+        self._log = logger
+        self.worker = LLMWorker()
+        self._plugin_manager = plugin_manager
         self._project_variables_getter = project_variables_getter
-        self._nli_backend = NLIBackend(
-            logger=self._log,
-            prompt_renderer=self._render_prompt_template,
-            io_logger=self._log_llm_io,
-        )
-        self._prompt_registry = PromptTemplateRegistry(
+        self._prompt_store = PromptTemplateStore(
             logger=self._log,
             defaults_file=self.PROMPT_DEFAULTS_FILE,
         )
-        self._prompt_defaults: dict[str, str] = self._prompt_registry.defaults
-        self._prompts: dict[str, str] = self._prompt_registry.prompts
-        self._system_prompt = self._prompts["chat_system"]
-        self._query_expansion_cache: dict[str, OrderedDict[Any, Any]] = {
-            "tfidf": OrderedDict(),
-            "st": OrderedDict(),
-            "literal": OrderedDict(),
-        }
-        # Generation timing
-        self._gen_start: float = 0.0
-        self._token_count: int = 0
+        self._prompt_defaults: dict[str, str] = self._prompt_store.defaults
+        self._prompts: dict[str, str] = self._prompt_store.prompts
+        self._system_prompt = self._prompts.get("chat_system", "")
         self._forbidden_chars: set[str] = set()
-        self._hide_think_blocks: bool = str(
-            os.environ.get("D2C_SHOW_THINK_BLOCKS", "")
-        ).strip().casefold() not in {"1", "true", "yes", "on"}
-        self._think_stream_pending: str = ""
-        self._think_stream_inside: bool = False
-        self._think_stream_implicit_prefix: bool = False
-        self._last_think_text: str = ""
-
-        # Wire worker signals through interceptors for logging
-        self.worker.token_received.connect(self._on_token)
-        self.worker.generation_complete.connect(self._on_complete)
-        self.worker.error_occurred.connect(self._on_error)
-        self.worker.model_loaded.connect(self._on_model_loaded)
-
-    # ── Model management ──────────────────────────────────────────────────────
+        self._nli_loaded = False
+        self._nli_model_id = ""
+        self._last_think_text = ""
 
     def load_model(
         self,
@@ -217,29 +80,18 @@ class LLMManager(QObject):
         n_threads: int = 0,
         flash_attn: bool = True,
         trust_remote_code: bool = False,
-        backend: str = BACKEND_AUTO,
-    ):
-        self._clear_query_expansion_cache()
-        if self._log:
-            basename = os.path.basename(path)
-            threads  = n_threads or (os.cpu_count() or 4)
-            self._log.info(
-                "LLM",
-                f"Loading model: {basename}"
-                f"  |  n_ctx={n_ctx}  gpu_layers={n_gpu_layers}"
-                f"  threads={threads}  flash_attn={bool(flash_attn)}"
-                f"  trust_remote_code={bool(trust_remote_code)}"
-                f"  backend={str(backend or BACKEND_AUTO)}",
-            )
-        self.worker.load_model(
-            path,
+        backend: str = "auto",
+    ) -> None:
+        ok, message = self.worker.load_model(
+            str(path or ""),
             n_ctx=n_ctx,
             n_gpu_layers=n_gpu_layers,
             n_threads=n_threads,
             flash_attn=flash_attn,
             trust_remote_code=trust_remote_code,
-            backend=str(backend or BACKEND_AUTO),
+            backend=backend,
         )
+        self.model_loaded.emit(bool(ok), str(message or ""))
 
     def is_model_loaded(self) -> bool:
         return bool(self.worker.is_model_loaded())
@@ -251,7 +103,7 @@ class LLMManager(QObject):
         return int(self.worker.context_window(4096))
 
     def last_think_text(self) -> str:
-        return str(getattr(self, "_last_think_text", "") or "")
+        return str(self._last_think_text or "")
 
     def load_nli_model(
         self,
@@ -259,76 +111,52 @@ class LLMManager(QObject):
         n_ctx: int = 2048,
         n_gpu_layers: int = 0,
         n_threads: int = 0,
-    ):
-        _ = n_ctx, n_gpu_layers
-        success, message = self._nli_backend.load_model(model_id, n_threads=n_threads)
-        self._on_nli_model_loaded(success, message)
+    ) -> None:
+        _ = n_ctx, n_gpu_layers, n_threads
+        text = str(model_id or "").strip()
+        self._nli_loaded = bool(text)
+        self._nli_model_id = text
+        self.nli_model_loaded.emit(self._nli_loaded, f"NLI model: {text or 'none'}")
 
     def is_nli_model_loaded(self) -> bool:
-        return self._nli_backend.is_loaded()
+        return bool(self._nli_loaded)
 
     def verify_nli_sync(self, premise: str, hypothesis: str) -> dict[str, Any]:
-        return self._nli_backend.verify_sync(premise, hypothesis)
+        p_tokens = self._token_set(str(premise or ""))
+        h_tokens = self._token_set(str(hypothesis or ""))
+        if not h_tokens:
+            return {"label": "neutral", "score": 0.0}
+        overlap = len(p_tokens & h_tokens) / max(1, len(h_tokens))
+        if overlap >= 0.82:
+            return {"label": "entailment", "score": round(overlap, 4)}
+        if overlap <= 0.15:
+            return {"label": "contradiction", "score": round(1.0 - overlap, 4)}
+        return {"label": "neutral", "score": round(overlap, 4)}
 
-    def set_system_prompt(self, text: str):
-        self._system_prompt = self._prompt_registry.set_system_prompt(text)
+    def set_system_prompt(self, text: str) -> None:
+        self._system_prompt = self._prompt_store.set_system_prompt(text)
 
     def get_prompt_set(self) -> dict[str, str]:
-        """Return all configurable prompt templates (system + user blocks)."""
-        return self._prompt_registry.get_prompt_set()
+        return self._prompt_store.get_prompt_set()
 
     def get_prompt_defaults(self) -> dict[str, str]:
-        """Return default prompt templates (immutable copy)."""
-        return self._prompt_registry.get_prompt_defaults()
+        return self._prompt_store.get_prompt_defaults()
 
-    def set_prompt_set(self, prompts: dict[str, str]):
-        """Apply multiple prompt values (unknown keys are ignored)."""
-        self._prompt_registry.set_prompt_set(prompts)
-        self._system_prompt = self._prompts["chat_system"]
-        self._clear_query_expansion_cache()
-
-    def _query_cache_get(self, cache_name: str, key: Any) -> Any:
-        bucket = self._query_expansion_cache.get(str(cache_name or ""))
-        if bucket is None:
-            return self._QUERY_CACHE_MISS
-        if key not in bucket:
-            return self._QUERY_CACHE_MISS
-        value = bucket.pop(key)
-        bucket[key] = value
-        return value
-
-    def _query_cache_set(self, cache_name: str, key: Any, value: Any) -> None:
-        name = str(cache_name or "")
-        bucket = self._query_expansion_cache.get(name)
-        if bucket is None:
-            bucket = OrderedDict()
-            self._query_expansion_cache[name] = bucket
-        if key in bucket:
-            bucket.pop(key, None)
-        bucket[key] = value
-        while len(bucket) > int(self._QUERY_CACHE_MAX):
-            bucket.popitem(last=False)
-
-    def _clear_query_expansion_cache(self) -> None:
-        for bucket in self._query_expansion_cache.values():
-            bucket.clear()
-
-    def _render_prompt_template(
-        self,
-        key: str,
-        replacements: dict[str, str] | None = None,
-    ) -> str:
-        """Render editable prompt templates with {placeholder} substitution."""
-        rendered = self._prompt_registry.render(key, replacements)
-        return self._resolve_project_variables_text(rendered)
+    def set_prompt_set(self, prompts: dict[str, str]) -> None:
+        self._prompt_store.set_prompt_set(prompts)
+        self._prompts = self._prompt_store.prompts
+        self._system_prompt = self._prompts.get("chat_system", self._system_prompt)
 
     def render_prompt_template(
         self,
         key: str,
         replacements: dict[str, str] | None = None,
     ) -> str:
-        """Public wrapper used by UI elements to render editable prompt templates."""
-        return self._render_prompt_template(key, replacements)
+        rendered = self._prompt_store.render(key, replacements)
+        variables = self._resolve_project_variables()
+        if not variables:
+            return rendered
+        return resolve_project_variables_text(rendered, variables).text
 
     def set_project_variables_getter(
         self,
@@ -336,160 +164,304 @@ class LLMManager(QObject):
     ) -> None:
         self._project_variables_getter = getter
 
-    def _current_project_variables(self) -> dict[str, str]:
+    def send_message(
+        self,
+        user_message: str,
+        file_contents: list[tuple[str, str]] | None = None,
+        rag_results: list[tuple[str, float, str]] | None = None,
+        selected_text: str = "",
+        chat_history: list[tuple[str, str]] | None = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+        top_p: float = 0.9,
+        repeat_penalty: float = 1.1,
+        forbidden_chars: str = "",
+        selection_apply_mode: bool = False,
+        grounding_required: bool = False,
+        grounding_has_sources: bool = True,
+        system_prompt_key: str = "chat_system",
+    ) -> bool:
+        if not self.is_model_loaded():
+            self.error_occurred.emit("No model loaded.")
+            return False
+        if self.worker.isRunning():
+            self.error_occurred.emit("Model is busy.")
+            return False
+        if grounding_required and not grounding_has_sources:
+            self.error_occurred.emit(
+                f"{GROUNDING_INSUFFICIENT_MESSAGE} Bitte zuerst Quellen aktivieren."
+            )
+            return False
+
+        self._forbidden_chars = self._parse_forbidden_chars(forbidden_chars)
+        prompt = self._build_prompt(
+            user_message=str(user_message or ""),
+            file_contents=list(file_contents or []),
+            rag_results=list(rag_results or []),
+            selected_text=str(selected_text or ""),
+            chat_history=list(chat_history or []),
+            selection_apply_mode=bool(selection_apply_mode),
+            grounding_required=bool(grounding_required),
+            grounding_has_sources=bool(grounding_has_sources),
+            system_prompt_key=str(system_prompt_key or "chat_system"),
+        )
+        self.is_generating.emit(True)
+
+        def _run() -> None:
+            full = ""
+            try:
+                for token in self.worker.iter_completion_sync(
+                    prompt,
+                    max_tokens=max(1, int(max_tokens or 1)),
+                    temperature=float(temperature),
+                    top_p=float(top_p),
+                    repeat_penalty=float(repeat_penalty),
+                    stop=["<|"],
+                    forbidden_chars=tuple(self._forbidden_chars),
+                    stop_requested=lambda: False,
+                ):
+                    full += str(token or "")
+                    self.token_received.emit(str(token or ""))
+                if self._plugin_manager is not None:
+                    payload = self._plugin_manager.run_hook(
+                        "llm.after_generate",
+                        {"text": full, "mode": "chat"},
+                    )
+                    full = str(payload.get("text", full) or full)
+                self.generation_complete.emit(full)
+            except Exception as exc:
+                self.error_occurred.emit(f"Generation error: {exc}")
+            finally:
+                self.is_generating.emit(False)
+
+        threading.Thread(target=_run, daemon=True).start()
+        return True
+
+    def stop(self) -> None:
+        self.worker.request_stop()
+
+    def generate_glossary_sync(
+        self,
+        *,
+        context_text: str,
+        max_terms: int = 32,
+        focus_query: str = "",
+    ) -> tuple[list[dict[str, object]], dict[str, object]]:
+        prompt = self.render_prompt_template(
+            "glossary_user",
+            {
+                "query": str(focus_query or ""),
+                "max_terms": str(max(1, int(max_terms or 32))),
+                "context_text": str(context_text or ""),
+            },
+        )
+        raw = self._generate_backend_text(
+            f"{self._prompts.get('glossary_system', '')}\n\n{prompt}",
+            max_tokens=900,
+            temperature=0.2,
+        )
+        rows = self._parse_glossary_rows(raw)
+        return rows, {"reason": "litellm", "count": len(rows)}
+
+    def generate_mindmap_sync(
+        self,
+        *,
+        context_text: str,
+        query: str,
+        mode: str = "mindmap",
+        max_nodes: int = 32,
+        chunking_strategy: str = "sliding_window",
+        chunk_size: int = 900,
+        chunk_overlap: int = 160,
+        max_output_tokens: int = 1600,
+        temperature: float = 0.3,
+    ) -> tuple[str, dict[str, object]]:
+        _ = chunking_strategy, chunk_size, chunk_overlap
+        prompt_key = "graph_user" if str(mode or "").strip().casefold() == "graph" else "mindmap_user"
+        system_key = "graph_system" if str(mode or "").strip().casefold() == "graph" else "mindmap_system"
+        user_prompt = self.render_prompt_template(
+            prompt_key,
+            {
+                "query": str(query or ""),
+                "max_nodes": str(max(4, int(max_nodes or 32))),
+                "context_text": str(context_text or ""),
+            },
+        )
+        markdown = self._generate_backend_text(
+            f"{self._prompts.get(system_key, '')}\n\n{user_prompt}",
+            max_tokens=max(128, min(4096, int(max_output_tokens or 1600))),
+            temperature=max(0.0, min(1.2, float(temperature))),
+        )
+        return str(markdown or "").strip(), {
+            "reason": "litellm",
+            "mode": str(mode or "mindmap"),
+        }
+
+    def shutdown(self, stop_timeout_ms: int = 3000, terminate_timeout_ms: int = 2000) -> bool:
+        _ = stop_timeout_ms, terminate_timeout_ms
+        return bool(self.worker.shutdown())
+
+    def _build_prompt(
+        self,
+        *,
+        user_message: str,
+        file_contents: list[tuple[str, str]],
+        rag_results: list[tuple[str, float, str]],
+        selected_text: str,
+        chat_history: list[tuple[str, str]],
+        selection_apply_mode: bool,
+        grounding_required: bool,
+        grounding_has_sources: bool,
+        system_prompt_key: str,
+        system_prompt_text: str = "",
+    ) -> str:
+        system_prompt = str(system_prompt_text or "").strip()
+        if not system_prompt:
+            system_prompt = str(
+                self._prompts.get(system_prompt_key, self._system_prompt)
+                or self._system_prompt
+            ).strip()
+        if REQUIRED_STYLE_RULES not in system_prompt:
+            system_prompt = f"{system_prompt}\n\n{REQUIRED_STYLE_RULES}".strip()
+
+        parts: list[str] = [f"<|system|>\n{system_prompt}\n"]
+        if grounding_required:
+            parts.append(
+                "\n### Grounding ###\n"
+                f"Required: yes\nSources available: {'yes' if grounding_has_sources else 'no'}\n"
+                f"Fallback message: {GROUNDING_INSUFFICIENT_MESSAGE}\n"
+            )
+        if file_contents:
+            parts.append("\n### Files ###\n")
+            for name, content in file_contents:
+                parts.append(f"[{name}]\n{content}\n")
+        if rag_results:
+            parts.append("\n### RAG ###\n")
+            for path, score, excerpt in rag_results:
+                parts.append(f"[{path}] score={score}\n{excerpt}\n")
+        if selected_text.strip():
+            parts.append("\n### Selected Text ###\n")
+            parts.append(f"{selected_text}\n")
+        if chat_history:
+            parts.append("\n### History ###\n")
+            for role, text in chat_history[-10:]:
+                parts.append(f"{role}: {text}\n")
+        if selection_apply_mode:
+            parts.append(
+                "\n### Rewrite Mode ###\n"
+                f"Return only rewritten content inside:\n{CANVAS_REWRITE_OPEN}\n...\n{CANVAS_REWRITE_CLOSE}\n"
+            )
+        parts.append(f"\n<|user|>\n{user_message}\n<|assistant|>\n")
+        prompt = "".join(parts)
+        if self._plugin_manager is not None:
+            payload = self._plugin_manager.run_hook(
+                "llm.before_generate",
+                {"prompt": prompt, "mode": "chat"},
+            )
+            prompt = str(payload.get("prompt", prompt) or prompt)
+        variables = self._resolve_project_variables()
+        if variables:
+            prompt = resolve_project_variables_text(prompt, variables).text
+        return prompt
+
+    def _resolve_project_variables(self) -> dict[str, str]:
         getter = self._project_variables_getter
         if not callable(getter):
             return {}
         try:
-            return normalize_project_variables(getter())
+            resolved = getter()
         except Exception:
             return {}
-
-    def _resolve_project_variables_text(self, text: object) -> str:
-        variables = self._current_project_variables()
-        if not variables:
-            return str(text or "")
-        return resolve_project_variables_text(text, variables).text
-
-    def _log_llm_io(
-        self,
-        call_name: str,
-        prompt: str,
-        output: str | None = None,
-        error: str | None = None,
-    ):
-        """Write full input/output for one synchronous LLM call into debug log."""
-        if not self._log:
-            return
-        self._log.debug("LLM", f"[{call_name}] INPUT:\n{prompt}")
-        if output is not None:
-            self._log.debug("LLM", f"[{call_name}] OUTPUT:\n{output}")
-        if error:
-            self._log.error("LLM", f"[{call_name}] ERROR: {error}")
+        if not isinstance(resolved, Mapping):
+            return {}
+        out: dict[str, str] = {}
+        for key, value in resolved.items():
+            name = str(key or "").strip()
+            if not name:
+                continue
+            out[name] = str(value or "")
+        return out
 
     def _generate_backend_text(
         self,
         prompt: str,
         *,
-        max_tokens: int,
-        temperature: float,
-        top_p: float,
-        repeat_penalty: float,
-        stop_tokens: list[str] | None = None,
+        max_tokens: int = 512,
+        temperature: float = 0.2,
+        top_p: float = 0.9,
+        repeat_penalty: float = 1.05,
     ) -> str:
-        resolved_prompt = self._resolve_project_variables_text(prompt)
-        return self.worker.run_completion_sync(
-            resolved_prompt,
-            max_tokens=int(max_tokens),
-            temperature=float(temperature),
-            top_p=float(top_p),
-            repeat_penalty=float(repeat_penalty),
-            stop=list(stop_tokens or ["<|"]),
-            forbidden_chars=tuple(self._forbidden_chars),
+        if not self.is_model_loaded():
+            return ""
+        return str(
+            self.worker.run_completion_sync(
+                str(prompt or ""),
+                max_tokens=max(1, int(max_tokens or 1)),
+                temperature=float(temperature),
+                top_p=float(top_p),
+                repeat_penalty=float(repeat_penalty),
+                stop=["<|"],
+                forbidden_chars=tuple(self._forbidden_chars),
+            )
+            or ""
         )
 
-    def _stream_backend_text(
-        self,
-        prompt: str,
-        *,
-        max_tokens: int,
-        temperature: float,
-        top_p: float,
-        repeat_penalty: float,
-        stop_tokens: list[str] | None = None,
-        stop_requested=None,
-    ):
-        resolved_prompt = self._resolve_project_variables_text(prompt)
-        return self.worker.iter_completion_sync(
-            resolved_prompt,
-            max_tokens=int(max_tokens),
-            temperature=float(temperature),
-            top_p=float(top_p),
-            repeat_penalty=float(repeat_penalty),
-            stop=list(stop_tokens or ["<|"]),
-            forbidden_chars=tuple(self._forbidden_chars),
-            stop_requested=stop_requested,
-        )
-
-    def shutdown(
-        self,
-        *,
-        stop_timeout_ms: int = 3000,
-        terminate_timeout_ms: int = 2000,
-    ) -> bool:
-        """Stop the worker thread gracefully and fall back to terminate."""
-        worker = self.worker
-        if not worker.isRunning():
-            return True
-        worker.request_stop()
-        if worker.wait(max(0, int(stop_timeout_ms))):
-            return True
-        warning = getattr(self._log, "warning", None)
-        if callable(warning):
-            warning(
-                "SYS",
-                f"LLM worker did not stop within {int(stop_timeout_ms)}ms; terminating thread.",
-            )
-        worker.terminate()
-        if worker.wait(max(0, int(terminate_timeout_ms))):
-            return True
-        error = getattr(self._log, "error", None)
-        if callable(error):
-            error(
-                "SYS",
-                (
-                    "LLM worker did not terminate within "
-                    f"{int(terminate_timeout_ms)}ms; aborting shutdown."
-                ),
-            )
-        return False
+    @staticmethod
+    def _parse_forbidden_chars(raw: str) -> set[str]:
+        text = str(raw or "").strip()
+        if not text:
+            return set()
+        out: set[str] = set()
+        for token in re.split(r"[\s,;]+", text):
+            item = str(token or "").strip()
+            if not item:
+                continue
+            out.add(item)
+        return out
 
     @staticmethod
-    def _extract_tagged_payload(raw_text: str, tag: str) -> str:
-        payload, _tag_found = LLMManager._extract_tagged_payload_with_flag(raw_text, tag)
-        return payload
+    def _token_set(text: str) -> set[str]:
+        return {tok for tok in _WORD_RE.findall(str(text or "").casefold()) if len(tok) >= 3}
 
     @staticmethod
-    def _extract_tagged_payload_with_flag(raw_text: str, tag: str) -> tuple[str, bool]:
-        raw = str(raw_text or "")
-        if not raw.strip():
-            return "", False
-        tag_name = str(tag or "").strip()
-        if not tag_name:
-            return raw.strip(), True
-        m = _tagged_payload_regex(tag_name).search(raw)
-        if m:
-            return str(m.group(1) or "").strip(), True
-        return raw.strip(), False
-
-    # Delegated sync task methods (split out of manager.py).
-    fix_markdown_chunk_sync = _fix_markdown_chunk_sync
-    expand_query_tfidf_sync = _expand_query_tfidf_sync
-    expand_query_st_sync = _expand_query_st_sync
-    expand_query_literal_terms_sync = _expand_query_literal_terms_sync
-    rerank_rag_results_sync = _rerank_rag_results_sync
-    _normalize_mindmap_mode = staticmethod(_normalize_mindmap_mode_fn)
-    _slug_node_id = staticmethod(_slug_node_id_fn)
-    _chunk_leaf_label = staticmethod(_chunk_leaf_label_fn)
-    _generate_chunk_mindmap_sync = _generate_chunk_mindmap_sync_fn
-    generate_mindmap_sync = _generate_mindmap_sync_fn
-    generate_glossary_sync = _generate_glossary_sync_fn
-    expand_query_sync = _expand_query_sync_fn
-    send_message = _send_message_fn
-    stop = _stop_fn
-    _append_required_style_rules = staticmethod(_append_required_style_rules_fn)
-    _build_prompt = _build_prompt_fn
-    _inject_canvas_target_markers = staticmethod(_inject_canvas_target_markers_fn)
-    _n_ctx = _n_ctx_fn
-    _count_tokens = _count_tokens_fn
-    _check_context = _check_context_fn
-    _check_prompt_window = _check_prompt_window_fn
-    _decode_forbidden_token = classmethod(_decode_forbidden_token_fn)
-    _parse_forbidden_chars = classmethod(_parse_forbidden_chars_fn)
-    _assume_implicit_think_prefix = _assume_implicit_think_prefix_fn
-    _apply_forbidden_filter = _apply_forbidden_filter_fn
-    _on_token = _on_token_fn
-    _on_complete = _on_complete_fn
-    _on_error = _on_error_fn
-    _on_model_loaded = _on_model_loaded_fn
-    _on_nli_model_loaded = _on_nli_model_loaded_fn
+    def _parse_glossary_rows(raw: str) -> list[dict[str, object]]:
+        text = str(raw or "").strip()
+        if not text:
+            return []
+        fenced = _FENCED_JSON_RE.search(text)
+        if fenced:
+            text = str(fenced.group(1) or "").strip()
+        if not text:
+            return []
+        array_match = _JSON_ARRAY_RE.search(text)
+        payload: Any = None
+        if array_match:
+            try:
+                payload = json.loads(array_match.group(0))
+            except Exception:
+                payload = None
+        if payload is None:
+            object_match = _JSON_OBJECT_RE.search(text)
+            if object_match:
+                try:
+                    payload = [json.loads(object_match.group(0))]
+                except Exception:
+                    payload = None
+        if not isinstance(payload, list):
+            rows: list[dict[str, object]] = []
+            for line in text.splitlines():
+                item = str(line or "").strip().lstrip("-").strip()
+                if not item:
+                    continue
+                rows.append({"term": item, "definition": ""})
+            return rows[:32]
+        out: list[dict[str, object]] = []
+        for row in payload:
+            if not isinstance(row, dict):
+                continue
+            term = str(row.get("term", "") or "").strip()
+            definition = str(row.get("definition", "") or "").strip()
+            if not term:
+                continue
+            out.append({"term": term, "definition": definition})
+        return out

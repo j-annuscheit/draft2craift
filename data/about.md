@@ -5,7 +5,7 @@
 A PySide6 application for LLM-assisted writing with local GGUF models.
 
 - GGUF inference via `llama-cpp-python`
-- RAG with TF-IDF (or `sentence-transformers`)
+- Local-first RAG with `LlamaIndex` + `LanceDB`
 - Markdown syntax highlighting
 - Flexible floating-dock UI
 

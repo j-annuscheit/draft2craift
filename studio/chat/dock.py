@@ -39,11 +39,11 @@ class ChatDock(FactCheckPipelineMixin, QDockWidget):
         ) = None
         self._fact_result_handler: Callable[[str, str], tuple[bool, str]] | None = None
         self._glossary_request_handler: (
-            Callable[[dict, str, Callable[[bool, str], None]], tuple[bool, str]] | None
+            Callable[[dict, str, dict | None, Callable[[bool, str], None]], tuple[bool, str]] | None
         ) = None
         self._mindmap_request_handler: (
             Callable[
-                [dict, str, str, int, Callable[[bool, str], None]],
+                [dict, str, str, int, dict | None, Callable[[bool, str], None]],
                 tuple[bool, str],
             ]
             | None

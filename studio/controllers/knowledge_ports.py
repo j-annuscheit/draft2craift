@@ -1,26 +1,12 @@
 """Protocols for KnowledgeController dock dependencies."""
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Protocol, runtime_checkable
-
-
-@runtime_checkable
-class SignalPort(Protocol):
-    """Minimal signal surface required by controller code."""
-
-    def connect(self, slot: Callable[..., object]) -> object: ...
-
-    def disconnect(self, slot: Callable[..., object]) -> object: ...
 
 
 @runtime_checkable
 class RAGWorkerPort(Protocol):
     """Subset of RAG worker API required by KnowledgeController."""
-
-    st_loaded: SignalPort
-
-    def enqueue_load_st(self, model_name: str | None = None) -> None: ...
 
     def isRunning(self) -> bool: ...
 

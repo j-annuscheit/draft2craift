@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 from shared.services.llm.backends import (
     BACKEND_AUTO,
     BACKEND_LLAMA_CPP,
-    BACKEND_TRANSFORMERS,
+    BACKEND_LITELLM,
 )
 from shared.domain.user_mode import (
     default_user_mode,
@@ -119,7 +119,7 @@ class ModelLoadPanel(QWidget):
         self.backend_combo = QComboBox()
         self.backend_combo.addItem("Auto", BACKEND_AUTO)
         self.backend_combo.addItem("GGUF (llama.cpp)", BACKEND_LLAMA_CPP)
-        self.backend_combo.addItem("Transformers (HF)", BACKEND_TRANSFORMERS)
+        self.backend_combo.addItem("LiteLLM (local endpoint)", BACKEND_LITELLM)
         self.backend_combo.currentIndexChanged.connect(self._on_backend_changed)
         backend_row = QHBoxLayout()
         backend_row.setContentsMargins(0, 0, 0, 0)
@@ -132,7 +132,7 @@ class ModelLoadPanel(QWidget):
         path_row = QHBoxLayout()
         self.model_path = QLineEdit()
         self.model_path.setPlaceholderText(
-            "Model path (.gguf) or Hugging Face model id / URL…"
+            "Model path (.gguf) or LiteLLM model id (e.g. ollama/llama3)…"
         )
         self.browse_btn = QPushButton("…")
         self.browse_btn.setFixedWidth(28)
@@ -166,8 +166,8 @@ class ModelLoadPanel(QWidget):
         self.trust_remote_code_cb = QCheckBox()
         self.trust_remote_code_cb.setChecked(False)
         self.trust_remote_code_cb.setToolTip(
-            "Allows execution of custom Python code from the model repository "
-            "(transformers trust_remote_code). Only enable for trusted models."
+            "Legacy option from older backends. "
+            "Not used in local-first LiteLLM/llama.cpp runtime."
         )
         self._model_form.addRow("Trust remote code:", self.trust_remote_code_cb)
 
@@ -422,40 +422,40 @@ class ModelLoadPanel(QWidget):
                     default_browse_tip,
                 )
             )
-        elif backend == BACKEND_TRANSFORMERS:
+        elif backend == BACKEND_LITELLM:
             default_hint = resolve_feature_label(
                 self._user_mode,
                 "chat.model.hint",
-                "Use a Hugging Face model id/URL or a local model directory.",
+                "Use a local LiteLLM model id (e.g. ollama/llama3).",
             )
             default_placeholder = resolve_feature_label(
                 self._user_mode,
                 "chat.model.path.placeholder",
-                "Hugging Face model id / URL or local model directory…",
+                "LiteLLM model id (e.g. ollama/llama3)…",
             )
             default_browse_tip = resolve_feature_label(
                 self._user_mode,
                 "chat.model.button.browse.tooltip",
-                "Choose a local transformers model directory.",
+                "Browse is used for GGUF files only.",
             )
             self.model_hint.setText(
                 resolve_feature_label(
                     self._user_mode,
-                    "chat.model.hint.transformers",
+                    "chat.model.hint.litellm",
                     default_hint,
                 )
             )
             self.model_path.setPlaceholderText(
                 resolve_feature_label(
                     self._user_mode,
-                    "chat.model.path.placeholder.transformers",
+                    "chat.model.path.placeholder.litellm",
                     default_placeholder,
                 )
             )
             self.browse_btn.setToolTip(
                 resolve_feature_label(
                     self._user_mode,
-                    "chat.model.button.browse.tooltip.transformers",
+                    "chat.model.button.browse.tooltip.litellm",
                     default_browse_tip,
                 )
             )
@@ -468,12 +468,12 @@ class ModelLoadPanel(QWidget):
             default_placeholder = resolve_feature_label(
                 self._user_mode,
                 "chat.model.path.placeholder",
-                "Model path (.gguf) or Hugging Face model id / URL…",
+                "Model path (.gguf) or LiteLLM model id (e.g. ollama/llama3)…",
             )
             default_browse_tip = resolve_feature_label(
                 self._user_mode,
                 "chat.model.button.browse.tooltip",
-                "Choose a local GGUF file, or enter a transformers id/URL.",
+                "Choose a local GGUF file, or enter a local LiteLLM model id.",
             )
             self.model_hint.setText(
                 resolve_feature_label(
@@ -506,10 +506,7 @@ class ModelLoadPanel(QWidget):
             BACKEND_LLAMA_CPP,
         }
         show_threads = bool(self._show_threads)
-        show_trust_remote_code = bool(self._show_trust_remote_code) and backend in {
-            BACKEND_AUTO,
-            BACKEND_TRANSFORMERS,
-        }
+        show_trust_remote_code = False
         set_form_row_visible(self._model_form, self.ctx_spin, show_ctx)
         set_form_row_visible(self._model_form, self.gpu_spin, show_gpu)
         set_form_row_visible(self._model_form, self.threads_spin, show_threads)
@@ -521,14 +518,7 @@ class ModelLoadPanel(QWidget):
 
     def _browse(self):
         backend = self.get_model_backend()
-        if backend == BACKEND_TRANSFORMERS:
-            directory = QFileDialog.getExistingDirectory(
-                self,
-                "Select Transformers Model Directory",
-                "",
-            )
-            if directory:
-                self.model_path.setText(directory)
+        if backend == BACKEND_LITELLM:
             return
         path, _ = QFileDialog.getOpenFileName(
             self,
@@ -552,7 +542,7 @@ class ModelLoadPanel(QWidget):
         return os.path.isfile(text)
 
     def _maybe_switch_backend_for_path(self, path: str) -> None:
-        if self.get_model_backend() != BACKEND_TRANSFORMERS:
+        if self.get_model_backend() != BACKEND_LITELLM:
             return
         if self._is_local_gguf_model_path(path):
             self.set_model_backend(BACKEND_LLAMA_CPP)
@@ -632,7 +622,7 @@ class ModelLoadPanel(QWidget):
         if combo is None:
             return BACKEND_AUTO
         value = str(combo.currentData() or BACKEND_AUTO).strip().casefold()
-        if value in {BACKEND_AUTO, BACKEND_LLAMA_CPP, BACKEND_TRANSFORMERS}:
+        if value in {BACKEND_AUTO, BACKEND_LLAMA_CPP, BACKEND_LITELLM}:
             return value
         return BACKEND_AUTO
 

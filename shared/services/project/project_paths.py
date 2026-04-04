@@ -25,7 +25,9 @@ class ProjectPaths:
         )
         self.base = self._resolve_base(folder, allowed_root=root)
         self.canvas = self.base / "canvas"
+        self.canvas_assets = self.canvas / "assets"
         self.knowledge = self.base / "knowledge"
+        self.knowledge_assets = self.knowledge / "assets"
         self.rag = self.base / "rag"
         self.chat = self.base / "chat"
         self.logs = self.base / "logs"
@@ -33,14 +35,15 @@ class ProjectPaths:
         self.manifest = self.base / "project.json"
         self.highlights = self.base / "highlights.json"
         self.rag_index = self.rag / "index.pkl"
-        self.rag_embeddings = self.rag / "embeddings.pt"
         self.chat_history = self.chat / "history.json"
         self.chat_chunk_claim_cache = self.chat / "chunk_claim_cache.json"
         self.log_entries = self.logs / "entries.json"
 
     def ensure_save_dirs(self) -> None:
         self.canvas.mkdir(parents=True, exist_ok=True)
+        self.canvas_assets.mkdir(parents=True, exist_ok=True)
         self.knowledge.mkdir(parents=True, exist_ok=True)
+        self.knowledge_assets.mkdir(parents=True, exist_ok=True)
         self.rag.mkdir(parents=True, exist_ok=True)
         self.chat.mkdir(parents=True, exist_ok=True)
         self.logs.mkdir(parents=True, exist_ok=True)

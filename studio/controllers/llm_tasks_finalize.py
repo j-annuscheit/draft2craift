@@ -139,6 +139,311 @@ def _derive_map_meta(markdown: str, meta: dict) -> dict:
     return summary
 
 
+def _build_map_diagnostic_report(
+    *,
+    label: str,
+    markdown: str,
+    meta: dict,
+    query: str,
+    context_text: str,
+) -> str:
+    summary = dict(meta or {})
+    metrics = dict(summary.get("metrics", {}) or {})
+    tool_calls = dict(summary.get("tool_calls", metrics.get("tool_calls", {})) or {})
+    retrieval_strategy = str(summary.get("retrieval_strategy", metrics.get("retrieval_strategy", "")) or "").strip()
+    retrieval_policy = dict(summary.get("retrieval_policy", {}) or {})
+    agent_budget_controlled = bool(
+        summary.get("agent_budget_controlled", metrics.get("agent_budget_controlled", False))
+    )
+    trace_rows = list(summary.get("trace_steps", []) or [])
+    retrieval_steps = list(summary.get("retrieval_agent_steps", []) or [])
+    draft_progress = list(summary.get("draft_progress", []) or [])
+    snippets = [str(x or "") for x in list(summary.get("rag_snippets_preview", []) or [])]
+    fact_issues = [str(x or "") for x in list(summary.get("fact_issues_list", []) or [])]
+    structure_validation = dict(summary.get("structure_validation", {}) or {})
+    structure_stats = dict(structure_validation.get("stats", {}) or {})
+    structure_issues = list(structure_validation.get("issues", []) or [])
+    grounding_validation = dict(summary.get("grounding_validation", {}) or {})
+    grounding_issues = [str(x or "") for x in list(summary.get("grounding_issues", []) or [])]
+    required_main_nodes = [
+        str(x or "")
+        for x in list(summary.get("required_main_nodes", metrics.get("required_main_nodes", [])) or [])
+        if str(x or "").strip()
+    ]
+    missing_required_main_nodes = [
+        str(x or "")
+        for x in list(
+            summary.get(
+                "missing_required_main_nodes",
+                grounding_validation.get("missing_required_main_nodes", metrics.get("missing_required_main_nodes", [])),
+            )
+            or []
+        )
+        if str(x or "").strip()
+    ]
+    draft_markdown_raw = str(summary.get("draft_markdown_raw", "") or "")
+    draft_logging_enabled = bool(summary.get("log_draft_markdown", metrics.get("log_draft_markdown", False)))
+    if draft_markdown_raw and not draft_logging_enabled:
+        draft_logging_enabled = True
+    run_artifact_path = str(summary.get("run_artifact_path", "") or "").strip()
+    trace_path = str(summary.get("trace_path", "") or "").strip()
+    workflow_id = str(summary.get("workflow_id", "") or "").strip()
+    profile_id = str(summary.get("profile_id", "") or "").strip()
+    errors = [str(x or "") for x in list(summary.get("errors", []) or [])]
+
+    lines: list[str] = [
+        f"# {label} Diagnose-Report",
+        "",
+        "## Laufkontext",
+        f"- Zeit: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"- Workflow: {workflow_id or '-'}",
+        f"- Profil: {profile_id or '-'}",
+        f"- Retrieval-Strategie: {retrieval_strategy or '-'}",
+        f"- Dauer: {_format_duration_seconds(metrics.get('elapsed_ms', 0.0))}",
+        f"- Schritte: {_int(metrics.get('steps', 0), 0)}",
+        f"- Rohentwurf-Logging: {'aktiv' if draft_logging_enabled else 'aus'}",
+    ]
+    if retrieval_strategy == "agent":
+        if agent_budget_controlled:
+            lines.append("- Agent-Steuerung: Budget-basiert")
+    if run_artifact_path:
+        lines.append(f"- Laufartefakt: `{run_artifact_path}`")
+    if trace_path:
+        lines.append(f"- Trace-Pfad: `{trace_path}`")
+
+    lines.extend(["", "## Fokusfrage", f"- {str(query or '').strip() or '(leer)'}", ""])
+
+    lines.append("## Tool-Aufrufe")
+    if tool_calls:
+        for name, count in sorted(tool_calls.items(), key=lambda kv: str(kv[0])):
+            lines.append(f"- `{name}`: {_int(count, 0)}")
+    else:
+        lines.append("- Keine Tool-Aufrufe protokolliert.")
+
+    lines.extend(["", "## Retrieval-Agent Schritte"])
+    if retrieval_steps:
+        lines.append("| # | Aktion | Tool | Treffer | Grund/Fehler |")
+        lines.append("|---|---|---|---:|---|")
+        for row in retrieval_steps[:40]:
+            item = dict(row or {})
+            iteration = _int(item.get("iteration", 0), 0)
+            action = str(item.get("action", "") or "").strip() or "-"
+            tool = str(item.get("tool", "") or "").strip() or "-"
+            hits = _int(item.get("hits", 0), 0)
+            reason = str(item.get("reason", "") or item.get("error", "") or "").strip()
+            raw = str(item.get("raw", "") or "").strip()
+            if raw:
+                if reason:
+                    reason = f"{reason} | raw={raw}"
+                else:
+                    reason = f"raw={raw}"
+            reason = reason.replace("\n", " ").replace("|", "/")
+            if len(reason) > 120:
+                reason = reason[:117].rstrip() + "..."
+            lines.append(f"| {iteration} | {action} | {tool} | {hits} | {reason or '-'} |")
+        if len(retrieval_steps) > 40:
+            lines.append(f"- Weitere {len(retrieval_steps) - 40} Schritte im Laufartefakt.")
+    else:
+        lines.append("- Keine Retrieval-Agent-Schritte vorhanden.")
+
+    lines.extend(["", "## Retrieval-Snippets"])
+    if snippets:
+        for idx, row in enumerate(snippets[:12], 1):
+            snippet = str(row or "").strip().replace("\n", " ")
+            if len(snippet) > 260:
+                snippet = snippet[:257].rstrip() + "..."
+            lines.append(f"{idx}. {snippet}")
+    else:
+        lines.append("- Keine Snippets protokolliert.")
+
+    lines.extend(["", "## Faktentreue"])
+    if fact_issues:
+        lines.append(f"- Probleme gefunden: {len(fact_issues)}")
+        for row in fact_issues[:12]:
+            lines.append(f"  - {row}")
+    else:
+        lines.append("- Keine Faktentreue-Probleme protokolliert.")
+
+    lines.extend(["", "## Schritt-Trace"])
+    if trace_rows:
+        for row in trace_rows[:48]:
+            item = dict(row or {})
+            step_id = str(item.get("step_id", "") or "").strip() or "step"
+            status = str(item.get("status", "") or "").strip() or "n/a"
+            duration_ms = _float(item.get("duration_ms", 0.0), 0.0)
+            reason = str(item.get("reason", "") or "").strip()
+            output_preview = str(item.get("output", "") or "").replace("\n", " ")
+            if len(output_preview) > 180:
+                output_preview = output_preview[:177].rstrip() + "..."
+            base = f"- `{step_id}` | status={status} | {duration_ms:.1f} ms"
+            if reason:
+                base += f" | reason={reason}"
+            lines.append(base)
+            if output_preview:
+                lines.append(f"  - output: {output_preview}")
+    else:
+        lines.append("- Kein Schritt-Trace vorhanden.")
+
+    lines.extend(["", "## Map-Aufbau"])
+    if draft_progress:
+        for row in draft_progress[:24]:
+            item = dict(row or {})
+            phase = str(item.get("phase", "") or "phase").strip()
+            round_idx = _int(item.get("round", 0), 0)
+            accepted = bool(item.get("accepted", False))
+            node_count = _int(item.get("node_count", item.get("merged_nodes", 0)), 0)
+            score = _float(item.get("score", item.get("score_before", 0.0)), 0.0)
+            focus = str(item.get("focus", "") or "").strip()
+            focus_part = f" | focus={focus}" if focus else ""
+            lines.append(
+                f"- Runde {round_idx} | {phase} | {'uebernommen' if accepted else 'verworfen'} | "
+                f"Knoten={node_count} | Score={score:.2f}{focus_part}"
+            )
+        if len(draft_progress) > 24:
+            lines.append(f"- Weitere {len(draft_progress) - 24} Aufbau-Schritte im Laufartefakt.")
+    else:
+        lines.append("- Kein inkrementeller Aufbau protokolliert.")
+
+    lines.extend(["", "## Retrieval-Policy"])
+    if retrieval_policy:
+        allowed_tools = list(retrieval_policy.get("allowed_tools", []) or [])
+        lines.append("- Erlaubte Tools: " + (", ".join(str(x or "") for x in allowed_tools) if allowed_tools else "-"))
+        lines.append(f"- Budget total: {_float(retrieval_policy.get('budget_total', 0.0), 0.0):.2f}")
+        lines.append(f"- Budget verbleibend: {_float(retrieval_policy.get('budget_remaining', 0.0), 0.0):.2f}")
+        lines.append(
+            f"- Max no-hit Serie: {_int(retrieval_policy.get('max_consecutive_nohit', 0), 0)}"
+        )
+        tool_costs = dict(retrieval_policy.get("tool_costs", {}) or {})
+        if tool_costs:
+            lines.append(
+                "- Tool-Kosten: "
+                + ", ".join(
+                    f"{str(name)}={_float(value, 0.0):.2f}"
+                    for name, value in sorted(tool_costs.items(), key=lambda kv: str(kv[0]))
+                )
+            )
+        duplicate_hits = _int(retrieval_policy.get("duplicate_hits", 0), 0)
+        if duplicate_hits > 0:
+            lines.append(f"- Duplikat-Treffer: {duplicate_hits}")
+        per_tool_nohit = dict(retrieval_policy.get("per_tool_nohit", {}) or {})
+        if per_tool_nohit:
+            lines.append(
+                "- No-Hit je Tool: "
+                + ", ".join(
+                    f"{str(name)}={_int(value, 0)}"
+                    for name, value in sorted(per_tool_nohit.items(), key=lambda kv: str(kv[0]))
+                )
+            )
+        per_tool_stale = dict(retrieval_policy.get("per_tool_stale", {}) or {})
+        if per_tool_stale:
+            lines.append(
+                "- Stale je Tool: "
+                + ", ".join(
+                    f"{str(name)}={_int(value, 0)}"
+                    for name, value in sorted(per_tool_stale.items(), key=lambda kv: str(kv[0]))
+                )
+            )
+        policy_call_counts = dict(retrieval_policy.get("policy_call_counts", {}) or {})
+        if policy_call_counts:
+            lines.append(
+                "- Policy-Planrufe: "
+                + ", ".join(
+                    f"{str(name)}={_int(value, 0)}"
+                    for name, value in sorted(policy_call_counts.items(), key=lambda kv: str(kv[0]))
+                )
+            )
+    else:
+        lines.append("- Keine Retrieval-Policy protokolliert.")
+
+    lines.extend(["", "## Halluzinations-Indikatoren"])
+    indicators: list[str] = []
+    if retrieval_strategy in {"rag", "agent"} and not snippets:
+        indicators.append("Retrieval aktiviert, aber keine Snippets gefunden.")
+    if retrieval_strategy == "agent" and not retrieval_steps:
+        indicators.append("Agent-Strategie aktiv, aber keine Agent-Schritte aufgezeichnet.")
+    if bool(fact_issues):
+        indicators.append("Faktentreue-Prüfung hat strittige Aussagen markiert.")
+    if errors:
+        indicators.append("Workflow meldete Fehler.")
+    if structure_validation and not bool(structure_validation.get("ok", False)):
+        indicators.append("Strukturvalidierung fehlgeschlagen (Ausgabe ist kein valider MindMap/Graph-Block).")
+    if missing_required_main_nodes:
+        indicators.append("Pflicht-Hauptknoten fehlen in der finalen Struktur.")
+    if not indicators:
+        indicators.append("Keine offensichtlichen Indikatoren gefunden.")
+    for row in indicators:
+        lines.append(f"- {row}")
+
+    lines.extend(["", "## Strukturvalidierung"])
+    if structure_validation:
+        lines.append(f"- Ok: {'ja' if bool(structure_validation.get('ok', False)) else 'nein'}")
+        expected_kind = str(structure_validation.get("expected_kind", "") or "").strip()
+        actual_kind = str(structure_validation.get("kind", "") or "").strip()
+        if expected_kind:
+            lines.append(f"- Erwarteter Typ: {expected_kind}")
+        if actual_kind:
+            lines.append(f"- Erkannter Typ: {actual_kind}")
+        if structure_stats:
+            nodes = _int(structure_stats.get("nodes", 0), 0)
+            edges = _int(structure_stats.get("edges", 0), 0)
+            components = _int(structure_stats.get("components", 0), 0)
+            depth = _int(structure_stats.get("max_depth", 0), 0)
+            lines.append(
+                f"- Stats: Knoten={nodes}, Verbindungen={edges}, Komponenten={components}, Tiefe={depth}"
+            )
+        if structure_issues:
+            lines.append("- Probleme:")
+            for issue in structure_issues[:12]:
+                item = dict(issue or {})
+                code = str(item.get("code", "") or "").strip()
+                message = str(item.get("message", "") or "").strip()
+                if code and message:
+                    lines.append(f"  - [{code}] {message}")
+                elif message:
+                    lines.append(f"  - {message}")
+    else:
+        lines.append("- Keine Strukturvalidierungsdaten vorhanden.")
+
+    lines.extend(["", "## Grounding-Validierung"])
+    if grounding_validation or grounding_issues or required_main_nodes:
+        overlap_ratio = _float(grounding_validation.get("overlap_ratio", 0.0), 0.0)
+        anchor_hits = list(grounding_validation.get("anchor_hits", []) or [])
+        lines.append(f"- Overlap ratio: {overlap_ratio:.5f}")
+        lines.append(f"- Anchor hits: {len(anchor_hits)}")
+        if required_main_nodes:
+            lines.append("- Pflicht-Hauptknoten: " + ", ".join(required_main_nodes[:12]))
+        if missing_required_main_nodes:
+            lines.append("- Fehlende Pflicht-Hauptknoten: " + ", ".join(missing_required_main_nodes[:12]))
+        if grounding_issues:
+            lines.append("- Probleme:")
+            for issue in grounding_issues[:12]:
+                lines.append(f"  - {str(issue or '').strip()}")
+        else:
+            lines.append("- Keine Grounding-Probleme protokolliert.")
+    else:
+        lines.append("- Keine Grounding-Daten vorhanden.")
+
+    preview_markdown = str(markdown or "")
+    if not preview_markdown.strip():
+        preview_markdown = str(draft_markdown_raw or "")
+
+    lines.extend(
+        [
+            "",
+            "## Kontext-Vorschau",
+            "```text",
+            str(context_text or "")[:2500],
+            "```",
+            "",
+            "## Ergebnis-Vorschau",
+            "```text",
+            str(preview_markdown or "")[:2500],
+            "```",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _format_map_completion_info(
     *,
     label: str,
@@ -320,12 +625,51 @@ def _finalize_mindmap(
     reason = str(meta.get("reason", "") or "")
     if not str(markdown or "").strip():
         detail = str(meta.get("error", "") or "").strip()
+        kind = str(meta.get("kind", mode) or mode).strip().casefold()
+        variant = str(meta.get("variant", mode) or mode).strip().casefold()
+        if variant == "chunkmap" or mode.strip().casefold() == "chunkmap":
+            label = "Chunk-MindMap"
+        elif kind == "graph":
+            label = "Graph"
+        else:
+            label = "MindMap"
+        diagnostic_markdown = _build_map_diagnostic_report(
+            label=label,
+            markdown="",
+            meta=dict(meta or {}),
+            query=query,
+            context_text=context_text,
+        )
+        diag_title = f"{label} Diagnose {datetime.now().strftime('%H:%M')}"
+        self._canvas.tabs.add_tab(title=diag_title, content=diagnostic_markdown, read_only=True)
+        self._set_status_feedback_payload(
+            {
+                "mindmap": {
+                    "query": query,
+                    "mode": mode,
+                    "markdown": "",
+                    "diagnostic_report": diagnostic_markdown[:12000],
+                },
+                "context_preview": context_text[:4000],
+                "meta": {
+                    **dict(meta or {}),
+                    "diagnostic_tab_title": diag_title,
+                    "diagnostic_report": diagnostic_markdown[:12000],
+                },
+            }
+        )
         if reason == "context_too_large" and detail:
             return False, detail
+        if detail:
+            return (
+                False,
+                "Es konnte keine Struktur erzeugt werden.\n"
+                f"Detail: {detail}\nDiagnose-Tab: {diag_title}",
+            )
         return (
             False,
             "Es konnte keine Struktur erzeugt werden.\n"
-            f"Grund: {reason or 'unbekannt'}",
+            f"Grund: {reason or 'unbekannt'}\nDiagnose-Tab: {diag_title}",
         )
 
     kind = str(meta.get("kind", mode) or mode).strip().casefold()
@@ -346,12 +690,24 @@ def _finalize_mindmap(
         query=query,
         detail_level=detail_level,
     )
+    diagnostic_markdown = _build_map_diagnostic_report(
+        label=label,
+        markdown=markdown,
+        meta=enriched_meta,
+        query=query,
+        context_text=context_text,
+    )
+    diag_title = f"{label} Diagnose {datetime.now().strftime('%H:%M')}"
+    self._canvas.tabs.add_tab(title=diag_title, content=diagnostic_markdown, read_only=True)
+    enriched_meta["diagnostic_report"] = diagnostic_markdown[:12000]
+    enriched_meta["diagnostic_tab_title"] = diag_title
     self._set_status_feedback_payload(
         {
             "mindmap": {
                 "query": query,
                 "mode": mode,
                 "markdown": markdown[:12000],
+                "diagnostic_report": diagnostic_markdown[:12000],
             },
             "context_preview": context_text[:4000],
             "meta": enriched_meta,
@@ -373,4 +729,7 @@ def _finalize_mindmap(
         5000,
     )
     self._autosave_schedule_fn(350)
-    return (True, info_text)
+    extra_line = f"Diagnose-Tab: {diag_title}"
+    if str(enriched_meta.get("run_artifact_path", "") or "").strip():
+        extra_line += f" | Laufartefakt: {enriched_meta.get('run_artifact_path')}"
+    return (True, "\n".join([info_text, extra_line]).strip())

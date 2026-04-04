@@ -43,6 +43,19 @@ def _convert_one_job(
     settings: PDFImportSettings,
 ) -> tuple[int, str, str, str, str, PDFImportSettings]:
     """Process-pool entrypoint: convert a single file and return worker payload."""
+    from shared.services.importer.url_utils import is_url, is_pdf_url, url_display_name
+
+    if is_url(path):
+        name = url_display_name(path)
+        try:
+            if is_pdf_url(path):
+                md = convert_pdf_with_settings(path, settings)
+            else:
+                md = f"# {name}\n\n*Nur PDF-URLs werden unterstützt.*\n"
+            return (index, name, path, md, "", settings)
+        except Exception as exc:
+            return (index, name, path, "", str(exc), settings)
+
     name = os.path.basename(path)
     try:
         ext = os.path.splitext(path)[1].lower()
@@ -89,8 +102,10 @@ class ConversionWorker(QThread):
             return
 
         worker_count = min(len(jobs), self._max_workers)
+        from shared.services.importer.url_utils import is_url, is_pdf_url
         has_pdf_jobs = any(
             os.path.splitext(path)[1].lower() == ".pdf"
+            or (is_url(path) and is_pdf_url(path))
             for _idx, path, _settings in jobs
         )
 

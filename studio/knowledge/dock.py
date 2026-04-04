@@ -40,7 +40,7 @@ class KnowledgeDock(QDockWidget):
     Orchestrates:
     • ImportedFilesPanel  → embedded in RAG tab, drives RAG indexing
     • DocumentViewerPanel → read-only markdown view of imported documents
-    • RAGResultsPanel     → semantic / TF-IDF search results
+    • RAGResultsPanel     → LlamaIndex/LanceDB search results
     """
 
     rag_settings_requested = Signal()   # relayed from RAGResultsPanel → MainWindow

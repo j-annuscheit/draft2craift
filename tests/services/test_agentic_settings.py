@@ -1,16 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from shared.services.agentic.settings import (
     AgenticRuntimeSettings,
     discover_profile_ids_by_workflow,
 )
-
-
-def _write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text.strip() + "\n", encoding="utf-8")
 
 
 def test_agentic_settings_defaults_follow_environment(monkeypatch):
@@ -18,8 +11,10 @@ def test_agentic_settings_defaults_follow_environment(monkeypatch):
     monkeypatch.setenv("D2C_AGENTIC_CHAT", "0")
     monkeypatch.setenv("D2C_AGENTIC_CANVAS", "1")
     monkeypatch.setenv("D2C_AGENTIC_MINDMAP", "0")
+    monkeypatch.setenv("D2C_AGENTIC_GRAPH", "0")
     monkeypatch.setenv("D2C_AGENTIC_STRICT_POLICY", "1")
-    monkeypatch.setenv("D2C_AGENTIC_TRACE", "1")
+    monkeypatch.setenv("LANGSMITH_TRACING", "1")
+    monkeypatch.setenv("LANGSMITH_ENDPOINT", "http://127.0.0.1:1984")
     monkeypatch.setenv("D2C_AGENTIC_CACHE_DISABLED", "1")
     monkeypatch.setenv("D2C_AGENTIC_ENV", "dev")
 
@@ -34,6 +29,8 @@ def test_agentic_settings_defaults_follow_environment(monkeypatch):
     assert settings.cache_enabled is False
     assert settings.map_result_detail_level == "auto"
     assert settings.env_name == "dev"
+    assert settings.mindmap_retrieval_strategy in {"agent", "rag", "none"}
+    assert int(settings.mindmap_agent_max_iterations) >= 1
 
 
 def test_agentic_settings_run_options_include_policy_and_overlays():
@@ -41,25 +38,30 @@ def test_agentic_settings_run_options_include_policy_and_overlays():
         {
             "chat_enabled": True,
             "chat_profile_id": "chat_alt",
-            "strict_policy": True,
-            "trace_enabled": False,
+            "trace_enabled": True,
             "cache_enabled": True,
-            "map_result_detail_level": "detailed",
-            "env_name": "stage",
-            "overlay_profile_ids_raw": "a,b,a\nc",
         }
     )
     options = settings.run_options_for("chat")
     assert options["enabled"] is True
     assert options["profile_id"] == "chat_alt"
-    assert options["overlay_profile_ids"] == ["a", "b", "c"]
-    assert options["env_name"] == "stage"
-    assert options["policy_overrides"] == {
-        "strict_policy": True,
-        "trace_enabled": False,
-        "cache_policy": {"enabled": True},
-    }
-    assert settings.map_result_detail_level == "detailed"
+    assert options["trace_enabled"] is True
+    assert options["cache_enabled"] is True
+
+
+def test_agentic_settings_accepts_map_retrieval_fields_from_dict():
+    settings = AgenticRuntimeSettings.from_dict(
+        {
+            "mindmap_retrieval_strategy": "agent",
+            "mindmap_agent_max_iterations": 9,
+            "graph_retrieval_strategy": "none",
+            "graph_agent_max_iterations": 4,
+        }
+    )
+    assert settings.mindmap_retrieval_strategy == "agent"
+    assert int(settings.mindmap_agent_max_iterations) == 9
+    assert settings.graph_retrieval_strategy == "none"
+    assert int(settings.graph_agent_max_iterations) == 4
 
 
 def test_agentic_settings_graph_defaults_to_mindmap_toggle_when_env_unset(monkeypatch):
@@ -70,50 +72,10 @@ def test_agentic_settings_graph_defaults_to_mindmap_toggle_when_env_unset(monkey
     assert settings.graph_enabled is True
 
 
-def test_discover_profile_ids_by_workflow(tmp_path: Path):
-    repo = tmp_path / "repo"
-    profiles = repo / "data" / "workflows" / "profiles"
-    _write(
-        profiles / "fc.toml",
-        """
-        schema_version = 1
-        profile_id = "fc_profile"
-        workflow_id = "factcheck_agentic"
-        profile_version = "1.0.0"
-        """,
-    )
-    _write(
-        profiles / "chat.toml",
-        """
-        schema_version = 1
-        profile_id = "chat_profile"
-        workflow_id = "chat_agentic"
-        profile_version = "1.0.0"
-        """,
-    )
-    _write(
-        profiles / "graph.toml",
-        """
-        schema_version = 1
-        profile_id = "graph_profile"
-        workflow_id = "graph_agentic"
-        profile_version = "1.0.0"
-        """,
-    )
-    _write(
-        profiles / "other.toml",
-        """
-        schema_version = 1
-        profile_id = "unknown"
-        workflow_id = "unknown_workflow"
-        profile_version = "1.0.0"
-        """,
-    )
-
-    found = discover_profile_ids_by_workflow(repo)
-    assert "fc_profile" in found["factcheck"]
-    assert "chat_profile" in found["chat"]
-    assert "canvas_grounded_rewrite" in found["canvas"]
-    assert "mindmap_grounded_graph" in found["mindmap"]
-    assert "graph_profile" in found["graph"]
-    assert "graph_connected_component" in found["graph"]
+def test_discover_profile_ids_by_workflow_returns_v2_defaults():
+    found = discover_profile_ids_by_workflow()
+    assert found["factcheck"] == ["factcheck_v2_local"]
+    assert found["chat"] == ["chat_v2_local"]
+    assert found["canvas"] == ["canvas_v2_local"]
+    assert found["mindmap"] == ["mindmap_v2_local"]
+    assert found["graph"] == ["graph_v2_local"]

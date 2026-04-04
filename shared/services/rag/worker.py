@@ -13,7 +13,6 @@ class RAGWorker(QThread):
 
     search_complete = Signal(str, list, dict)
     index_complete = Signal(int)
-    st_loaded = Signal(bool)
     status_changed = Signal(str)
 
     def __init__(self, rag: RAGSystem, parent: QObject | None = None):
@@ -30,11 +29,6 @@ class RAGWorker(QThread):
     def enqueue_index(self, entries: list[tuple[str, str]]) -> None:
         self._drain("index")
         self._queue.put(("index", list(entries)))
-        if not self.isRunning():
-            self.start()
-
-    def enqueue_load_st(self, model_name: str | None = None) -> None:
-        self._queue.put(("load_st", model_name))
         if not self.isRunning():
             self.start()
 
@@ -66,10 +60,23 @@ class RAGWorker(QThread):
 
             if task == "search":
                 self.status_changed.emit("Searching…")
-                with self._rag._lock:
-                    results, debug_info = self._rag.search(data, with_debug=True)
+                failed = False
+                try:
+                    with self._rag._lock:
+                        results, debug_info = self._rag.search(data, with_debug=True)
+                except Exception as exc:
+                    failed = True
+                    results = []
+                    debug_info = {
+                        "backend": self._rag.current_backend(),
+                        "failed": True,
+                        "error": str(exc),
+                        "warnings": [str(exc)],
+                    }
+                    self.status_changed.emit(f"RAG error: {exc}")
                 self.search_complete.emit(data, results, debug_info)
-                self.status_changed.emit("")
+                if not failed:
+                    self.status_changed.emit("")
                 continue
 
             if task == "index":
@@ -88,10 +95,3 @@ class RAGWorker(QThread):
                     self._rag._log.debug("RAG", "[WORKER] index_task_done")
                 self.status_changed.emit("")
                 continue
-
-            if task == "load_st":
-                self.status_changed.emit("Loading sentence-transformers model…")
-                with self._rag._lock:
-                    ok = self._rag.try_load_sentence_transformers(data)
-                self.st_loaded.emit(ok)
-                self.status_changed.emit("")

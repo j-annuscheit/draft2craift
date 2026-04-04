@@ -36,6 +36,7 @@ _DEFAULTS: dict[str, object] = {
     "glossary_highlight_color": DEFAULT_GLOSSARY_COLOR,
     "body_background_color": "",
     "body_text_color": "",
+    "formula_text_color": "",
     "code_text_color": "",
     "link_color": "",
     "table_border_color": "",
@@ -257,6 +258,7 @@ def normalize_preview_style_settings(raw: object) -> dict[str, object]:
     color_keys = (
         "body_background_color",
         "body_text_color",
+        "formula_text_color",
         "code_text_color",
         "link_color",
         "table_border_color",
@@ -394,6 +396,14 @@ def resolve_preview_style_tokens(
 
     bold_italic_color = _mix_hex_colors(strong_color, em_color, 0.45)
 
+    body_background_resolved = (
+        _coerce_hex_or_empty(style["body_background_color"]) or "transparent"
+    )
+    body_text_resolved = _coerce_hex_or_empty(style["body_text_color"]) or text_hex
+    formula_text_resolved = (
+        _coerce_hex_or_empty(style["formula_text_color"]) or body_text_resolved
+    )
+
     resolved = {
         "html_font_family": str(style["html_font_family"]),
         "markdown_font_family": str(style["markdown_font_family"]),
@@ -423,8 +433,9 @@ def resolve_preview_style_tokens(
         "placeholder_color": placeholder_hex,
         "highlight_color": highlight_hex,
         "mid_color": mid_hex,
-        "body_background_color": _coerce_hex_or_empty(style["body_background_color"]) or "transparent",
-        "body_text_color": _coerce_hex_or_empty(style["body_text_color"]) or text_hex,
+        "body_background_color": body_background_resolved,
+        "body_text_color": body_text_resolved,
+        "formula_text_color": formula_text_resolved,
         "code_text_color": _coerce_hex_or_empty(style["code_text_color"]) or placeholder_hex,
         "link_color": _coerce_hex_or_empty(style["link_color"]) or highlight_hex,
         "table_border_color": _coerce_hex_or_empty(style["table_border_color"]) or table_border,

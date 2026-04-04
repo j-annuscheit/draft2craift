@@ -7,13 +7,16 @@ from typing import Any
 
 @dataclass(slots=True)
 class BackendConfig:
-    """Backend toggles and sentence-transformer settings."""
+    """Compatibility options for older UI controls.
+
+    V2 retrieval is executed via LlamaIndex + LanceDB regardless of these flags.
+    """
 
     use_tfidf: bool = True
     lexical_mode: str = "tfidf"
     bm25_k1: float = 1.2
     bm25_b: float = 0.75
-    use_st: bool = False
+    use_st: bool = True
     use_regex_search: bool = True
     st_model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"
     st_n_threads: int = 0
@@ -32,7 +35,7 @@ class ChunkingConfig:
 
 @dataclass(slots=True)
 class HyDEConfig:
-    """Query expansion (HyDE) parameters."""
+    """Legacy query-expansion settings kept for project-file compatibility."""
 
     use_hyde: bool = True
     min_words: int = 5
@@ -78,6 +81,22 @@ class RerankConfig:
     max_candidates: int = 10
 
 
+@dataclass(slots=True)
+class SectionRoutingConfig:
+    """Heading/summary-aware section routing before final retrieval selection."""
+
+    enabled: bool = True
+    mode: str = "hybrid"
+    top_k: int = 8
+    min_score: float = 0.08
+    strict_filter: bool = False
+    score_boost: float = 0.15
+    max_summary_chars: int = 900
+    summary_sentences: int = 3
+    expand_query: bool = True
+    expand_query_max_sections: int = 2
+
+
 _SECTION_CLASSES = {
     "backend": BackendConfig,
     "chunking": ChunkingConfig,
@@ -86,6 +105,7 @@ _SECTION_CLASSES = {
     "selection": SelectionConfig,
     "literal": LiteralConfig,
     "rerank": RerankConfig,
+    "routing": SectionRoutingConfig,
 }
 
 def _clone_section(section: Any) -> Any:
@@ -103,6 +123,7 @@ class RAGConfig:
     selection: SelectionConfig = field(default_factory=SelectionConfig)
     literal: LiteralConfig = field(default_factory=LiteralConfig)
     rerank: RerankConfig = field(default_factory=RerankConfig)
+    routing: SectionRoutingConfig = field(default_factory=SectionRoutingConfig)
 
     def copy(self) -> "RAGConfig":
         return RAGConfig(
@@ -113,6 +134,7 @@ class RAGConfig:
             selection=_clone_section(self.selection),
             literal=_clone_section(self.literal),
             rerank=_clone_section(self.rerank),
+            routing=_clone_section(self.routing),
         )
 
     def to_dict(self) -> dict[str, Any]:

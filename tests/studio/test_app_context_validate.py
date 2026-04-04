@@ -17,6 +17,7 @@ def _build_context() -> AppContext:
         app_logger=object(),
         rag_system=object(),
         llm_manager=object(),
+        plugin_manager=object(),
         project_manager=object(),
         app_settings=object(),
         file_registry={},

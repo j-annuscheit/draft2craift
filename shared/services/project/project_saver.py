@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import json
 import pickle
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ from shared.services.highlights.store import get_highlight_store
 from shared.services.highlights.store_storage import save_store_data
 from shared.services.project.project_variables import normalize_project_variables
 
+from .markdown_assets import materialize_markdown_image_links
 from .project_paths import ProjectPaths
 
 
@@ -19,15 +21,14 @@ class ProjectSaver:
 
     def __init__(self, *, paths: ProjectPaths, include_st_embeddings: bool):
         self._paths = paths
-        self._include_st_embeddings = bool(include_st_embeddings)
+        _ = include_st_embeddings
 
     def save(self, mw: Any) -> None:
         self._paths.ensure_save_dirs()
 
         canvas_tabs_data = self._save_canvas_tabs(mw)
         knowledge_files_data = self._save_knowledge_files(mw)
-        rag_state = self._save_rag_index(mw)
-        self._save_optional_embeddings(mw, rag_state)
+        self._save_rag_index(mw)
         self._save_chat_history(mw)
         self._save_chunk_claim_cache(mw)
         self._save_log_entries(mw)
@@ -46,34 +47,54 @@ class ProjectSaver:
         tab_widget = mw.canvas.tabs.tab_widget
         canvas_tabs_data: list[dict] = []
         written_files: set[str] = set()
+        canvas_assets_worktree = self._prepare_asset_worktree(self._paths.canvas_assets)
 
-        for index in range(tab_widget.count()):
-            panel = tab_widget.widget(index)
-            editor = getattr(panel, "editor", None)
-            if editor is None:
-                continue
+        try:
+            for index in range(tab_widget.count()):
+                panel = tab_widget.widget(index)
+                editor = getattr(panel, "editor", None)
+                if editor is None:
+                    continue
 
-            canvas_file = f"doc_{index:04d}.md"
-            (self._paths.canvas / canvas_file).write_text(
-                editor.toPlainText(),
-                encoding="utf-8",
+                canvas_file = f"doc_{index:04d}.md"
+                asset_folder = f"doc_{index:04d}"
+                markdown = self._materialize_markdown_assets(
+                    editor.toPlainText(),
+                    assets_root=canvas_assets_worktree,
+                    asset_folder=asset_folder,
+                    source_root=self._paths.canvas,
+                )
+                (self._paths.canvas / canvas_file).write_text(
+                    markdown,
+                    encoding="utf-8",
+                )
+                written_files.add(canvas_file)
+                canvas_tabs_data.append(
+                    {
+                        "title": tab_widget.tabText(index),
+                        "file_path": self._project_internal_doc_path(
+                            folder="canvas",
+                            file_name=canvas_file,
+                        ),
+                        "canvas_file": canvas_file,
+                        "read_only": bool(editor.isReadOnly()),
+                    }
+                )
+
+            self._delete_stale_files(self._paths.canvas, "doc_*.md", written_files)
+            self._commit_asset_worktree(
+                worktree=canvas_assets_worktree,
+                target_root=self._paths.canvas_assets,
             )
-            written_files.add(canvas_file)
-            canvas_tabs_data.append(
-                {
-                    "title": tab_widget.tabText(index),
-                    "file_path": str(getattr(panel, "file_path", "") or ""),
-                    "canvas_file": canvas_file,
-                    "read_only": bool(editor.isReadOnly()),
-                }
-            )
-
-        self._delete_stale_files(self._paths.canvas, "doc_*.md", written_files)
-        return canvas_tabs_data
+            return canvas_tabs_data
+        except Exception:
+            self._discard_asset_worktree(canvas_assets_worktree)
+            raise
 
     def _save_knowledge_files(self, mw: Any) -> list[dict]:
         knowledge_map: dict[str, tuple[str, str]] = {}
         knowledge_order: list[str] = []
+        knowledge_assets_worktree = self._prepare_asset_worktree(self._paths.knowledge_assets)
 
         registry = getattr(mw, "_file_registry", {})
         if isinstance(registry, dict):
@@ -135,68 +156,48 @@ class ProjectSaver:
 
         knowledge_files_data: list[dict] = []
         written_files: set[str] = set()
-        for index, display_name in enumerate(knowledge_order):
-            original_path, markdown = knowledge_map.get(display_name, ("", ""))
-            knowledge_file = f"doc_{index:04d}.md"
-            (self._paths.knowledge / knowledge_file).write_text(
-                markdown,
-                encoding="utf-8",
-            )
-            written_files.add(knowledge_file)
-            knowledge_files_data.append(
-                {
-                    "display_name": display_name,
-                    "original_path": original_path,
-                    "knowledge_file": knowledge_file,
-                }
-            )
+        try:
+            for index, display_name in enumerate(knowledge_order):
+                _original_path, markdown = knowledge_map.get(display_name, ("", ""))
+                knowledge_file = f"doc_{index:04d}.md"
+                asset_folder = f"doc_{index:04d}"
+                materialized_markdown = self._materialize_markdown_assets(
+                    markdown,
+                    assets_root=knowledge_assets_worktree,
+                    asset_folder=asset_folder,
+                    source_root=self._paths.knowledge,
+                )
+                (self._paths.knowledge / knowledge_file).write_text(
+                    materialized_markdown,
+                    encoding="utf-8",
+                )
+                written_files.add(knowledge_file)
+                knowledge_files_data.append(
+                    {
+                        "display_name": display_name,
+                        "original_path": self._project_internal_doc_path(
+                            folder="knowledge",
+                            file_name=knowledge_file,
+                        ),
+                        "knowledge_file": knowledge_file,
+                    }
+                )
 
-        self._delete_stale_files(self._paths.knowledge, "doc_*.md", written_files)
-        return knowledge_files_data
+            self._delete_stale_files(self._paths.knowledge, "doc_*.md", written_files)
+            self._commit_asset_worktree(
+                worktree=knowledge_assets_worktree,
+                target_root=self._paths.knowledge_assets,
+            )
+            return knowledge_files_data
+        except Exception:
+            self._discard_asset_worktree(knowledge_assets_worktree)
+            raise
 
     def _save_rag_index(self, mw: Any) -> dict:
         rag_state = mw.rag_system.dump_state()
         with open(self._paths.rag_index, "wb") as handle:
             pickle.dump(rag_state, handle, protocol=pickle.HIGHEST_PROTOCOL)
         return rag_state
-
-    def _save_optional_embeddings(self, mw: Any, rag_state: dict) -> None:
-        if not self._include_st_embeddings:
-            return
-        if not bool(rag_state.get("has_st_embeddings")):
-            return
-
-        try:
-            import torch  # type: ignore
-
-            with mw.rag_system._lock:
-                raw_embeddings = dict(getattr(mw.rag_system, "_st_embeddings", {}) or {})
-
-            snapshot: dict[str, Any] = {}
-            for key, value in raw_embeddings.items():
-                item = value
-                if hasattr(item, "detach"):
-                    try:
-                        item = item.detach()
-                    except Exception:
-                        pass
-                if hasattr(item, "cpu"):
-                    try:
-                        item = item.cpu()
-                    except Exception:
-                        pass
-                if hasattr(item, "clone"):
-                    try:
-                        item = item.clone()
-                    except Exception:
-                        pass
-                snapshot[str(key)] = item
-
-            if snapshot:
-                torch.save(snapshot, str(self._paths.rag_embeddings))
-        except Exception:
-            # Embeddings are optional and may be unavailable on lightweight setups.
-            return
 
     def _save_chat_history(self, mw: Any) -> None:
         history_widget = mw.chat_dock.history
@@ -286,6 +287,15 @@ class ProjectSaver:
                 )
             except Exception:
                 project_variables = {}
+        preview_style_getter = getattr(mw, "get_preview_style_settings", None)
+        preview_style = {}
+        if callable(preview_style_getter):
+            try:
+                maybe_style = preview_style_getter()
+                if isinstance(maybe_style, dict):
+                    preview_style = maybe_style
+            except Exception:
+                preview_style = {}
 
         return {
             "version": 2,
@@ -296,7 +306,7 @@ class ProjectSaver:
                 "speech": mw.get_speech_settings(),
                 "preview_page_margin": mw.get_preview_page_margin_settings(),
                 "preview_theme": mw.get_preview_theme_id(),
-                "preview_style": mw.get_preview_style_settings(),
+                "preview_style": preview_style,
                 "theme": mw.get_theme_id(),
             },
             "llm": llm_data,
@@ -351,6 +361,87 @@ class ProjectSaver:
         knowledge_map[name] = (merged_path, merged_markdown)
 
     @staticmethod
+    def _reset_asset_tree(root: Path) -> None:
+        root_path = Path(root)
+        if root_path.exists():
+            try:
+                shutil.rmtree(root_path)
+            except Exception:
+                pass
+        root_path.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _prepare_asset_worktree(target_root: Path) -> Path:
+        target = Path(target_root)
+        tmp = target.parent / f".{target.name}_tmp"
+        if tmp.exists():
+            try:
+                shutil.rmtree(tmp, ignore_errors=True)
+            except Exception:
+                pass
+        tmp.mkdir(parents=True, exist_ok=True)
+        return tmp
+
+    @staticmethod
+    def _discard_asset_worktree(worktree: Path) -> None:
+        tmp = Path(worktree)
+        if not tmp.exists():
+            return
+        try:
+            shutil.rmtree(tmp, ignore_errors=True)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _commit_asset_worktree(*, worktree: Path, target_root: Path) -> None:
+        tmp = Path(worktree)
+        target = Path(target_root)
+        backup = target.parent / f".{target.name}_bak"
+        if backup.exists():
+            shutil.rmtree(backup, ignore_errors=True)
+
+        moved_target_to_backup = False
+        try:
+            if target.exists():
+                target.rename(backup)
+                moved_target_to_backup = True
+            tmp.rename(target)
+            if backup.exists():
+                shutil.rmtree(backup, ignore_errors=True)
+        except Exception:
+            if target.exists():
+                try:
+                    shutil.rmtree(target, ignore_errors=True)
+                except Exception:
+                    pass
+            if moved_target_to_backup and backup.exists():
+                try:
+                    backup.rename(target)
+                except Exception:
+                    pass
+            raise
+
+    @staticmethod
+    def _materialize_markdown_assets(
+        markdown: str,
+        *,
+        assets_root: Path,
+        asset_folder: str,
+        source_root: Path,
+    ) -> str:
+        folder = str(asset_folder or "").strip()
+        if not folder:
+            return str(markdown or "")
+        target_dir = assets_root / folder
+        target_prefix = f"assets/{folder}"
+        return materialize_markdown_image_links(
+            str(markdown or ""),
+            target_assets_dir=target_dir,
+            target_prefix=target_prefix,
+            source_root=source_root,
+        )
+
+    @staticmethod
     def _delete_stale_files(folder: Path, pattern: str, keep_names: set[str]) -> None:
         for stale_path in folder.glob(pattern):
             if stale_path.name in keep_names:
@@ -364,3 +455,13 @@ class ProjectSaver:
     def _write_json(path: Path, payload: object) -> None:
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)
+
+    @staticmethod
+    def _project_internal_doc_path(*, folder: str, file_name: str) -> str:
+        folder_token = str(folder or "").strip().strip("/")
+        name_token = Path(str(file_name or "").strip()).name
+        if not folder_token:
+            return name_token
+        if not name_token:
+            return folder_token
+        return f"{folder_token}/{name_token}"

@@ -22,12 +22,9 @@ def _resolve_agentic_run_options(self) -> dict:
     return {
         "enabled": _env_flag("D2C_AGENTIC_FACTCHECK"),
         "profile_id": str(
-            os.environ.get("D2C_AGENTIC_FACTCHECK_PROFILE", "factcheck_regex_only")
-            or "factcheck_regex_only"
-        ).strip() or "factcheck_regex_only",
-        "policy_overrides": {},
-        "overlay_profile_ids": [],
-        "env_name": str(os.environ.get("D2C_AGENTIC_ENV", "") or "").strip(),
+            os.environ.get("D2C_AGENTIC_FACTCHECK_PROFILE", "factcheck_v2_local")
+            or "factcheck_v2_local"
+        ).strip() or "factcheck_v2_local",
     }
 
 
@@ -57,9 +54,9 @@ def _try_agentic_factcheck(
         return False
 
     profile_id = str(
-        run_options.get("profile_id", "factcheck_regex_only")
-        or "factcheck_regex_only"
-    ).strip() or "factcheck_regex_only"
+        run_options.get("profile_id", "factcheck_v2_local")
+        or "factcheck_v2_local"
+    ).strip() or "factcheck_v2_local"
     try:
         tools = build_tools(
             llm_manager=self.llm,
@@ -73,11 +70,6 @@ def _try_agentic_factcheck(
             },
             profile_id=profile_id,
             enabled=bool(run_options.get("enabled", False)),
-            policy_overrides=dict(run_options.get("policy_overrides", {}) or {}),
-            overlay_profile_ids=list(
-                run_options.get("overlay_profile_ids", []) or []
-            ),
-            env_name=str(run_options.get("env_name", "") or ""),
             tools=tools,
         )
     except Exception as exc:
@@ -222,7 +214,7 @@ def _resolve_canvas_selected_text(self) -> str:
     except Exception:
         return ""
 
-def _send_fact_check(self):
+def _send_fact_check(self, selected_methods: list[str] | None = None):
     agentic_enabled = bool(
         _resolve_agentic_run_options(self).get("enabled", False)
     )
@@ -308,9 +300,22 @@ def _send_fact_check(self):
     ):
         return
 
-    selected_methods = self._select_factcheck_modes()
     if selected_methods is None:
-        return
+        selected_methods = self._select_factcheck_modes()
+        if selected_methods is None:
+            return
+    else:
+        normalize_selection = getattr(self, "_normalize_factcheck_selection", None)
+        if callable(normalize_selection):
+            try:
+                selected_methods = list(normalize_selection(selected_methods))
+            except Exception:
+                selected_methods = list(selected_methods or [])
+        else:
+            selected_methods = [str(mode or "").strip() for mode in list(selected_methods or []) if str(mode or "").strip()]
+        if selected_methods:
+            setattr(self, "_factcheck_modes_pref", list(selected_methods))
+            setattr(self, "_factcheck_mode_pref", str(selected_methods[0]))
     if not selected_methods:
         self.history.add_message(
             "system",
@@ -330,7 +335,7 @@ def _send_fact_check(self):
         self.history.add_message(
             "system",
             "⚠ NLI-Modell ist nicht geladen. "
-            "Bitte zuerst ein NLI-Transformers-Modell laden oder LLM-Modus wählen.",
+            "Bitte zuerst ein NLI-Modell laden oder LLM-Modus wählen.",
         )
         return
 

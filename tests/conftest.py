@@ -14,6 +14,52 @@ def _qt_offscreen() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
+@pytest.fixture(autouse=True)
+def _rag_local_embedding_stub(monkeypatch):
+    from llama_index.core.embeddings import MockEmbedding
+
+    def _resolve_embedding_model(self):
+        return MockEmbedding(embed_dim=384), "mock:test", ""
+
+    monkeypatch.setattr(
+        RAGSystem,
+        "_resolve_embedding_model",
+        _resolve_embedding_model,
+        raising=True,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _rag_vector_backend_stub(monkeypatch):
+    class _FakeRetriever:
+        def retrieve(self, _query):
+            return []
+
+    class _FakeIndex:
+        def as_retriever(self, similarity_top_k=5):
+            _ = similarity_top_k
+            return _FakeRetriever()
+
+    def _rebuild_vector_backend(self):
+        self._teardown_vector_backend()
+        if not self._chunks:
+            self._vector_backend_available = False
+            self._vector_backend_error = "no_chunks"
+            self._vector_embedding_provider = ""
+            return
+        self._vector_index = _FakeIndex()
+        self._vector_backend_available = True
+        self._vector_backend_error = ""
+        self._vector_embedding_provider = "mock:index"
+
+    monkeypatch.setattr(
+        RAGSystem,
+        "_rebuild_vector_backend",
+        _rebuild_vector_backend,
+        raising=True,
+    )
+
+
 @pytest.fixture(scope="session")
 def qt_app(_qt_offscreen) -> QApplication:
     app = QApplication.instance()

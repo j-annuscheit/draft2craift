@@ -49,9 +49,9 @@ def _set_form_row_visible(form: QFormLayout, field: QWidget, visible: bool) -> N
 
 
 _MODE_HINT_DEFAULTS = {
-    "simple": "Einfach-Modus: nur Kernoptionen. Erweiterte Werte bleiben gespeichert.",
-    "plus": "Plus-Modus: zusätzliche, aber überschaubare Einstellungen.",
-    "expert": "Experte-Modus: vollständige Kontrolle über alle RAG-Parameter.",
+    "simple": "Einfach-Modus: v2-Standard mit lokalem Vektorindex und sicheren Defaults.",
+    "plus": "Plus-Modus: v2-Retrieval mit zusätzlichen Qualitäts- und Kontextreglern.",
+    "expert": "Experte-Modus: volle Kontrolle über den v2-Stack (LlamaIndex/LanceDB + Regex + Rerank).",
 }
 _GREEN_SLIDER_STYLE = """
 QSlider::groove:horizontal {
@@ -118,6 +118,7 @@ class RAGSettingsDialog(QDialog):
         self._build_hyde_group(root, groups, forms, widgets)
         add_chunking_controls(root, groups, forms, widgets)
         add_extended_context_controls(root, groups, forms, widgets)
+        self._build_routing_group(root, groups, forms, widgets)
         self._build_selection_group(root, groups, forms, widgets)
         self._build_literal_group(root, groups, forms, widgets)
 
@@ -143,10 +144,10 @@ class RAGSettingsDialog(QDialog):
         )
 
     def _build_backends_group(self, root, groups, forms, widgets) -> None:
-        form = add_group(root, groups, forms, "backends", "Backends")
+        form = add_group(root, groups, forms, "backends", "Retrieval (V2)")
 
-        use_tfidf = QCheckBox("Lexical Search (TF-IDF/BM25)")
-        use_st = QCheckBox("Sentence-Transformers")
+        use_tfidf = QCheckBox("Legacy lexical fallback (v2 disabled)")
+        use_st = QCheckBox("Vector Search (LlamaIndex/LanceDB, always on)")
         use_regex = QCheckBox("Regex Search")
         form.addRow(use_tfidf)
         form.addRow(use_st)
@@ -157,10 +158,7 @@ class RAGSettingsDialog(QDialog):
 
         lexical_mode = QComboBox()
         lexical_mode.addItems(["tfidf", "bm25"])
-        lexical_mode.setToolTip(
-            "Select lexical ranking backend.\n"
-            "tfidf = weighted term relevance, bm25 = Okapi BM25."
-        )
+        lexical_mode.setToolTip("Legacy option retained only for compatibility.")
         form.addRow("  Lexical mode:", lexical_mode)
         widgets["lexical_mode"] = lexical_mode
 
@@ -168,10 +166,7 @@ class RAGSettingsDialog(QDialog):
         bm25_k1.setRange(0.20, 3.00)
         bm25_k1.setDecimals(2)
         bm25_k1.setSingleStep(0.05)
-        bm25_k1.setToolTip(
-            "BM25 TF saturation parameter.\n"
-            "Higher values increase term-frequency influence."
-        )
+        bm25_k1.setToolTip("Legacy option retained only for compatibility.")
         form.addRow("  BM25 k1:", bm25_k1)
         widgets["bm25_k1"] = bm25_k1
 
@@ -179,10 +174,7 @@ class RAGSettingsDialog(QDialog):
         bm25_b.setRange(0.00, 1.00)
         bm25_b.setDecimals(2)
         bm25_b.setSingleStep(0.05)
-        bm25_b.setToolTip(
-            "BM25 document-length normalization.\n"
-            "0 disables length norm, 1 applies full normalization."
-        )
+        bm25_b.setToolTip("Legacy option retained only for compatibility.")
         form.addRow("  BM25 b:", bm25_b)
         widgets["bm25_b"] = bm25_b
 
@@ -194,13 +186,13 @@ class RAGSettingsDialog(QDialog):
         st_n_threads.setRange(0, 256)
         st_n_threads.setSpecialValueText(f"Auto ({os.cpu_count() or '?'} cores)")
         st_n_threads.setToolTip(
-            "CPU threads used by PyTorch/sentence-transformers.\n"
+            "CPU threads used by the local embedding pipeline.\n"
             "0 = use all available cores (recommended)."
         )
         form.addRow("  CPU threads (ST):", st_n_threads)
         widgets["st_n_threads"] = st_n_threads
 
-        hint = QLabel("At least one backend must be active (TF-IDF, ST or Regex).")
+        hint = QLabel("V2 retrieval uses the local vector backend plus optional Regex stage.")
         hint.setStyleSheet("color: palette(bright-text); font-size: 10px;")
         form.addRow(hint)
         widgets["backends_hint"] = hint
@@ -219,12 +211,12 @@ class RAGSettingsDialog(QDialog):
 
         hyde_tfidf_mode = QComboBox()
         hyde_tfidf_mode.addItems(["keywords", "passage"])
-        form.addRow("TF-IDF-Modus:", hyde_tfidf_mode)
+        form.addRow("Legacy lexical expansion mode:", hyde_tfidf_mode)
         widgets["hyde_tfidf_mode"] = hyde_tfidf_mode
 
         hyde_st_mode = QComboBox()
         hyde_st_mode.addItems(["passage", "multi_passage"])
-        form.addRow("ST-Modus:", hyde_st_mode)
+        form.addRow("Vector expansion mode:", hyde_st_mode)
         widgets["hyde_st_mode"] = hyde_st_mode
 
         hyde_hypotheses_label = QLabel("Hypothesen:")
@@ -237,6 +229,71 @@ class RAGSettingsDialog(QDialog):
         hyde_use_doc_context = QCheckBox("Dokumentstruktur als HyDE-Kontext (TOC)")
         form.addRow(hyde_use_doc_context)
         widgets["hyde_use_doc_context"] = hyde_use_doc_context
+
+    def _build_routing_group(self, root, groups, forms, widgets) -> None:
+        form = add_group(root, groups, forms, "routing", "Section Routing (Headings + Summaries)")
+
+        routing_enabled = QCheckBox("Section Routing aktivieren")
+        form.addRow(routing_enabled)
+        widgets["routing_enabled"] = routing_enabled
+
+        routing_mode = QComboBox()
+        routing_mode.addItems(["hybrid", "heading", "summary"])
+        form.addRow("Routing mode:", routing_mode)
+        widgets["routing_mode"] = routing_mode
+
+        routing_top_k = QSpinBox()
+        routing_top_k.setRange(1, 50)
+        form.addRow("Max relevante Sections:", routing_top_k)
+        widgets["routing_top_k"] = routing_top_k
+
+        routing_min_score = QDoubleSpinBox()
+        routing_min_score.setRange(0.0, 2.0)
+        routing_min_score.setSingleStep(0.05)
+        routing_min_score.setDecimals(3)
+        form.addRow("Section-Score-Schwelle:", routing_min_score)
+        widgets["routing_min_score"] = routing_min_score
+
+        routing_strict = QCheckBox("Strict filter (nur selektierte Sections erlauben)")
+        form.addRow(routing_strict)
+        widgets["routing_strict_filter"] = routing_strict
+
+        routing_score_boost = QDoubleSpinBox()
+        routing_score_boost.setRange(0.0, 2.0)
+        routing_score_boost.setSingleStep(0.05)
+        routing_score_boost.setDecimals(2)
+        form.addRow("Score boost für selektierte Sections:", routing_score_boost)
+        widgets["routing_score_boost"] = routing_score_boost
+
+        routing_max_summary_chars = QSpinBox()
+        routing_max_summary_chars.setRange(120, 8_000)
+        routing_max_summary_chars.setSingleStep(40)
+        routing_max_summary_chars.setSuffix(" chars")
+        form.addRow("Summary-Länge pro Section:", routing_max_summary_chars)
+        widgets["routing_max_summary_chars"] = routing_max_summary_chars
+
+        routing_summary_sentences = QSpinBox()
+        routing_summary_sentences.setRange(1, 12)
+        form.addRow("Summary-Sätze pro Section:", routing_summary_sentences)
+        widgets["routing_summary_sentences"] = routing_summary_sentences
+
+        routing_expand_query = QCheckBox("Query mit Top-Section-Kontext erweitern")
+        form.addRow(routing_expand_query)
+        widgets["routing_expand_query"] = routing_expand_query
+
+        routing_expand_query_max_sections = QSpinBox()
+        routing_expand_query_max_sections.setRange(1, 8)
+        form.addRow("Max Sections für Query-Expansion:", routing_expand_query_max_sections)
+        widgets["routing_expand_query_max_sections"] = routing_expand_query_max_sections
+
+        routing_hint = QLabel(
+            "Section Routing bewertet Überschriften und Summaries vor dem finalen Ranking. "
+            "Alle Parameter sind lokal und deterministisch."
+        )
+        routing_hint.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
+        routing_hint.setWordWrap(True)
+        form.addRow(routing_hint)
+        widgets["routing_hint"] = routing_hint
 
     def _build_selection_group(self, root, groups, forms, widgets) -> None:
         form = add_group(root, groups, forms, "selection", "Result Selection")
@@ -358,7 +415,7 @@ class RAGSettingsDialog(QDialog):
             "top_k: return best N results\n"
             "threshold: return all above score\n"
             "top_k_threshold: best N above score\n"
-            "Applied to all backends (TF-IDF, ST, Regex)."
+            "Applied to the v2 vector pipeline and optional Regex stage."
         )
         hint.setStyleSheet("color: palette(placeholder-text); font-size: 10px;")
         form.addRow(hint)
@@ -444,6 +501,8 @@ class RAGSettingsDialog(QDialog):
         widgets["hyde_st_mode"].currentTextChanged.connect(  # type: ignore[attr-defined]
             lambda _text: self._update_hyde_visibility()
         )
+        widgets["routing_enabled"].toggled.connect(self._update_routing_visibility)  # type: ignore[attr-defined]
+        widgets["routing_expand_query"].toggled.connect(self._update_routing_visibility)  # type: ignore[attr-defined]
         widgets["literal_use_llm_terms"].toggled.connect(self._update_literal_visibility)  # type: ignore[attr-defined]
         widgets["llm_rerank_enabled"].toggled.connect(self._update_rerank_visibility)  # type: ignore[attr-defined]
         widgets["scope_profile_slider"].valueChanged.connect(  # type: ignore[attr-defined]
@@ -460,6 +519,7 @@ class RAGSettingsDialog(QDialog):
         self._update_literal_visibility()
         self._update_rerank_visibility()
         self._update_hyde_visibility()
+        self._update_routing_visibility()
         self._validate_backends()
         self._sync_scope_profile_from_controls()
         self._sync_speed_profile_from_controls()
@@ -468,7 +528,6 @@ class RAGSettingsDialog(QDialog):
         w = self._controls.widgets
         has_backend = any(
             (
-                w["use_tfidf"].isChecked(),  # type: ignore[attr-defined]
                 w["use_st"].isChecked(),  # type: ignore[attr-defined]
                 w["use_regex"].isChecked(),  # type: ignore[attr-defined]
             )
@@ -513,6 +572,21 @@ class RAGSettingsDialog(QDialog):
         enabled = w["llm_rerank_enabled"].isChecked()  # type: ignore[attr-defined]
         w["llm_rerank_min_score"].setEnabled(enabled and bool(self._show_rerank_min_score))
         w["llm_rerank_max_candidates"].setEnabled(False)
+
+    def _update_routing_visibility(self) -> None:
+        w = self._controls.widgets
+        enabled = bool(w["routing_enabled"].isChecked())  # type: ignore[attr-defined]
+        w["routing_mode"].setEnabled(enabled)  # type: ignore[attr-defined]
+        w["routing_top_k"].setEnabled(enabled)  # type: ignore[attr-defined]
+        w["routing_min_score"].setEnabled(enabled)  # type: ignore[attr-defined]
+        w["routing_strict_filter"].setEnabled(enabled)  # type: ignore[attr-defined]
+        w["routing_score_boost"].setEnabled(enabled)  # type: ignore[attr-defined]
+        w["routing_max_summary_chars"].setEnabled(enabled)  # type: ignore[attr-defined]
+        w["routing_summary_sentences"].setEnabled(enabled)  # type: ignore[attr-defined]
+        w["routing_expand_query"].setEnabled(enabled)  # type: ignore[attr-defined]
+        w["routing_expand_query_max_sections"].setEnabled(
+            enabled and bool(w["routing_expand_query"].isChecked())  # type: ignore[attr-defined]
+        )
 
     def _connect_slider_sync_signals(
         self,
@@ -685,7 +759,7 @@ class RAGSettingsDialog(QDialog):
             resolve_feature_label(
                 self._user_mode,
                 "rag.settings.group.backends.title",
-                "Backends",
+                "Retrieval (V2)",
             )
         )
         g["hyde"].setTitle(
@@ -709,6 +783,13 @@ class RAGSettingsDialog(QDialog):
                 "Erweiterter Kontext",
             )
         )
+        g["routing"].setTitle(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.group.routing.title",
+                "Section Routing (Headings + Summaries)",
+            )
+        )
         g["selection"].setTitle(
             resolve_feature_label(
                 self._user_mode,
@@ -728,56 +809,53 @@ class RAGSettingsDialog(QDialog):
             resolve_feature_label(
                 self._user_mode,
                 "rag.settings.backends.use_tfidf.label",
-                "Lexical Search (TF-IDF/BM25)",
+                "Legacy lexical fallback (v2 disabled)",
             )
         )
         self._set_form_row_label(
             "backends",
             "lexical_mode",
             "rag.settings.backends.lexical_mode.label",
-            "  Lexical mode:",
+            "  Legacy lexical mode:",
         )
         w["lexical_mode"].setToolTip(
             resolve_feature_label(
                 self._user_mode,
                 "rag.settings.backends.lexical_mode.tooltip",
-                "Select lexical ranking backend.\n"
-                "tfidf = weighted term relevance, bm25 = Okapi BM25.",
+                "Legacy option retained only for compatibility.",
             )
         )
         self._set_form_row_label(
             "backends",
             "bm25_k1",
             "rag.settings.backends.bm25_k1.label",
-            "  BM25 k1:",
+            "  Legacy BM25 k1:",
         )
         self._set_form_row_label(
             "backends",
             "bm25_b",
             "rag.settings.backends.bm25_b.label",
-            "  BM25 b:",
+            "  Legacy BM25 b:",
         )
         w["bm25_k1"].setToolTip(
             resolve_feature_label(
                 self._user_mode,
                 "rag.settings.backends.bm25_k1.tooltip",
-                "BM25 TF saturation parameter.\n"
-                "Higher values increase term-frequency influence.",
+                "Legacy option retained only for compatibility.",
             )
         )
         w["bm25_b"].setToolTip(
             resolve_feature_label(
                 self._user_mode,
                 "rag.settings.backends.bm25_b.tooltip",
-                "BM25 document-length normalization.\n"
-                "0 disables length norm, 1 applies full normalization.",
+                "Legacy option retained only for compatibility.",
             )
         )
         w["use_st"].setText(
             resolve_feature_label(
                 self._user_mode,
                 "rag.settings.backends.use_st.label",
-                "Sentence-Transformers",
+                "Vector Search (LlamaIndex/LanceDB, always on)",
             )
         )
         w["use_regex"].setText(
@@ -791,19 +869,19 @@ class RAGSettingsDialog(QDialog):
             "backends",
             "st_model",
             "rag.settings.backends.st_model.label",
-            "  Model name:",
+            "  Vector model id:",
         )
         self._set_form_row_label(
             "backends",
             "st_n_threads",
             "rag.settings.backends.st_n_threads.label",
-            "  CPU threads (ST):",
+            "  CPU threads (vector):",
         )
         w["st_n_threads"].setToolTip(
             resolve_feature_label(
                 self._user_mode,
                 "rag.settings.backends.st_n_threads.tooltip",
-                "CPU threads used by PyTorch/sentence-transformers.\n"
+                "CPU threads used by the local embedding pipeline.\n"
                 "0 = use all available cores (recommended).",
             )
         )
@@ -811,7 +889,7 @@ class RAGSettingsDialog(QDialog):
             resolve_feature_label(
                 self._user_mode,
                 "rag.settings.backends.hint.text",
-                "At least one backend must be active (TF-IDF, ST or Regex).",
+                "V2 retrieval uses the local vector backend plus optional Regex stage.",
             )
         )
 
@@ -832,13 +910,13 @@ class RAGSettingsDialog(QDialog):
             "hyde",
             "hyde_tfidf_mode",
             "rag.settings.hyde.tfidf_mode.label",
-            "TF-IDF-Modus:",
+            "Legacy lexical expansion mode:",
         )
         self._set_form_row_label(
             "hyde",
             "hyde_st_mode",
             "rag.settings.hyde.st_mode.label",
-            "ST-Modus:",
+            "Vector expansion mode:",
         )
         w["hyde_hypotheses_label"].setText(
             resolve_feature_label(
@@ -913,6 +991,78 @@ class RAGSettingsDialog(QDialog):
             "ext_after",
             "rag.settings.extended.after.label",
             "Nach dem Chunk:",
+        )
+
+        w["routing_enabled"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.routing.enabled.label",
+                "Section Routing aktivieren",
+            )
+        )
+        self._set_form_row_label(
+            "routing",
+            "routing_mode",
+            "rag.settings.routing.mode.label",
+            "Routing mode:",
+        )
+        self._set_form_row_label(
+            "routing",
+            "routing_top_k",
+            "rag.settings.routing.top_k.label",
+            "Max relevante Sections:",
+        )
+        self._set_form_row_label(
+            "routing",
+            "routing_min_score",
+            "rag.settings.routing.min_score.label",
+            "Section-Score-Schwelle:",
+        )
+        w["routing_strict_filter"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.routing.strict_filter.label",
+                "Strict filter (nur selektierte Sections erlauben)",
+            )
+        )
+        self._set_form_row_label(
+            "routing",
+            "routing_score_boost",
+            "rag.settings.routing.score_boost.label",
+            "Score boost für selektierte Sections:",
+        )
+        self._set_form_row_label(
+            "routing",
+            "routing_max_summary_chars",
+            "rag.settings.routing.max_summary_chars.label",
+            "Summary-Länge pro Section:",
+        )
+        self._set_form_row_label(
+            "routing",
+            "routing_summary_sentences",
+            "rag.settings.routing.summary_sentences.label",
+            "Summary-Sätze pro Section:",
+        )
+        w["routing_expand_query"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.routing.expand_query.label",
+                "Query mit Top-Section-Kontext erweitern",
+            )
+        )
+        self._set_form_row_label(
+            "routing",
+            "routing_expand_query_max_sections",
+            "rag.settings.routing.expand_query_max_sections.label",
+            "Max Sections für Query-Expansion:",
+        )
+        w["routing_hint"].setText(
+            resolve_feature_label(
+                self._user_mode,
+                "rag.settings.routing.hint.text",
+                "Section Routing bewertet Überschriften und Summaries vor dem finalen Ranking. "
+                "Alle Parameter sind lokal und deterministisch.",
+            )
         )
 
         self._set_form_row_label(
@@ -998,7 +1148,7 @@ class RAGSettingsDialog(QDialog):
                 "top_k: return best N results\n"
                 "threshold: return all above score\n"
                 "top_k_threshold: best N above score\n"
-                "Applied to all backends (TF-IDF, ST, Regex).",
+                "Applied to the v2 vector pipeline and optional Regex stage.",
             )
         )
         self._set_form_row_label(
@@ -1145,6 +1295,9 @@ class RAGSettingsDialog(QDialog):
         show_group_extended = bool(
             is_feature_visible(self._user_mode, "rag.settings.group.extended", default=True)
         )
+        show_group_routing = bool(
+            is_feature_visible(self._user_mode, "rag.settings.group.routing", default=True)
+        )
         show_group_selection = bool(
             is_feature_visible(self._user_mode, "rag.settings.group.selection", default=True)
         )
@@ -1156,11 +1309,12 @@ class RAGSettingsDialog(QDialog):
         g["hyde"].setVisible(show_group_hyde)
         g["chunking"].setVisible(show_group_chunking)
         g["extended"].setVisible(show_group_extended)
+        g["routing"].setVisible(show_group_routing)
         g["selection"].setVisible(show_group_selection)
         g["literal"].setVisible(show_group_literal)
 
         show_use_tfidf = bool(
-            is_feature_visible(self._user_mode, "rag.settings.backends.use_tfidf", default=True)
+            is_feature_visible(self._user_mode, "rag.settings.backends.use_tfidf", default=False)
         )
         show_lexical_mode = bool(
             is_feature_visible(self._user_mode, "rag.settings.backends.lexical_mode", default=True)
@@ -1184,7 +1338,11 @@ class RAGSettingsDialog(QDialog):
         )
 
         if not show_use_tfidf:
-            w["use_tfidf"].setChecked(True)  # type: ignore[attr-defined]
+            w["use_tfidf"].setChecked(False)  # type: ignore[attr-defined]
+
+        # v2 backend is always vector-based; keep it active and read-only in UI.
+        w["use_st"].setChecked(True)  # type: ignore[attr-defined]
+        w["use_st"].setEnabled(False)  # type: ignore[attr-defined]
 
         _set_form_row_visible(f["backends"], w["use_tfidf"], show_use_tfidf)
         _set_form_row_visible(f["backends"], w["lexical_mode"], show_lexical_mode)
@@ -1246,6 +1404,64 @@ class RAGSettingsDialog(QDialog):
             f["extended"],
             w["ext_after"],
             is_feature_visible(self._user_mode, "rag.settings.extended.after", default=True),
+        )
+
+        _set_form_row_visible(
+            f["routing"],
+            w["routing_enabled"],
+            is_feature_visible(self._user_mode, "rag.settings.routing.enabled", default=True),
+        )
+        _set_form_row_visible(
+            f["routing"],
+            w["routing_mode"],
+            is_feature_visible(self._user_mode, "rag.settings.routing.mode", default=True),
+        )
+        _set_form_row_visible(
+            f["routing"],
+            w["routing_top_k"],
+            is_feature_visible(self._user_mode, "rag.settings.routing.top_k", default=True),
+        )
+        _set_form_row_visible(
+            f["routing"],
+            w["routing_min_score"],
+            is_feature_visible(self._user_mode, "rag.settings.routing.min_score", default=True),
+        )
+        _set_form_row_visible(
+            f["routing"],
+            w["routing_strict_filter"],
+            is_feature_visible(self._user_mode, "rag.settings.routing.strict_filter", default=True),
+        )
+        _set_form_row_visible(
+            f["routing"],
+            w["routing_score_boost"],
+            is_feature_visible(self._user_mode, "rag.settings.routing.score_boost", default=True),
+        )
+        _set_form_row_visible(
+            f["routing"],
+            w["routing_max_summary_chars"],
+            is_feature_visible(self._user_mode, "rag.settings.routing.max_summary_chars", default=True),
+        )
+        _set_form_row_visible(
+            f["routing"],
+            w["routing_summary_sentences"],
+            is_feature_visible(self._user_mode, "rag.settings.routing.summary_sentences", default=True),
+        )
+        _set_form_row_visible(
+            f["routing"],
+            w["routing_expand_query"],
+            is_feature_visible(self._user_mode, "rag.settings.routing.expand_query", default=True),
+        )
+        _set_form_row_visible(
+            f["routing"],
+            w["routing_expand_query_max_sections"],
+            is_feature_visible(
+                self._user_mode,
+                "rag.settings.routing.expand_query_max_sections",
+                default=True,
+            ),
+        )
+        w["routing_hint"].setVisible(
+            bool(is_feature_visible(self._user_mode, "rag.settings.routing.hint", default=True))
         )
 
         _set_form_row_visible(

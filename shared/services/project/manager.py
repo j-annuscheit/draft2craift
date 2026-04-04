@@ -21,10 +21,17 @@ class ProjectManager:
         self._last_error: str = ""
         self._allowed_root = allowed_root
         self._active_import_workspace: Path | None = None
+        self._current_project_folder: Path | None = None
 
     @property
     def last_error(self) -> str:
         return self._last_error
+
+    @property
+    def current_project_folder(self) -> Path | None:
+        if self._current_project_folder is None:
+            return None
+        return Path(self._current_project_folder).resolve(strict=False)
 
     def save_project(
         self,
@@ -39,6 +46,7 @@ class ProjectManager:
             paths = ProjectPaths(folder, allowed_root=self._allowed_root)
             saver = ProjectSaver(paths=paths, include_st_embeddings=include_st_embeddings)
             saver.save(mw)
+            self._current_project_folder = paths.base
             return True
         except Exception as exc:
             self._last_error = f"Could not save project:\n{exc}"
@@ -78,6 +86,7 @@ class ProjectManager:
             paths = ProjectPaths(folder, allowed_root=self._allowed_root)
             loader = ProjectLoader(paths=paths)
             loader.load(mw)
+            self._current_project_folder = paths.base
             self._cleanup_active_import_workspace()
             return True
         except ProjectSchemaError as exc:
@@ -136,6 +145,10 @@ class ProjectManager:
             return False
 
         self._active_import_workspace = workspace
+        try:
+            self._current_project_folder = Path(project_root).resolve(strict=False)
+        except Exception:
+            self._current_project_folder = None
         if (
             previous_workspace is not None
             and workspace is not None

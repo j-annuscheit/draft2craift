@@ -194,6 +194,13 @@ def _build_input_area(self) -> QWidget:
     )
     self.fact_btn.clicked.connect(self._send_fact_check)
 
+    self.generate_btn = QPushButton("Generieren…")
+    self.generate_btn.setStyleSheet(BTN_NEUTRAL)
+    self.generate_btn.setToolTip(
+        "Öffnet das Generierungszentrum (Faktencheck, Glossar, MindMap, Wissensgraph, Chunk-Darstellung)."
+    )
+    self.generate_btn.clicked.connect(self._open_generation_control_center)
+
     self.claim_precompute_btn = QPushButton("Claims vorkalk.")
     self.claim_precompute_btn.setStyleSheet(BTN_NEUTRAL)
     self.claim_precompute_btn.setToolTip(
@@ -273,6 +280,7 @@ def _build_input_area(self) -> QWidget:
     task_row = QHBoxLayout()
     task_row.setContentsMargins(0, 0, 0, 0)
     task_row.setSpacing(4)
+    task_row.addWidget(self.generate_btn)
     task_row.addWidget(self.fact_btn)
     task_row.addWidget(self.claim_precompute_btn)
     task_row.addWidget(self.glossary_btn)

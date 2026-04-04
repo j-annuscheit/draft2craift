@@ -14,14 +14,19 @@ dependencies = [
     "PySide6>=6.6.0",
     "networkx>=3.2",
     "llama-cpp-python>=0.2.57",
+    "litellm>=1.61.0",
+    "jinja2>=3.1.4",
+    "langgraph>=0.2.70",
+    "langsmith>=0.1.120",
+    "lancedb>=0.9.0",
+    "llama-index-core>=0.11.0",
+    "llama-index-vector-stores-lancedb>=0.3.0",
+    "llama-index-embeddings-huggingface>=0.3.0",
 ]
 
 [project.optional-dependencies]
 # pip install "draft2craift[full]"
 full = [
-    "sentence-transformers>=2.7.0",
-    "transformers>=4.40.0",
-    "torch>=2.2.0",
     "faster-whisper>=1.0.3",
     "sounddevice>=0.4.6",
     "numpy>=1.24",
@@ -35,11 +40,6 @@ full = [
     "python-docx>=1.1.0",
     "markdownify>=0.11.6",
     "odfpy>=1.4.1",
-]
-# pip install "draft2craift[nli]"
-nli = [
-    "transformers>=4.40.0",
-    "torch>=2.2.0",
 ]
 # pip install "draft2craift[speech]"
 speech = [
@@ -65,12 +65,9 @@ include = [
     "studio/app.py",
     "shared/domain/**/*.py",
     "shared/services/**/*.py",
-    "widgets/**/*.py",
     "studio/**/*.py",
     "eval/**/*.py",
     "eval/examples/**",
-    "test_studio/**/*.py",
-    "testcase_studio/**/*.py",
     "data/**",
 ]
 

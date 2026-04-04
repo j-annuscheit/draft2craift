@@ -76,6 +76,25 @@ def bind_action_ports(self, ports: ChatDockActionPorts) -> None:
     self._glossary_request_handler = ports.generate_glossary
     self._mindmap_request_handler = ports.generate_mindmap
 
+
+def open_mindmap_generation_dialog(self) -> None:
+    """Open the unified MindMap/Graph generation flow used by the Chat dock."""
+    handler = getattr(self, "_send_mindmap_generation", None)
+    if callable(handler):
+        handler()
+
+
+def open_generation_control_center(
+    self,
+    *,
+    initial_tab: str = "mindmap",
+    require_model_on_open: bool = False,
+) -> None:
+    """Open generation control center with optional initial tab."""
+    handler = getattr(self, "_open_generation_control_center", None)
+    if callable(handler):
+        handler(initial_tab=str(initial_tab or "mindmap"), require_model_on_open=bool(require_model_on_open))
+
 def set_aux_task_running(self, running: bool):
     self._aux_generating = bool(running)
     self._apply_busy_state()
@@ -105,7 +124,7 @@ def get_context_documents(self) -> dict[str, str]:
     return self.context_panel.get_all_documents()
 
 def get_user_query_hint(self) -> str:
-    """Return current chat input text, fallback to last sent user message."""
+    """Return current chat input text without fallback to historical messages."""
     text = ""
     box = getattr(self, "input_box", None)
     if box is not None:
@@ -115,9 +134,7 @@ def get_user_query_hint(self) -> str:
                 text = str(getter() or "").strip()
             except Exception:
                 text = ""
-    if text:
-        return text
-    return str(getattr(self, "_last_user_msg", "") or "").strip()
+    return text
 
 def update_context_bar(self, parts: list[str]):
     """Update the context indicator bar with part labels."""
@@ -161,6 +178,7 @@ def set_user_mode(self, mode: str):
                 "chat.apply_selection_checkbox",
                 True,
             ),
+            (self.generate_btn, "chat.generate_button", True),
             (self.fact_btn, "chat.fact_button", True),
             (
                 self.claim_precompute_btn,
@@ -200,6 +218,7 @@ def set_user_mode(self, mode: str):
                 "chat.apply_selection_checkbox",
                 "Apply rewrite directly to selected Draft text",
             ),
+            (self.generate_btn, "chat.generate_button", "Generieren…"),
             (self.fact_btn, "chat.fact_button", "Faktencheck"),
             (
                 self.claim_precompute_btn,
@@ -235,6 +254,11 @@ def set_user_mode(self, mode: str):
                 "gegen ausgewählte Dokumente/RAG-Quellen.\n"
                 "Beim Start wählst du per Checkliste eine oder mehrere Methoden.\n"
                 "Hinweis: LLM (Chunk-weise) ist sehr langsam.",
+            ),
+            (
+                self.generate_btn,
+                "chat.generate_button.tooltip",
+                "Öffnet das Generierungszentrum (Faktencheck, Glossar, MindMap, Wissensgraph, Chunk-Darstellung).",
             ),
             (
                 self.claim_precompute_btn,
@@ -430,6 +454,8 @@ __all__ = [
     "set_agentic_settings_getter",
     "get_agentic_settings",
     "bind_action_ports",
+    "open_mindmap_generation_dialog",
+    "open_generation_control_center",
     "set_aux_task_running",
     "add_document",
     "remove_document",

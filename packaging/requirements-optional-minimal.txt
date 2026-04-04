@@ -1,7 +1,6 @@
 # Optional dependencies for the minimal profile.
 # Excludes AGPL/GPL packages and heavier speech stacks.
-# Includes semantic RAG + common importer formats.
+# Includes common importer formats.
 python-docx>=1.1.0
 markdownify>=0.11.6
 odfpy>=1.4.1
-sentence-transformers>=2.7.0

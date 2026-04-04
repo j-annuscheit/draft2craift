@@ -112,6 +112,74 @@ class FileImportSelectionMixin:
                 preview_placeholder_text(entry.name, entry.is_pdf())
             )
 
+    def _add_url(self):
+        """Add a remote PDF URL (e.g. arXiv link) to the import list."""
+        from shared.services.importer.url_utils import (
+            is_url,
+            is_pdf_url,
+            normalize_arxiv_url,
+            url_display_name,
+        )
+        from PySide6.QtWidgets import QInputDialog, QMessageBox
+
+        url, ok = QInputDialog.getText(
+            self,
+            "URL hinzufügen",
+            "PDF-URL oder arXiv-Link eingeben:",
+            QLineEdit.EchoMode.Normal,
+            "https://arxiv.org/pdf/",
+        )
+        if not ok:
+            return
+
+        url = url.strip()
+        if not url:
+            return
+
+        url = normalize_arxiv_url(url)
+
+        if not is_url(url):
+            QMessageBox.warning(
+                self,
+                "Ungültige Eingabe",
+                "Bitte eine PDF-URL, einen arXiv-Link oder eine arXiv-ID eingeben\n"
+                "(z. B. 1706.03762).",
+            )
+            return
+
+        if not is_pdf_url(url):
+            QMessageBox.warning(
+                self,
+                "Kein PDF",
+                "Die URL scheint nicht auf ein PDF zu zeigen.\n"
+                "Unterstützt werden arXiv-Links und direkte .pdf-URLs.",
+            )
+            return
+
+        if url in self._entries:
+            # Already in list — just select it
+            for i in range(self._list.count()):
+                item = self._list.item(i)
+                if item and item.data(Qt.ItemDataRole.UserRole) == url:
+                    self._list.setCurrentItem(item)
+                    break
+            return
+
+        name = url_display_name(url)
+        entry = ImportEntry(path=url, name=name)
+        # Default to Docling for URLs — handles academic PDFs best
+        entry.pdf_settings.backend = "docling"
+
+        self._entries[url] = entry
+        item = QListWidgetItem(f"{_ICON[_STATUS_PENDING]}  {entry.name}")
+        item.setData(Qt.ItemDataRole.UserRole, url)
+        self._list.addItem(item)
+        self._list.setCurrentItem(item)
+        self._btn_import.setEnabled(bool(self._entries))
+        refresh = getattr(self, "_refresh_llm_fix_button", None)
+        if callable(refresh):
+            refresh()
+
     def _add_files(self):
         paths, _ = QFileDialog.getOpenFileNames(
             self,
@@ -181,17 +249,26 @@ class FileImportSelectionMixin:
         if not entry:
             return
 
+        from shared.services.importer.url_utils import is_url as _is_url
         is_pdf = entry.is_pdf()
+        is_url_entry = _is_url(path)
         self._pdf_panel.set_enabled_for_pdf(is_pdf)
         if is_pdf:
             self._pdf_panel.set_settings(entry.pdf_settings)
-            self._pdf_viewer.load_pdf(path, entry.pdf_settings, entry.body_size, entry.markdown)
-            self._tabs.setCurrentIndex(0)
+            if is_url_entry:
+                # Remote PDF — cannot open in local viewer; show markdown tab
+                self._pdf_viewer.clear()
+                self._tabs.setCurrentIndex(1)
+            else:
+                self._pdf_viewer.load_pdf(path, entry.pdf_settings, entry.body_size, entry.markdown)
+                self._tabs.setCurrentIndex(0)
         else:
             self._pdf_viewer.clear()
             self._tabs.setCurrentIndex(1)
 
-        if entry.markdown:
+        if entry.display_html:
+            self._preview.set_html_text(entry.display_html, plain_text=entry.markdown)
+        elif entry.markdown:
             self._preview.set_markdown_text(entry.markdown)
         else:
             self._preview.set_markdown_text(

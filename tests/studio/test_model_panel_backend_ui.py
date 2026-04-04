@@ -4,7 +4,7 @@ from shared.domain.user_mode import USER_MODE_EXPERT, USER_MODE_PLUS
 from shared.services.llm.backends import (
     BACKEND_AUTO,
     BACKEND_LLAMA_CPP,
-    BACKEND_TRANSFORMERS,
+    BACKEND_LITELLM,
 )
 from studio.chat.model_panel import ModelLoadPanel
 
@@ -24,15 +24,15 @@ def test_backend_switch_updates_hint_placeholder_and_gpu_visibility(qt_app):
     panel = ModelLoadPanel()
     panel.set_user_mode(USER_MODE_PLUS)
 
-    panel.set_model_backend(BACKEND_TRANSFORMERS)
-    assert panel.get_model_backend() == BACKEND_TRANSFORMERS
+    panel.set_model_backend(BACKEND_LITELLM)
+    assert panel.get_model_backend() == BACKEND_LITELLM
     assert any(
         token in panel.model_path.placeholderText()
-        for token in ("Hugging Face", "HF", "model id", "Modell-ID")
+        for token in ("LiteLLM", "model id", "ollama")
     )
     assert any(
         token in panel.model_hint.text()
-        for token in ("Hugging Face", "HF")
+        for token in ("LiteLLM", "local")
     )
     assert _row_hidden(panel, panel.gpu_spin) is True
 
@@ -48,7 +48,7 @@ def test_backend_switch_updates_hint_placeholder_and_gpu_visibility(qt_app):
     assert _row_hidden(panel, panel.gpu_spin) is False
 
 
-def test_browse_uses_directory_dialog_for_transformers_backend(qt_app, monkeypatch):
+def test_browse_skips_dialog_for_litellm_backend(qt_app, monkeypatch):
     _ = qt_app
     panel = ModelLoadPanel()
     calls = {"directory": 0, "file": 0}
@@ -72,12 +72,13 @@ def test_browse_uses_directory_dialog_for_transformers_backend(qt_app, monkeypat
         _fake_file,
     )
 
-    panel.set_model_backend(BACKEND_TRANSFORMERS)
+    panel.set_model_backend(BACKEND_LITELLM)
+    panel.model_path.setText("ollama/llama3")
     panel._browse()
 
-    assert calls["directory"] == 1
+    assert calls["directory"] == 0
     assert calls["file"] == 0
-    assert panel.model_path.text() == "/tmp/hf-model-dir"
+    assert panel.model_path.text() == "ollama/llama3"
 
 
 def test_browse_uses_file_dialog_for_llama_backend(qt_app, monkeypatch):
@@ -115,7 +116,7 @@ def test_browse_uses_file_dialog_for_llama_backend(qt_app, monkeypatch):
 def test_request_load_switches_to_llama_for_local_gguf_file(qt_app, monkeypatch):
     _ = qt_app
     panel = ModelLoadPanel()
-    panel.set_model_backend(BACKEND_TRANSFORMERS)
+    panel.set_model_backend(BACKEND_LITELLM)
     panel.model_path.setText("/home/be/Downloads/model.gguf")
 
     monkeypatch.setattr("studio.chat.model_panel.os.path.isfile", lambda _path: True)
@@ -137,23 +138,23 @@ def test_trust_remote_code_visibility_depends_on_mode_and_backend(qt_app):
     panel = ModelLoadPanel()
 
     panel.set_user_mode(USER_MODE_PLUS)
-    panel.set_model_backend(BACKEND_TRANSFORMERS)
+    panel.set_model_backend(BACKEND_LITELLM)
     assert _row_hidden(panel, panel.trust_remote_code_cb) is True
 
     panel.set_user_mode(USER_MODE_EXPERT)
     panel.set_model_backend(BACKEND_LLAMA_CPP)
     assert _row_hidden(panel, panel.trust_remote_code_cb) is True
 
-    panel.set_model_backend(BACKEND_TRANSFORMERS)
-    assert _row_hidden(panel, panel.trust_remote_code_cb) is False
+    panel.set_model_backend(BACKEND_LITELLM)
+    assert _row_hidden(panel, panel.trust_remote_code_cb) is True
 
 
 def test_request_load_emits_trust_remote_code_flag(qt_app):
     _ = qt_app
     panel = ModelLoadPanel()
     panel.set_user_mode(USER_MODE_EXPERT)
-    panel.set_model_backend(BACKEND_TRANSFORMERS)
-    panel.model_path.setText("distilgpt2")
+    panel.set_model_backend(BACKEND_LITELLM)
+    panel.model_path.setText("ollama/llama3")
     panel.trust_remote_code_cb.setChecked(True)
 
     calls: list[tuple[str, dict]] = []
@@ -163,7 +164,7 @@ def test_request_load_emits_trust_remote_code_flag(qt_app):
 
     assert calls
     path, params = calls[-1]
-    assert path == "distilgpt2"
+    assert path == "ollama/llama3"
     assert params["trust_remote_code"] is True
 
 

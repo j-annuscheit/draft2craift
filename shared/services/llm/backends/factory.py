@@ -1,40 +1,29 @@
-"""Factory helpers for selecting and creating LLM backends."""
+"""Backend identifiers and normalization helpers.
+
+Legacy backend instantiation is intentionally removed in favor of
+``shared.services.llm.worker.LLMWorker``.
+"""
 from __future__ import annotations
 
-from .base import BaseLLMBackend
-from .llama_cpp_backend import LlamaCppBackend
-from .transformers_backend import TransformersBackend
+from pathlib import Path
 
 BACKEND_AUTO = "auto"
 BACKEND_LLAMA_CPP = "llama_cpp"
-BACKEND_TRANSFORMERS = "transformers"
-
-_GGUF_SUFFIXES = (".gguf", ".bin")
+BACKEND_LITELLM = "litellm"
 
 
 def normalize_backend_choice(value: str | None) -> str:
-    token = str(value or BACKEND_AUTO).strip().casefold()
-    if token in {BACKEND_AUTO, BACKEND_LLAMA_CPP, BACKEND_TRANSFORMERS}:
-        return token
+    text = str(value or "").strip().casefold()
+    if text in {BACKEND_AUTO, BACKEND_LLAMA_CPP, BACKEND_LITELLM}:
+        return text
     return BACKEND_AUTO
 
 
 def infer_backend_choice(model_ref: str, requested_backend: str | None = None) -> str:
-    requested = normalize_backend_choice(requested_backend)
-    if requested != BACKEND_AUTO:
-        return requested
-
-    ref = str(model_ref or "").strip().casefold()
-    if ref.endswith(_GGUF_SUFFIXES):
+    selected = normalize_backend_choice(requested_backend)
+    if selected != BACKEND_AUTO:
+        return selected
+    ref = str(model_ref or "").strip()
+    if ref.casefold().endswith(".gguf") or Path(ref).is_file():
         return BACKEND_LLAMA_CPP
-    return BACKEND_TRANSFORMERS
-
-
-def create_backend(model_ref: str, requested_backend: str | None = None) -> BaseLLMBackend:
-    backend_id = infer_backend_choice(model_ref, requested_backend=requested_backend)
-    if backend_id == BACKEND_LLAMA_CPP:
-        return LlamaCppBackend()
-    if backend_id == BACKEND_TRANSFORMERS:
-        return TransformersBackend()
-    # Defensive fallback for future choices.
-    return TransformersBackend()
+    return BACKEND_LITELLM

@@ -5,7 +5,7 @@ import os
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QDialog
 
 from studio.controllers.knowledge_ports import ChatDockPort, KnowledgeDockPort
 from studio.dialogs.window_manager import find_dialog_manager
@@ -41,7 +41,6 @@ class KnowledgeController:
         self._rag_system = rag_system
         self._parent = app_context.window
         self._loaded_menu = None
-        self._st_loaded_connected = False
 
     def is_rag_busy(self) -> bool:
         """Return True if the RAG worker thread is currently running."""
@@ -412,48 +411,12 @@ class KnowledgeController:
             return
         self._apply_rag_settings_dialog(dlg)
 
-    def try_load_sentence_transformers(self) -> None:
-        self._rag_system.config.backend.use_st = True
-        worker = self._knowledge_dock.rag_worker
-        if self._st_loaded_connected:
-            worker.st_loaded.disconnect(self._on_st_loaded)
-            self._st_loaded_connected = False
-        worker.st_loaded.connect(self._on_st_loaded)
-        self._st_loaded_connected = True
-        worker.enqueue_load_st(self._rag_system.config.backend.st_model_name)
-        self._context.schedule_autosave(350)
-
-    def _on_st_loaded(self, ok: bool) -> None:
-        self._st_loaded_connected = False
-        if ok:
-            QMessageBox.information(
-                self._parent, "RAG Backend",
-                "sentence-transformers loaded.\nRAG now uses semantic (cosine-similarity) embeddings.",
-            )
-        else:
-            QMessageBox.warning(
-                self._parent, "RAG Backend",
-                "sentence-transformers not available — using TF-IDF.\n\n"
-                "Install with:\n  pip install sentence-transformers",
-            )
-
     def _apply_rag_settings_dialog(self, dialog: QDialog) -> None:
         get_config = getattr(dialog, "get_config", None)
         if not callable(get_config):
             return
-        old_model = self._rag_system.config.backend.st_model_name
         new_cfg = get_config()
         self._rag_system.config = new_cfg
-        if new_cfg.backend.use_st and (
-            not self._rag_system.st_model_loaded
-            or new_cfg.backend.st_model_name != old_model
-        ):
-            if self._st_loaded_connected:
-                self._knowledge_dock.rag_worker.st_loaded.disconnect(self._on_st_loaded)
-                self._st_loaded_connected = False
-            self._knowledge_dock.rag_worker.st_loaded.connect(self._on_st_loaded)
-            self._st_loaded_connected = True
-            self._knowledge_dock.rag_worker.enqueue_load_st(new_cfg.backend.st_model_name)
         self._knowledge_dock.reindex_rag()
         self._app_logger.info(
             "SYS",

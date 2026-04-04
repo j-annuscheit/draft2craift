@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from PySide6.QtCore import QSettings
 
 from shared.domain.user_mode import default_user_mode
 from shared.services.llm.manager import LLMManager
+from shared.services.plugins.manager import PluginManager
 from shared.services.project.manager import ProjectManager
 from shared.services.rag.orchestrator import RAGSystem
 from studio.app_context import AppContext
@@ -20,6 +22,7 @@ class ServiceBundle:
     app_logger: AppLogger
     rag_system: RAGSystem
     llm_manager: LLMManager
+    plugin_manager: PluginManager
     project_manager: ProjectManager
     file_registry: dict[str, tuple[str, str]]
     user_mode_ctrl: UserModeController
@@ -30,8 +33,11 @@ class ServiceBundle:
 def init_services(window, *, app_settings: QSettings) -> ServiceBundle:
     """Create long-lived services and the shared AppContext."""
     app_logger = AppLogger(enabled=True)
-    rag_system = RAGSystem(logger=app_logger)
-    llm_manager = LLMManager(logger=app_logger)
+    plugins_root = Path(__file__).resolve().parents[2] / "plugins"
+    plugin_manager = PluginManager(root_dir=plugins_root, logger=app_logger)
+    plugin_manager.load_all()
+    rag_system = RAGSystem(logger=app_logger, plugin_manager=plugin_manager)
+    llm_manager = LLMManager(logger=app_logger, plugin_manager=plugin_manager)
     file_registry: dict[str, tuple[str, str]] = {}
     project_manager = ProjectManager()
     user_mode_ctrl = UserModeController(default_user_mode())
@@ -40,6 +46,7 @@ def init_services(window, *, app_settings: QSettings) -> ServiceBundle:
         app_logger=app_logger,
         rag_system=rag_system,
         llm_manager=llm_manager,
+        plugin_manager=plugin_manager,
         project_manager=project_manager,
         app_settings=app_settings,
         file_registry=file_registry,
@@ -49,6 +56,7 @@ def init_services(window, *, app_settings: QSettings) -> ServiceBundle:
         app_logger=app_logger,
         rag_system=rag_system,
         llm_manager=llm_manager,
+        plugin_manager=plugin_manager,
         project_manager=project_manager,
         file_registry=file_registry,
         user_mode_ctrl=user_mode_ctrl,

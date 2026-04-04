@@ -109,6 +109,27 @@ class MarkdownSplitPanel(QWidget):
         self._preview.schedule_update()
         self._preview.schedule_cursor_sync()
 
+    def set_html_text(self, html: str, *, plain_text: str = ""):
+        """
+        Display rich HTML in the preview pane (e.g. Docling output with
+        embedded images or rendered formulas).
+
+        *plain_text* is stored in the editor for copy/export purposes without
+        triggering a re-render — the HTML takes precedence for display.
+        """
+        if hasattr(self._preview, "invalidate_render_cache"):
+            self._preview.invalidate_render_cache()
+        # Put clean text in editor without triggering a markdown render
+        self.editor.blockSignals(True)
+        self.editor.setPlainText(plain_text or "")
+        self.editor.blockSignals(False)
+        # Render HTML directly
+        if hasattr(self._preview, "set_html_content"):
+            self._preview.set_html_content(html)
+        else:
+            # Graceful fallback
+            self.set_markdown_text(plain_text or "")
+
     def set_highlight_tab_name_getter(
         self,
         getter: Callable[[], str] | None,

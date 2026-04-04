@@ -170,6 +170,17 @@ def load_config_into_controls(controls: RAGSettingsControls, cfg: RAGConfig) -> 
     box["llm_rerank_min_score"].setValue(cfg.rerank.min_score)  # type: ignore[attr-defined]
     box["llm_rerank_max_candidates"].setValue(cfg.rerank.max_candidates)  # type: ignore[attr-defined]
 
+    box["routing_enabled"].setChecked(cfg.routing.enabled)  # type: ignore[attr-defined]
+    _set_combo_text(box["routing_mode"], cfg.routing.mode)  # type: ignore[arg-type]
+    box["routing_top_k"].setValue(cfg.routing.top_k)  # type: ignore[attr-defined]
+    box["routing_min_score"].setValue(cfg.routing.min_score)  # type: ignore[attr-defined]
+    box["routing_strict_filter"].setChecked(cfg.routing.strict_filter)  # type: ignore[attr-defined]
+    box["routing_score_boost"].setValue(cfg.routing.score_boost)  # type: ignore[attr-defined]
+    box["routing_max_summary_chars"].setValue(cfg.routing.max_summary_chars)  # type: ignore[attr-defined]
+    box["routing_summary_sentences"].setValue(cfg.routing.summary_sentences)  # type: ignore[attr-defined]
+    box["routing_expand_query"].setChecked(cfg.routing.expand_query)  # type: ignore[attr-defined]
+    box["routing_expand_query_max_sections"].setValue(cfg.routing.expand_query_max_sections)  # type: ignore[attr-defined]
+
     box["regex_max"].setValue(cfg.literal.max_results)  # type: ignore[attr-defined]
     box["literal_use_llm_terms"].setChecked(cfg.literal.use_llm_terms)  # type: ignore[attr-defined]
     box["literal_llm_max_terms"].setValue(cfg.literal.max_llm_terms)  # type: ignore[attr-defined]
@@ -226,6 +237,18 @@ def build_config_from_controls(controls: RAGSettingsControls) -> RAGConfig:
                 "enabled": bool(_widget(controls, "llm_rerank_enabled").isChecked()),  # type: ignore[attr-defined]
                 "min_score": float(_widget(controls, "llm_rerank_min_score").value()),  # type: ignore[attr-defined]
                 "max_candidates": int(_widget(controls, "llm_rerank_max_candidates").value()),  # type: ignore[attr-defined]
+            },
+            "routing": {
+                "enabled": bool(_widget(controls, "routing_enabled").isChecked()),  # type: ignore[attr-defined]
+                "mode": str(_widget(controls, "routing_mode").currentText()),  # type: ignore[attr-defined]
+                "top_k": int(_widget(controls, "routing_top_k").value()),  # type: ignore[attr-defined]
+                "min_score": float(_widget(controls, "routing_min_score").value()),  # type: ignore[attr-defined]
+                "strict_filter": bool(_widget(controls, "routing_strict_filter").isChecked()),  # type: ignore[attr-defined]
+                "score_boost": float(_widget(controls, "routing_score_boost").value()),  # type: ignore[attr-defined]
+                "max_summary_chars": int(_widget(controls, "routing_max_summary_chars").value()),  # type: ignore[attr-defined]
+                "summary_sentences": int(_widget(controls, "routing_summary_sentences").value()),  # type: ignore[attr-defined]
+                "expand_query": bool(_widget(controls, "routing_expand_query").isChecked()),  # type: ignore[attr-defined]
+                "expand_query_max_sections": int(_widget(controls, "routing_expand_query_max_sections").value()),  # type: ignore[attr-defined]
             },
             "literal": {
                 "max_results": int(_widget(controls, "regex_max").value()),  # type: ignore[attr-defined]

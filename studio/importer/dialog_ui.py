@@ -38,10 +38,17 @@ class FileImportDialogUIMixin:
         toolbar = QHBoxLayout()
         toolbar.setSpacing(6)
         self._btn_add = QPushButton("Add Files…")
+        self._btn_add_url = QPushButton("Add URL…")
+        self._btn_add_url.setToolTip(
+            "arXiv-ID, arXiv-Link oder direkte PDF-URL hinzufügen\n"
+            "Beispiele: 1706.03762 oder https://arxiv.org/abs/1706.03762"
+        )
         self._btn_remove = QPushButton("Remove")
         self._btn_add.clicked.connect(self._add_files)
+        self._btn_add_url.clicked.connect(self._add_url)
         self._btn_remove.clicked.connect(self._remove_selected)
         toolbar.addWidget(self._btn_add)
+        toolbar.addWidget(self._btn_add_url)
         toolbar.addWidget(self._btn_remove)
 
         self._btn_toggle_settings = QPushButton("◀ Settings")

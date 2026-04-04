@@ -25,7 +25,7 @@ def _collect_shared_context(self) -> dict:
             except Exception:
                 user_query = ""
     if not user_query:
-        user_query = str(getattr(self, "_last_user_msg", "") or "").strip()
+        user_query = str(ctx.get("user_query", "") or "").strip()
 
     return {
         "file_contents": list(ctx.get("file_contents", []) or []),

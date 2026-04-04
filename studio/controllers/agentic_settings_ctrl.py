@@ -6,12 +6,9 @@ from collections.abc import Callable
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QDialog, QWidget
 
-from pathlib import Path
-
 from shared.config.setting_keys import AgenticSettingsKeys
 from shared.services.agentic.settings import (
     AgenticRuntimeSettings,
-    _DEFAULT_PROFILES,  # noqa: PLC2701
     discover_profile_ids_by_workflow,
 )
 from studio.dialogs.window_manager import find_dialog_manager
@@ -101,6 +98,114 @@ class AgenticSettingsController:
         self._app_settings.setValue(
             AgenticSettingsKeys.OVERLAY_PROFILE_IDS,
             str(payload.get("overlay_profile_ids_raw", "") or ""),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.MINDMAP_FACTCHECK,
+            bool(payload.get("mindmap_factcheck", True)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.MINDMAP_MAX_NODES,
+            int(payload.get("mindmap_max_nodes", 32) or 32),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.MINDMAP_MAX_REFINEMENT_ROUNDS,
+            int(payload.get("mindmap_max_refinement_rounds", 1) or 1),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.MINDMAP_RETRIEVAL_STRATEGY,
+            str(payload.get("mindmap_retrieval_strategy", "rag") or "rag"),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.MINDMAP_AGENT_MAX_ITERATIONS,
+            int(payload.get("mindmap_agent_max_iterations", 6) or 6),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.MINDMAP_USE_FULL_CONTEXT,
+            bool(payload.get("mindmap_use_full_context", False)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.MINDMAP_CONTEXT_MAX_CHARS,
+            int(payload.get("mindmap_context_max_chars", 50_000) or 50_000),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.MINDMAP_AGENT_ALLOW_RAG,
+            bool(payload.get("mindmap_agent_allow_rag", True)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.MINDMAP_AGENT_ALLOW_REGEX,
+            bool(payload.get("mindmap_agent_allow_regex", True)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.MINDMAP_AGENT_ALLOW_HEADING,
+            bool(payload.get("mindmap_agent_allow_heading", True)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.MINDMAP_AGENT_ALLOW_FULL_TEXT,
+            bool(payload.get("mindmap_agent_allow_full_text", True)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.MINDMAP_AGENT_ALLOW_QUERY_NARROWING,
+            bool(payload.get("mindmap_agent_allow_query_narrowing", True)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.MINDMAP_AGENT_ALLOW_HEADING_SUMMARIES,
+            bool(payload.get("mindmap_agent_allow_heading_summaries", True)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.MINDMAP_AGENT_MAX_REGEX_CALLS,
+            int(payload.get("mindmap_agent_max_regex_calls", 4) or 4),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.GRAPH_FACTCHECK,
+            bool(payload.get("graph_factcheck", True)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.GRAPH_MAX_NODES,
+            int(payload.get("graph_max_nodes", 32) or 32),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.GRAPH_RETRIEVAL_STRATEGY,
+            str(payload.get("graph_retrieval_strategy", "rag") or "rag"),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.GRAPH_AGENT_MAX_ITERATIONS,
+            int(payload.get("graph_agent_max_iterations", 6) or 6),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.GRAPH_USE_FULL_CONTEXT,
+            bool(payload.get("graph_use_full_context", False)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.GRAPH_CONTEXT_MAX_CHARS,
+            int(payload.get("graph_context_max_chars", 50_000) or 50_000),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.GRAPH_AGENT_ALLOW_RAG,
+            bool(payload.get("graph_agent_allow_rag", True)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.GRAPH_AGENT_ALLOW_REGEX,
+            bool(payload.get("graph_agent_allow_regex", True)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.GRAPH_AGENT_ALLOW_HEADING,
+            bool(payload.get("graph_agent_allow_heading", True)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.GRAPH_AGENT_ALLOW_FULL_TEXT,
+            bool(payload.get("graph_agent_allow_full_text", True)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.GRAPH_AGENT_ALLOW_QUERY_NARROWING,
+            bool(payload.get("graph_agent_allow_query_narrowing", True)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.GRAPH_AGENT_ALLOW_HEADING_SUMMARIES,
+            bool(payload.get("graph_agent_allow_heading_summaries", True)),
+        )
+        self._app_settings.setValue(
+            AgenticSettingsKeys.GRAPH_AGENT_MAX_REGEX_CALLS,
+            int(payload.get("graph_agent_max_regex_calls", 4) or 4),
         )
         self._app_settings.sync()
 
@@ -203,15 +308,115 @@ class AgenticSettingsController:
                 AgenticSettingsKeys.OVERLAY_PROFILE_IDS,
                 "",
             ),
+            "mindmap_factcheck": self._app_settings.value(
+                AgenticSettingsKeys.MINDMAP_FACTCHECK,
+                None,
+            ),
+            "mindmap_max_nodes": self._app_settings.value(
+                AgenticSettingsKeys.MINDMAP_MAX_NODES,
+                None,
+            ),
+            "mindmap_max_refinement_rounds": self._app_settings.value(
+                AgenticSettingsKeys.MINDMAP_MAX_REFINEMENT_ROUNDS,
+                None,
+            ),
+            "mindmap_retrieval_strategy": self._app_settings.value(
+                AgenticSettingsKeys.MINDMAP_RETRIEVAL_STRATEGY,
+                "",
+            ),
+            "mindmap_agent_max_iterations": self._app_settings.value(
+                AgenticSettingsKeys.MINDMAP_AGENT_MAX_ITERATIONS,
+                None,
+            ),
+            "mindmap_use_full_context": self._app_settings.value(
+                AgenticSettingsKeys.MINDMAP_USE_FULL_CONTEXT,
+                None,
+            ),
+            "mindmap_context_max_chars": self._app_settings.value(
+                AgenticSettingsKeys.MINDMAP_CONTEXT_MAX_CHARS,
+                None,
+            ),
+            "mindmap_agent_allow_rag": self._app_settings.value(
+                AgenticSettingsKeys.MINDMAP_AGENT_ALLOW_RAG,
+                None,
+            ),
+            "mindmap_agent_allow_regex": self._app_settings.value(
+                AgenticSettingsKeys.MINDMAP_AGENT_ALLOW_REGEX,
+                None,
+            ),
+            "mindmap_agent_allow_heading": self._app_settings.value(
+                AgenticSettingsKeys.MINDMAP_AGENT_ALLOW_HEADING,
+                None,
+            ),
+            "mindmap_agent_allow_full_text": self._app_settings.value(
+                AgenticSettingsKeys.MINDMAP_AGENT_ALLOW_FULL_TEXT,
+                None,
+            ),
+            "mindmap_agent_allow_query_narrowing": self._app_settings.value(
+                AgenticSettingsKeys.MINDMAP_AGENT_ALLOW_QUERY_NARROWING,
+                None,
+            ),
+            "mindmap_agent_allow_heading_summaries": self._app_settings.value(
+                AgenticSettingsKeys.MINDMAP_AGENT_ALLOW_HEADING_SUMMARIES,
+                None,
+            ),
+            "mindmap_agent_max_regex_calls": self._app_settings.value(
+                AgenticSettingsKeys.MINDMAP_AGENT_MAX_REGEX_CALLS,
+                None,
+            ),
+            "graph_factcheck": self._app_settings.value(
+                AgenticSettingsKeys.GRAPH_FACTCHECK,
+                None,
+            ),
+            "graph_max_nodes": self._app_settings.value(
+                AgenticSettingsKeys.GRAPH_MAX_NODES,
+                None,
+            ),
+            "graph_retrieval_strategy": self._app_settings.value(
+                AgenticSettingsKeys.GRAPH_RETRIEVAL_STRATEGY,
+                "",
+            ),
+            "graph_agent_max_iterations": self._app_settings.value(
+                AgenticSettingsKeys.GRAPH_AGENT_MAX_ITERATIONS,
+                None,
+            ),
+            "graph_use_full_context": self._app_settings.value(
+                AgenticSettingsKeys.GRAPH_USE_FULL_CONTEXT,
+                None,
+            ),
+            "graph_context_max_chars": self._app_settings.value(
+                AgenticSettingsKeys.GRAPH_CONTEXT_MAX_CHARS,
+                None,
+            ),
+            "graph_agent_allow_rag": self._app_settings.value(
+                AgenticSettingsKeys.GRAPH_AGENT_ALLOW_RAG,
+                None,
+            ),
+            "graph_agent_allow_regex": self._app_settings.value(
+                AgenticSettingsKeys.GRAPH_AGENT_ALLOW_REGEX,
+                None,
+            ),
+            "graph_agent_allow_heading": self._app_settings.value(
+                AgenticSettingsKeys.GRAPH_AGENT_ALLOW_HEADING,
+                None,
+            ),
+            "graph_agent_allow_full_text": self._app_settings.value(
+                AgenticSettingsKeys.GRAPH_AGENT_ALLOW_FULL_TEXT,
+                None,
+            ),
+            "graph_agent_allow_query_narrowing": self._app_settings.value(
+                AgenticSettingsKeys.GRAPH_AGENT_ALLOW_QUERY_NARROWING,
+                None,
+            ),
+            "graph_agent_allow_heading_summaries": self._app_settings.value(
+                AgenticSettingsKeys.GRAPH_AGENT_ALLOW_HEADING_SUMMARIES,
+                None,
+            ),
+            "graph_agent_max_regex_calls": self._app_settings.value(
+                AgenticSettingsKeys.GRAPH_AGENT_MAX_REGEX_CALLS,
+                None,
+            ),
         }
-        profiles_dir = (
-            Path(__file__).resolve().parents[3] / "data" / "workflows" / "profiles"
-        )
-        for key in ("factcheck", "chat", "canvas", "mindmap", "graph"):
-            pid_field = f"{key}_profile_id"
-            pid = str(raw.get(pid_field, "") or "").strip()
-            if pid and not (profiles_dir / f"{pid}.toml").is_file():
-                raw[pid_field] = _DEFAULT_PROFILES.get(key, "")
         return AgenticRuntimeSettings.from_dict(raw)
 
     def _apply_dialog(self, dialog: QDialog) -> None:

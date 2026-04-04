@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from shared.services.llm.manager import LLMManager
     from shared.services.project.manager import ProjectManager
     from shared.services.rag.orchestrator import RAGSystem
+    from shared.services.plugins.manager import PluginManager
     from studio.controllers.autosave import AutosaveController
     from studio.controllers.chat_controller import ChatController
     from studio.controllers.knowledge_controller import KnowledgeController
@@ -56,6 +57,7 @@ class AppContext:
         rag_system: RAGSystem,
         llm_manager: LLMManager,
         project_manager: ProjectManager,
+        plugin_manager: PluginManager,
         app_settings: QSettings,
         file_registry: dict[str, tuple[str, str]],
         get_user_mode: Callable[[], str],
@@ -66,6 +68,7 @@ class AppContext:
         self.rag_system: RAGSystem = rag_system
         self.llm_manager: LLMManager = llm_manager
         self.project_manager: ProjectManager = project_manager
+        self.plugin_manager: PluginManager = plugin_manager
         self.app_settings: QSettings = app_settings
         self.file_registry: dict[str, tuple[str, str]] = file_registry
         self._get_user_mode = get_user_mode

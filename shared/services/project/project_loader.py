@@ -12,6 +12,7 @@ from shared.services.highlights.store import get_highlight_store
 from shared.services.project.project_variables import normalize_project_variables
 from shared.services.rag.config import RAGConfig
 
+from .markdown_assets import absolutize_markdown_image_links
 from .project_paths import ProjectPaths
 
 
@@ -33,7 +34,6 @@ class ProjectLoader:
         self._restore_rag_config(mw, data)
         self._restore_knowledge_files(mw, data)
         self._restore_rag_index(mw)
-        self._restore_optional_embeddings(mw)
         self._restore_canvas_tabs(mw, data)
         self._restore_chat_history(mw)
         self._restore_chunk_claim_cache(mw)
@@ -279,7 +279,11 @@ class ProjectLoader:
 
     def _read_knowledge_markdown(self, knowledge_file: str) -> str:
         knowledge_path = self._paths.resolve_knowledge_file(knowledge_file)
-        return knowledge_path.read_text(encoding="utf-8")
+        markdown = knowledge_path.read_text(encoding="utf-8")
+        return absolutize_markdown_image_links(
+            markdown,
+            base_dir=self._paths.knowledge,
+        )
 
     def _restore_rag_index(self, mw: Any) -> None:
         if not self._paths.rag_index.exists():
@@ -290,19 +294,6 @@ class ProjectLoader:
             mw.rag_system.load_state(rag_state)
         except Exception:
             # Keep load flow alive; project can still open without restored index.
-            return
-
-    def _restore_optional_embeddings(self, mw: Any) -> None:
-        if not self._paths.rag_embeddings.exists():
-            return
-        try:
-            import torch  # type: ignore
-
-            embeddings = torch.load(str(self._paths.rag_embeddings), map_location="cpu")
-            with mw.rag_system._lock:
-                mw.rag_system._st_embeddings = embeddings
-        except Exception:
-            # Optional artifact, ignore if missing or incompatible.
             return
 
     def _restore_canvas_tabs(self, mw: Any, data: dict) -> None:
@@ -331,7 +322,11 @@ class ProjectLoader:
     def _read_canvas_content(self, canvas_file: str) -> str:
         if not canvas_file:
             return ""
-        return self._paths.resolve_canvas_file(canvas_file).read_text(encoding="utf-8")
+        markdown = self._paths.resolve_canvas_file(canvas_file).read_text(encoding="utf-8")
+        return absolutize_markdown_image_links(
+            markdown,
+            base_dir=self._paths.canvas,
+        )
 
     def _restore_chat_history(self, mw: Any) -> None:
         if not self._paths.chat_history.exists():

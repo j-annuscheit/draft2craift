@@ -149,11 +149,22 @@ class FileImportWorkersMixin:
             self._refresh_llm_fix_button()
             return
 
-        self._preview.set_markdown_text(markdown)
+        from shared.services.importer.pdf.docling_postprocess import unpack_rich_result
+        rich = unpack_rich_result(markdown)
+        if rich is not None:
+            plain_md, display_html = rich
+        else:
+            plain_md, display_html = markdown, ""
+
+        if display_html:
+            self._preview.set_html_text(display_html, plain_text=plain_md)
+        else:
+            self._preview.set_markdown_text(plain_md)
         self._tabs.setCurrentIndex(1)
         if self._current_path and self._current_path in self._entries:
             entry = self._entries[self._current_path]
-            entry.markdown = markdown
+            entry.markdown = plain_md
+            entry.display_html = display_html
             entry.status = _STATUS_DONE
             self._update_list_item(self._current_path, _STATUS_DONE)
             self._update_open_button_state()
@@ -335,10 +346,17 @@ class FileImportWorkersMixin:
             )
         if error:
             entry.markdown = f"# {name}\n\n*Error: {error}*\n"
+            entry.display_html = ""
             entry.error = error
             entry.status = _STATUS_ERROR
         else:
-            entry.markdown = markdown
+            from shared.services.importer.pdf.docling_postprocess import unpack_rich_result
+            rich = unpack_rich_result(markdown)
+            if rich is not None:
+                entry.markdown, entry.display_html = rich
+            else:
+                entry.markdown = markdown
+                entry.display_html = ""
             entry.status = _STATUS_DONE
         self._update_list_item(path, entry.status)
         running_batch = bool(self._worker is not None and self._worker.isRunning())

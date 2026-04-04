@@ -65,6 +65,9 @@ def test_finalize_mindmap_recovers_stats_from_markdown_when_meta_is_empty():
     assert "2 Knoten" in info
     assert "1 Verbindung" in info
     assert "0 Knoten" not in info
+    assert len(ctrl._canvas.tabs.rows) == 2
+    assert "Diagnose" in str(ctrl._canvas.tabs.rows[1].get("title", ""))
+    assert "Diagnose-Report" in str(ctrl._canvas.tabs.rows[1].get("content", ""))
     assert ctrl.status_calls
     assert "Tiefe 2" in ctrl.status_calls[-1][0]
 
@@ -85,8 +88,8 @@ def test_finalize_graph_uses_detailed_agentic_summary_when_requested():
             "reason": "agentic",
             "components": 1,
             "max_depth": 1,
-            "workflow_id": "graph_agentic",
-            "profile_id": "graph_connected_component",
+            "workflow_id": "graph_v2",
+            "profile_id": "graph_v2_local",
             "graph_closure_round": 1,
             "expand_round": 2,
             "cleanup": {"renamed_nodes": 2},
@@ -109,5 +112,96 @@ def test_finalize_graph_uses_detailed_agentic_summary_when_requested():
     assert "Schleifen: Closure 1, Expand 2." in info
     assert "Cleanup: 2 normalisiert." in info
     assert "Stabilisierung: letzter Kandidat verworfen" in info
-    assert "Agentic: Profil graph_connected_component | Workflow graph_agentic." in info
+    assert "Agentic: Profil graph_v2_local | Workflow graph_v2." in info
     assert "Trace: runs/agentic/demo_graph.json" in info
+    assert "Safety-Cap" not in info
+    assert "Diagnose-Tab:" in info
+    assert len(ctrl._canvas.tabs.rows) == 2
+    diag_content = str(ctrl._canvas.tabs.rows[1].get("content", ""))
+    assert "Tool-Aufrufe" in diag_content
+    assert "Schritt-Trace" in diag_content
+
+
+def test_finalize_mindmap_failure_creates_diagnostic_tab_and_returns_detail():
+    ctrl = _ControllerStub(detail_level="standard", user_mode="expert")
+    ok, info = _finalize_mindmap(
+        ctrl,
+        markdown="",
+        meta={
+            "kind": "mindmap",
+            "variant": "mindmap",
+            "reason": "agentic_failed",
+            "error": "Ungültige Struktur: Ausgabe enthält keinen parsebaren ```mindmap```/```graph```-Block.",
+            "trace_steps": [
+                {"step_id": "draft_generation", "status": "ok", "duration_ms": 35.0, "output": {"len": 128}},
+                {"step_id": "structure_validation", "status": "error", "duration_ms": 2.0, "output": {"error_count": 1}},
+            ],
+            "structure_validation": {
+                "ok": False,
+                "expected_kind": "mindmap",
+                "issues": [{"code": "invalid_format", "message": "Kein parsebarer Block gefunden."}],
+            },
+        },
+        context_text="Kontext",
+        query="Fragestellung",
+        mode="mindmap",
+    )
+
+    assert ok is False
+    assert "Detail:" in info
+    assert "Diagnose-Tab:" in info
+    assert len(ctrl._canvas.tabs.rows) == 1
+    assert "Diagnose" in str(ctrl._canvas.tabs.rows[0].get("title", ""))
+    diag_content = str(ctrl._canvas.tabs.rows[0].get("content", ""))
+    assert "Strukturvalidierung" in diag_content
+    assert "Kein parsebarer Block gefunden" in diag_content
+
+
+def test_finalize_mindmap_failure_report_includes_grounding_and_raw_preview():
+    ctrl = _ControllerStub(detail_level="standard", user_mode="expert")
+    raw_preview = (
+        "```mindmap\n"
+        "Attention Is All You Need\n"
+        "  Idea of Papers\n"
+        "    Abstract\n"
+        "```"
+    )
+    ok, info = _finalize_mindmap(
+        ctrl,
+        markdown="",
+        meta={
+            "kind": "mindmap",
+            "variant": "mindmap",
+            "reason": "agentic_failed",
+            "error": "Inhaltliche Erdung fehlt.",
+            "log_draft_markdown": True,
+            "required_main_nodes": [
+                "Vor dem Paper",
+                "Idee des Papers",
+                "Besonderheiten des Algorithmus",
+            ],
+            "missing_required_main_nodes": [
+                "Vor dem Paper",
+                "Besonderheiten des Algorithmus",
+            ],
+            "grounding_validation": {
+                "overlap_ratio": 0.93,
+                "anchor_hits": ["attention", "transformer"],
+            },
+            "grounding_issues": [
+                "Pflicht-Hauptknoten fehlen: Vor dem Paper, Besonderheiten des Algorithmus",
+            ],
+            "draft_markdown_raw": raw_preview,
+        },
+        context_text="Kontext",
+        query="Nutze die Hauptknoten ...",
+        mode="mindmap",
+    )
+
+    assert ok is False
+    assert "Diagnose-Tab:" in info
+    assert len(ctrl._canvas.tabs.rows) == 1
+    diag_content = str(ctrl._canvas.tabs.rows[0].get("content", ""))
+    assert "Grounding-Validierung" in diag_content
+    assert "Fehlende Pflicht-Hauptknoten" in diag_content
+    assert "Idea of Papers" in diag_content

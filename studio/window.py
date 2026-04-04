@@ -156,7 +156,6 @@ class MainWindow(QMainWindow):
                     "edit_system_prompt": self._edit_system_prompt,
                     "generate_glossary_from_context": self._generate_glossary_from_context,
                     "generate_mindmap_from_context": self._generate_mindmap_from_context,
-                    "try_sentence_transformers": self._try_sentence_transformers,
                     "open_rag_settings": self._open_rag_settings,
                     "open_speech_settings": self._open_speech_settings,
                     "speak_active_workspace_text": self._speak_active_workspace_text,
@@ -207,6 +206,7 @@ class MainWindow(QMainWindow):
         self.app_logger = services.app_logger
         self.rag_system = services.rag_system
         self.llm_manager = services.llm_manager
+        self.plugin_manager = services.plugin_manager
         llm_setter = getattr(self.llm_manager, "set_project_variables_getter", None)
         if callable(llm_setter):
             llm_setter(self.get_project_variables)
@@ -401,8 +401,6 @@ class MainWindow(QMainWindow):
             set_model_label_text=self._model_lbl.setText,
             set_model_status_success=lambda value: setattr(self, "_model_status_success", bool(value)),
             apply_status_label_styles=self._apply_status_label_styles,
-            rag_system=self.rag_system,
-            llm_manager=self.llm_manager,
         )
     def _on_rag_status(self, message: str):
         self.statusBar().showMessage(message if message else "Ready")
@@ -446,8 +444,19 @@ class MainWindow(QMainWindow):
 
     # ── LLM context menu actions ──────────────────────────────────────
 
-    def _generate_glossary_from_context(self): self._llm_tasks.generate_glossary_from_context()
-    def _generate_mindmap_from_context(self): self._llm_tasks.generate_mindmap_from_context()
+    def _generate_glossary_from_context(self):
+        opener = getattr(self._chat_dock, "open_generation_control_center", None)
+        if callable(opener):
+            opener(initial_tab="glossary", require_model_on_open=True)
+            return
+        self.statusBar().showMessage("Fehler: Generierungsdialog ist nicht verfügbar.", 5000)
+
+    def _generate_mindmap_from_context(self):
+        opener = getattr(self._chat_dock, "open_generation_control_center", None)
+        if callable(opener):
+            opener(initial_tab="mindmap", require_model_on_open=True)
+            return
+        self.statusBar().showMessage("Fehler: Generierungsdialog ist nicht verfügbar.", 5000)
 
     # ── Project, import, user mode ────────────────────────────────────
 
@@ -494,7 +503,6 @@ class MainWindow(QMainWindow):
     # ── RAG, prompts, view actions ────────────────────────────────────
 
     def _open_rag_settings(self): self._knowledge_controller.open_rag_settings_dialog()
-    def _try_sentence_transformers(self): self._knowledge_controller.try_load_sentence_transformers()
     def _open_preview_layout_settings(self): self._theme_ctrl.open_preview_layout_settings_dialog()
     def _edit_system_prompt(self): self._llm_tasks.edit_system_prompt()
     def _focus_model_panel(self):

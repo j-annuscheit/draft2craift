@@ -17,6 +17,10 @@ class ImportEntry:
     path: str
     name: str
     markdown: str = ""
+    # Rich HTML preview (e.g. from Docling with embedded images/formulas).
+    # Empty string means the viewer falls back to rendering ``markdown``.
+    # Never sent to the RAG / knowledge base — only used for display.
+    display_html: str = ""
     status: str = _STATUS_PENDING
     error: str = ""
     pdf_settings: PDFImportSettings = field(default_factory=PDFImportSettings)
@@ -27,6 +31,9 @@ class ImportEntry:
 
 
 def is_pdf_path(path: str) -> bool:
+    from .url_utils import is_url, is_pdf_url
+    if is_url(path):
+        return is_pdf_url(path)
     return os.path.splitext(path)[1].lower() == ".pdf"
 
 

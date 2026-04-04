@@ -13,6 +13,9 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QScrollArea,
+    QSpinBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -67,6 +70,7 @@ class AgenticSettingsDialog(QDialog):
         self._intro_label: QLabel | None = None
         self._workflow_group: QGroupBox | None = None
         self._runtime_group: QGroupBox | None = None
+        self._map_pro_group: QGroupBox | None = None
         self._buttons_box: QDialogButtonBox | None = None
 
         self._workflow_enabled: dict[str, QCheckBox] = {}
@@ -81,7 +85,36 @@ class AgenticSettingsDialog(QDialog):
         self._cache_enabled_cb: QCheckBox | None = None
         self._map_result_detail_combo: QComboBox | None = None
 
-        self.resize(760, 500)
+        # Mindmap / Graph pro settings
+        self._mindmap_retrieval_combo: QComboBox | None = None
+        self._mindmap_agent_iter_spin: QSpinBox | None = None
+        self._mindmap_factcheck_cb: QCheckBox | None = None
+        self._mindmap_max_nodes_spin: QSpinBox | None = None
+        self._mindmap_max_refinements_spin: QSpinBox | None = None
+        self._mindmap_use_full_context_cb: QCheckBox | None = None
+        self._mindmap_context_max_chars_spin: QSpinBox | None = None
+        self._mindmap_agent_allow_rag_cb: QCheckBox | None = None
+        self._mindmap_agent_allow_regex_cb: QCheckBox | None = None
+        self._mindmap_agent_allow_heading_cb: QCheckBox | None = None
+        self._mindmap_agent_allow_full_text_cb: QCheckBox | None = None
+        self._mindmap_agent_allow_query_narrowing_cb: QCheckBox | None = None
+        self._mindmap_agent_allow_heading_summaries_cb: QCheckBox | None = None
+        self._mindmap_agent_max_regex_calls_spin: QSpinBox | None = None
+        self._graph_retrieval_combo: QComboBox | None = None
+        self._graph_agent_iter_spin: QSpinBox | None = None
+        self._graph_factcheck_cb: QCheckBox | None = None
+        self._graph_max_nodes_spin: QSpinBox | None = None
+        self._graph_use_full_context_cb: QCheckBox | None = None
+        self._graph_context_max_chars_spin: QSpinBox | None = None
+        self._graph_agent_allow_rag_cb: QCheckBox | None = None
+        self._graph_agent_allow_regex_cb: QCheckBox | None = None
+        self._graph_agent_allow_heading_cb: QCheckBox | None = None
+        self._graph_agent_allow_full_text_cb: QCheckBox | None = None
+        self._graph_agent_allow_query_narrowing_cb: QCheckBox | None = None
+        self._graph_agent_allow_heading_summaries_cb: QCheckBox | None = None
+        self._graph_agent_max_regex_calls_spin: QSpinBox | None = None
+
+        self.resize(800, 720)
         self._build_ui()
         self._load_values()
         self.set_user_mode(self._user_mode)
@@ -176,6 +209,336 @@ class AgenticSettingsDialog(QDialog):
         self._map_result_detail_combo = detail_combo
 
         root.addWidget(runtime_group)
+
+        # ── Mindmap / Graph pro settings ──────────────────────────────────
+        map_pro_group = QGroupBox("Mindmap / Graph — Agenten-Einstellungen (Pro)")
+        self._map_pro_group = map_pro_group
+        map_pro_outer = QVBoxLayout(map_pro_group)
+        map_pro_outer.setContentsMargins(8, 8, 8, 8)
+        map_pro_outer.setSpacing(6)
+
+        map_tabs = QTabWidget()
+        map_tabs.setDocumentMode(True)
+        map_pro_outer.addWidget(map_tabs)
+
+        # ── MindMap tab ────────────────────────────────────────────────────
+        mm_tab = QWidget()
+        mm_form = QFormLayout(mm_tab)
+        mm_form.setHorizontalSpacing(12)
+        mm_form.setVerticalSpacing(8)
+        mm_form.setContentsMargins(8, 8, 8, 8)
+
+        # Row: Retrieval strategy + agent iterations (tightly coupled)
+        mm_retrieval_row = QWidget()
+        mm_ret_layout = QHBoxLayout(mm_retrieval_row)
+        mm_ret_layout.setContentsMargins(0, 0, 0, 0)
+        mm_ret_layout.setSpacing(8)
+        mm_retrieval_combo = QComboBox()
+        mm_retrieval_combo.addItem("Agent (autonom)", "agent")
+        mm_retrieval_combo.addItem("Feste RAG-Suche", "rag")
+        mm_retrieval_combo.addItem("Keine Suche", "none")
+        mm_retrieval_combo.setToolTip(
+            "Retrieval-Strategie vor der MindMap-Generierung:\n"
+            "• Agent: LLM wählt selbst Werkzeuge (RAG, Regex, Überschriften, Volltext)\n"
+            "• Feste RAG-Suche: klassische Konzept-Extraktion → semantische Suche\n"
+            "• Keine Suche: Kontext wird unverändert übergeben"
+        )
+        self._mindmap_retrieval_combo = mm_retrieval_combo
+        mm_ret_layout.addWidget(mm_retrieval_combo)
+        mm_ret_layout.addWidget(QLabel("Budget:"))
+        mm_iter_spin = QSpinBox()
+        mm_iter_spin.setRange(5, 3600)
+        mm_iter_spin.setValue(45)
+        mm_iter_spin.setSuffix(" Sek.")
+        mm_iter_spin.setToolTip(
+            "Maximales Zeit-Budget in Sekunden.\n"
+            "Das System misst echte LLM-Aufrufzeiten und stoppt automatisch\n"
+            "bevor das Budget überschritten wird. Je mehr Zeit, desto besser\n"
+            "wird die Karte durch weitere Suchen und Überarbeitungen."
+        )
+        self._mindmap_agent_iter_spin = mm_iter_spin
+        mm_ret_layout.addWidget(mm_iter_spin)
+        mm_ret_layout.addStretch()
+        mm_form.addRow("Retrieval:", mm_retrieval_row)
+
+        # Row: Quality controls
+        mm_quality_row = QWidget()
+        mm_qual_layout = QHBoxLayout(mm_quality_row)
+        mm_qual_layout.setContentsMargins(0, 0, 0, 0)
+        mm_qual_layout.setSpacing(12)
+        mm_fact_cb = QCheckBox("Faktentreue-Prüfung")
+        mm_fact_cb.setToolTip(
+            "Jeder Knoten wird nach der Generierung gegen die Quelldokumente geprüft.\n"
+            "Nicht belegte Behauptungen werden in einer Überarbeitungsrunde entfernt."
+        )
+        mm_fact_cb.setChecked(True)
+        self._mindmap_factcheck_cb = mm_fact_cb
+        mm_qual_layout.addWidget(mm_fact_cb)
+        mm_qual_layout.addWidget(QLabel("Überarbeitungsrunden:"))
+        mm_ref_spin = QSpinBox()
+        mm_ref_spin.setRange(0, 3)
+        mm_ref_spin.setValue(1)
+        mm_ref_spin.setSuffix(" Runden")
+        mm_ref_spin.setSpecialValueText("kein Überarbeiten")
+        mm_ref_spin.setToolTip(
+            "Anzahl Faktentreue-Überarbeitungsrunden (0 = deaktiviert).\n"
+            "Jede Runde schickt das Ergebnis nochmals durch LLM + Verifikation."
+        )
+        self._mindmap_max_refinements_spin = mm_ref_spin
+        mm_qual_layout.addWidget(mm_ref_spin)
+        mm_qual_layout.addStretch()
+        mm_form.addRow("Qualität:", mm_quality_row)
+
+        # Row: Node count limit
+        mm_nodes_spin = QSpinBox()
+        mm_nodes_spin.setRange(8, 200)
+        mm_nodes_spin.setValue(32)
+        mm_nodes_spin.setSuffix(" Knoten")
+        mm_nodes_spin.setToolTip(
+            "Maximale Knotenanzahl in der generierten MindMap.\n"
+            "Kleinere Werte (20–35) liefern mit kleinen Modellen bessere Ergebnisse."
+        )
+        self._mindmap_max_nodes_spin = mm_nodes_spin
+        mm_form.addRow("Max. Knoten:", mm_nodes_spin)
+
+        # Row: Agent tool toggles
+        mm_tools_row = QWidget()
+        mm_tools_layout = QHBoxLayout(mm_tools_row)
+        mm_tools_layout.setContentsMargins(0, 0, 0, 0)
+        mm_tools_layout.setSpacing(10)
+        mm_rag_cb = QCheckBox("Vektor/RAG")
+        mm_rag_cb.setToolTip("Semantische Vektorsuche (LanceDB / Sentence-Transformers) freigeben.")
+        mm_rag_cb.setChecked(True)
+        self._mindmap_agent_allow_rag_cb = mm_rag_cb
+        mm_tools_layout.addWidget(mm_rag_cb)
+        mm_regex_cb = QCheckBox("Regex")
+        mm_regex_cb.setToolTip("Reguläre-Ausdrucks-Suche über Quelltexte freigeben.")
+        mm_regex_cb.setChecked(True)
+        self._mindmap_agent_allow_regex_cb = mm_regex_cb
+        mm_tools_layout.addWidget(mm_regex_cb)
+        mm_heading_cb = QCheckBox("Überschriften")
+        mm_heading_cb.setToolTip("Abschnittsüberschriften-Suche freigeben.")
+        mm_heading_cb.setChecked(True)
+        self._mindmap_agent_allow_heading_cb = mm_heading_cb
+        mm_tools_layout.addWidget(mm_heading_cb)
+        mm_full_text_cb = QCheckBox("Volltext")
+        mm_full_text_cb.setToolTip(
+            "Rohtext-Auszüge freigeben (teuer: ~10 Budgetpunkte pro Aufruf).\n"
+            "Nur für sehr langen Kontext sinnvoll."
+        )
+        mm_full_text_cb.setChecked(True)
+        self._mindmap_agent_allow_full_text_cb = mm_full_text_cb
+        mm_tools_layout.addWidget(mm_full_text_cb)
+        mm_tools_layout.addStretch()
+        mm_form.addRow("Agent-Tools:", mm_tools_row)
+
+        # Row: Context settings
+        mm_ctx_row = QWidget()
+        mm_ctx_layout = QHBoxLayout(mm_ctx_row)
+        mm_ctx_layout.setContentsMargins(0, 0, 0, 0)
+        mm_ctx_layout.setSpacing(8)
+        mm_full_ctx_cb = QCheckBox("Gesamten Kontext übergeben")
+        mm_full_ctx_cb.setToolTip(
+            "Den gesamten Dokument-Kontext direkt an die Generierung übergeben\n"
+            "statt fokussierter Retrieval-Snippets. Für kurze Dokumente empfohlen."
+        )
+        mm_full_ctx_cb.setChecked(False)
+        self._mindmap_use_full_context_cb = mm_full_ctx_cb
+        mm_ctx_layout.addWidget(mm_full_ctx_cb)
+        mm_ctx_layout.addWidget(QLabel("Limit:"))
+        mm_ctx_spin = QSpinBox()
+        mm_ctx_spin.setRange(4_000, 1_000_000)
+        mm_ctx_spin.setSingleStep(2_000)
+        mm_ctx_spin.setValue(50_000)
+        mm_ctx_spin.setSuffix(" Zeichen")
+        mm_ctx_spin.setToolTip("Maximale Zeichen des Kontextes, der an die Generierung übergeben wird.")
+        self._mindmap_context_max_chars_spin = mm_ctx_spin
+        mm_ctx_layout.addWidget(mm_ctx_spin)
+        mm_ctx_layout.addStretch()
+        mm_form.addRow("Kontext:", mm_ctx_row)
+
+        # Row: Search policy options
+        mm_policy_row = QWidget()
+        mm_policy_layout = QHBoxLayout(mm_policy_row)
+        mm_policy_layout.setContentsMargins(0, 0, 0, 0)
+        mm_policy_layout.setSpacing(10)
+        mm_narrow_cb = QCheckBox("Suche einschränken")
+        mm_narrow_cb.setToolTip(
+            "Agent darf Suchbegriffe zwischen Iterationen verfeinern/einschränken.\n"
+            "Deaktivieren erzwingt, dass die Originalfrage unverändert bleibt."
+        )
+        mm_narrow_cb.setChecked(True)
+        self._mindmap_agent_allow_query_narrowing_cb = mm_narrow_cb
+        mm_policy_layout.addWidget(mm_narrow_cb)
+        mm_heading_summary_cb = QCheckBox("Abschnitts-Inhalte laden")
+        mm_heading_summary_cb.setToolTip(
+            "Beim Überschriften-Suchtreffer den zugehörigen Abschnitts-Text mitladen.\n"
+            "Deaktivieren liefert nur Überschriftenlisten (schneller, weniger kontextreich)."
+        )
+        mm_heading_summary_cb.setChecked(True)
+        self._mindmap_agent_allow_heading_summaries_cb = mm_heading_summary_cb
+        mm_policy_layout.addWidget(mm_heading_summary_cb)
+        mm_policy_layout.addWidget(QLabel("Regex-Limit:"))
+        mm_regex_limit_spin = QSpinBox()
+        mm_regex_limit_spin.setRange(0, 500)
+        mm_regex_limit_spin.setValue(4)
+        mm_regex_limit_spin.setSpecialValueText("unbegrenzt")
+        mm_regex_limit_spin.setToolTip(
+            "Maximale Anzahl Regex-Suchen pro Lauf.\n"
+            "0 = unbegrenzt. Empfehlung: 4 für kleine Modelle."
+        )
+        self._mindmap_agent_max_regex_calls_spin = mm_regex_limit_spin
+        mm_policy_layout.addWidget(mm_regex_limit_spin)
+        mm_policy_layout.addStretch()
+        mm_form.addRow("Suche-Optionen:", mm_policy_row)
+
+        map_tabs.addTab(mm_tab, "MindMap")
+
+        # ── Graph tab ──────────────────────────────────────────────────────
+        g_tab = QWidget()
+        g_form = QFormLayout(g_tab)
+        g_form.setHorizontalSpacing(12)
+        g_form.setVerticalSpacing(8)
+        g_form.setContentsMargins(8, 8, 8, 8)
+
+        # Row: Retrieval strategy + agent iterations
+        g_retrieval_row = QWidget()
+        g_ret_layout = QHBoxLayout(g_retrieval_row)
+        g_ret_layout.setContentsMargins(0, 0, 0, 0)
+        g_ret_layout.setSpacing(8)
+        g_retrieval_combo = QComboBox()
+        g_retrieval_combo.addItem("Agent (autonom)", "agent")
+        g_retrieval_combo.addItem("Feste RAG-Suche", "rag")
+        g_retrieval_combo.addItem("Keine Suche", "none")
+        g_retrieval_combo.setToolTip(
+            "Retrieval-Strategie vor der Graph-Generierung:\n"
+            "• Agent: LLM wählt selbst Werkzeuge (RAG, Regex, Überschriften, Volltext)\n"
+            "• Feste RAG-Suche: klassische Konzept-Extraktion → semantische Suche\n"
+            "• Keine Suche: Kontext wird unverändert übergeben"
+        )
+        self._graph_retrieval_combo = g_retrieval_combo
+        g_ret_layout.addWidget(g_retrieval_combo)
+        g_ret_layout.addWidget(QLabel("Budget:"))
+        g_iter_spin = QSpinBox()
+        g_iter_spin.setRange(5, 3600)
+        g_iter_spin.setValue(40)
+        g_iter_spin.setSuffix(" Sek.")
+        g_iter_spin.setToolTip(
+            "Maximales Zeit-Budget in Sekunden.\n"
+            "Das System misst echte LLM-Aufrufzeiten und stoppt automatisch\n"
+            "bevor das Budget überschritten wird."
+        )
+        self._graph_agent_iter_spin = g_iter_spin
+        g_ret_layout.addWidget(g_iter_spin)
+        g_ret_layout.addStretch()
+        g_form.addRow("Retrieval:", g_retrieval_row)
+
+        # Row: Quality controls
+        g_quality_row = QWidget()
+        g_qual_layout = QHBoxLayout(g_quality_row)
+        g_qual_layout.setContentsMargins(0, 0, 0, 0)
+        g_qual_layout.setSpacing(12)
+        g_fact_cb = QCheckBox("Faktentreue-Prüfung")
+        g_fact_cb.setToolTip(
+            "Jedes Tripel (Subjekt | Relation | Objekt) wird gegen die Quelldokumente\n"
+            "geprüft. Nicht belegte Tripel werden entfernt."
+        )
+        g_fact_cb.setChecked(True)
+        self._graph_factcheck_cb = g_fact_cb
+        g_qual_layout.addWidget(g_fact_cb)
+        g_qual_layout.addStretch()
+        g_form.addRow("Qualität:", g_quality_row)
+
+        # Row: Edge/node limit
+        g_nodes_spin = QSpinBox()
+        g_nodes_spin.setRange(8, 200)
+        g_nodes_spin.setValue(32)
+        g_nodes_spin.setSuffix(" Kanten")
+        g_nodes_spin.setToolTip(
+            "Maximale Anzahl Kanten (Tripel) im generierten Wissensgraph.\n"
+            "Empfehlung: 20–40 für übersichtliche Ergebnisse."
+        )
+        self._graph_max_nodes_spin = g_nodes_spin
+        g_form.addRow("Max. Kanten:", g_nodes_spin)
+
+        # Row: Agent tool toggles
+        g_tools_row = QWidget()
+        g_tools_layout = QHBoxLayout(g_tools_row)
+        g_tools_layout.setContentsMargins(0, 0, 0, 0)
+        g_tools_layout.setSpacing(10)
+        g_rag_cb = QCheckBox("Vektor/RAG")
+        g_rag_cb.setToolTip("Semantische Vektorsuche freigeben.")
+        g_rag_cb.setChecked(True)
+        self._graph_agent_allow_rag_cb = g_rag_cb
+        g_tools_layout.addWidget(g_rag_cb)
+        g_regex_cb = QCheckBox("Regex")
+        g_regex_cb.setToolTip("Reguläre-Ausdrucks-Suche freigeben.")
+        g_regex_cb.setChecked(True)
+        self._graph_agent_allow_regex_cb = g_regex_cb
+        g_tools_layout.addWidget(g_regex_cb)
+        g_heading_cb = QCheckBox("Überschriften")
+        g_heading_cb.setToolTip("Abschnittsüberschriften-Suche freigeben.")
+        g_heading_cb.setChecked(True)
+        self._graph_agent_allow_heading_cb = g_heading_cb
+        g_tools_layout.addWidget(g_heading_cb)
+        g_full_text_cb = QCheckBox("Volltext")
+        g_full_text_cb.setToolTip("Rohtext-Auszüge freigeben (teuer, ~10 Budgetpunkte).")
+        g_full_text_cb.setChecked(True)
+        self._graph_agent_allow_full_text_cb = g_full_text_cb
+        g_tools_layout.addWidget(g_full_text_cb)
+        g_tools_layout.addStretch()
+        g_form.addRow("Agent-Tools:", g_tools_row)
+
+        # Row: Context settings
+        g_ctx_row = QWidget()
+        g_ctx_layout = QHBoxLayout(g_ctx_row)
+        g_ctx_layout.setContentsMargins(0, 0, 0, 0)
+        g_ctx_layout.setSpacing(8)
+        g_full_ctx_cb = QCheckBox("Gesamten Kontext übergeben")
+        g_full_ctx_cb.setToolTip("Den gesamten Dokument-Kontext direkt an die Generierung übergeben.")
+        g_full_ctx_cb.setChecked(False)
+        self._graph_use_full_context_cb = g_full_ctx_cb
+        g_ctx_layout.addWidget(g_full_ctx_cb)
+        g_ctx_layout.addWidget(QLabel("Limit:"))
+        g_ctx_spin = QSpinBox()
+        g_ctx_spin.setRange(4_000, 1_000_000)
+        g_ctx_spin.setSingleStep(2_000)
+        g_ctx_spin.setValue(50_000)
+        g_ctx_spin.setSuffix(" Zeichen")
+        self._graph_context_max_chars_spin = g_ctx_spin
+        g_ctx_layout.addWidget(g_ctx_spin)
+        g_ctx_layout.addStretch()
+        g_form.addRow("Kontext:", g_ctx_row)
+
+        # Row: Search policy options
+        g_policy_row = QWidget()
+        g_policy_layout = QHBoxLayout(g_policy_row)
+        g_policy_layout.setContentsMargins(0, 0, 0, 0)
+        g_policy_layout.setSpacing(10)
+        g_narrow_cb = QCheckBox("Suche einschränken")
+        g_narrow_cb.setToolTip("Agent darf Suchbegriffe zwischen Iterationen verfeinern.")
+        g_narrow_cb.setChecked(True)
+        self._graph_agent_allow_query_narrowing_cb = g_narrow_cb
+        g_policy_layout.addWidget(g_narrow_cb)
+        g_heading_summary_cb = QCheckBox("Abschnitts-Inhalte laden")
+        g_heading_summary_cb.setToolTip("Beim Überschriften-Suchtreffer den zugehörigen Abschnitts-Text mitladen.")
+        g_heading_summary_cb.setChecked(True)
+        self._graph_agent_allow_heading_summaries_cb = g_heading_summary_cb
+        g_policy_layout.addWidget(g_heading_summary_cb)
+        g_policy_layout.addWidget(QLabel("Regex-Limit:"))
+        g_regex_limit_spin = QSpinBox()
+        g_regex_limit_spin.setRange(0, 500)
+        g_regex_limit_spin.setValue(4)
+        g_regex_limit_spin.setSpecialValueText("unbegrenzt")
+        self._graph_agent_max_regex_calls_spin = g_regex_limit_spin
+        g_policy_layout.addWidget(g_regex_limit_spin)
+        g_policy_layout.addStretch()
+        g_form.addRow("Suche-Optionen:", g_policy_row)
+
+        map_tabs.addTab(g_tab, "Wissensgraph")
+
+        root.addWidget(map_pro_group)
+
         root.addStretch(1)
 
         buttons = QDialogButtonBox(
@@ -186,6 +549,23 @@ class AgenticSettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         self._buttons_box = buttons
         root.addWidget(buttons)
+
+        if self._mindmap_retrieval_combo is not None:
+            self._mindmap_retrieval_combo.currentIndexChanged.connect(
+                lambda _idx=0: self._sync_map_pro_controls()
+            )
+        if self._graph_retrieval_combo is not None:
+            self._graph_retrieval_combo.currentIndexChanged.connect(
+                lambda _idx=0: self._sync_map_pro_controls()
+            )
+        if self._mindmap_agent_allow_heading_cb is not None:
+            self._mindmap_agent_allow_heading_cb.toggled.connect(
+                lambda _checked=False: self._sync_map_pro_controls()
+            )
+        if self._graph_agent_allow_heading_cb is not None:
+            self._graph_agent_allow_heading_cb.toggled.connect(
+                lambda _checked=False: self._sync_map_pro_controls()
+            )
 
     @staticmethod
     def _new_profile_combo(profile_ids: Sequence[str]) -> QComboBox:
@@ -253,6 +633,108 @@ class AgenticSettingsDialog(QDialog):
         for key, _label in _WORKFLOW_ROWS:
             self._sync_row_enabled_state(key)
 
+        if self._mindmap_retrieval_combo is not None:
+            retrieval = str(getattr(self._base, "mindmap_retrieval_strategy", "agent") or "agent").strip().casefold()
+            idx = self._mindmap_retrieval_combo.findData(retrieval)
+            self._mindmap_retrieval_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        if self._mindmap_agent_iter_spin is not None:
+            self._mindmap_agent_iter_spin.setValue(
+                int(float(getattr(self._base, "mindmap_budget_seconds", 45) or 45))
+            )
+        if self._mindmap_factcheck_cb is not None:
+            self._mindmap_factcheck_cb.setChecked(bool(getattr(self._base, "mindmap_factcheck", True)))
+        if self._mindmap_max_nodes_spin is not None:
+            self._mindmap_max_nodes_spin.setValue(int(getattr(self._base, "mindmap_max_nodes", 32) or 32))
+        if self._mindmap_max_refinements_spin is not None:
+            self._mindmap_max_refinements_spin.setValue(
+                int(getattr(self._base, "mindmap_max_refinement_rounds", 1) or 1)
+            )
+        if self._mindmap_use_full_context_cb is not None:
+            self._mindmap_use_full_context_cb.setChecked(
+                bool(getattr(self._base, "mindmap_use_full_context", False))
+            )
+        if self._mindmap_context_max_chars_spin is not None:
+            self._mindmap_context_max_chars_spin.setValue(
+                int(getattr(self._base, "mindmap_context_max_chars", 50_000) or 50_000)
+            )
+        if self._mindmap_agent_allow_rag_cb is not None:
+            self._mindmap_agent_allow_rag_cb.setChecked(
+                bool(getattr(self._base, "mindmap_agent_allow_rag", True))
+            )
+        if self._mindmap_agent_allow_regex_cb is not None:
+            self._mindmap_agent_allow_regex_cb.setChecked(
+                bool(getattr(self._base, "mindmap_agent_allow_regex", True))
+            )
+        if self._mindmap_agent_allow_heading_cb is not None:
+            self._mindmap_agent_allow_heading_cb.setChecked(
+                bool(getattr(self._base, "mindmap_agent_allow_heading", True))
+            )
+        if self._mindmap_agent_allow_full_text_cb is not None:
+            self._mindmap_agent_allow_full_text_cb.setChecked(
+                bool(getattr(self._base, "mindmap_agent_allow_full_text", True))
+            )
+        if self._mindmap_agent_allow_query_narrowing_cb is not None:
+            self._mindmap_agent_allow_query_narrowing_cb.setChecked(
+                bool(getattr(self._base, "mindmap_agent_allow_query_narrowing", True))
+            )
+        if self._mindmap_agent_allow_heading_summaries_cb is not None:
+            self._mindmap_agent_allow_heading_summaries_cb.setChecked(
+                bool(getattr(self._base, "mindmap_agent_allow_heading_summaries", True))
+            )
+        if self._mindmap_agent_max_regex_calls_spin is not None:
+            self._mindmap_agent_max_regex_calls_spin.setValue(
+                int(getattr(self._base, "mindmap_agent_max_regex_calls", 4) or 4)
+            )
+        if self._graph_retrieval_combo is not None:
+            retrieval = str(getattr(self._base, "graph_retrieval_strategy", "agent") or "agent").strip().casefold()
+            idx = self._graph_retrieval_combo.findData(retrieval)
+            self._graph_retrieval_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        if self._graph_agent_iter_spin is not None:
+            self._graph_agent_iter_spin.setValue(
+                int(float(getattr(self._base, "graph_budget_seconds", 40) or 40))
+            )
+        if self._graph_factcheck_cb is not None:
+            self._graph_factcheck_cb.setChecked(bool(getattr(self._base, "graph_factcheck", True)))
+        if self._graph_max_nodes_spin is not None:
+            self._graph_max_nodes_spin.setValue(int(getattr(self._base, "graph_max_nodes", 32) or 32))
+        if self._graph_use_full_context_cb is not None:
+            self._graph_use_full_context_cb.setChecked(
+                bool(getattr(self._base, "graph_use_full_context", False))
+            )
+        if self._graph_context_max_chars_spin is not None:
+            self._graph_context_max_chars_spin.setValue(
+                int(getattr(self._base, "graph_context_max_chars", 50_000) or 50_000)
+            )
+        if self._graph_agent_allow_rag_cb is not None:
+            self._graph_agent_allow_rag_cb.setChecked(
+                bool(getattr(self._base, "graph_agent_allow_rag", True))
+            )
+        if self._graph_agent_allow_regex_cb is not None:
+            self._graph_agent_allow_regex_cb.setChecked(
+                bool(getattr(self._base, "graph_agent_allow_regex", True))
+            )
+        if self._graph_agent_allow_heading_cb is not None:
+            self._graph_agent_allow_heading_cb.setChecked(
+                bool(getattr(self._base, "graph_agent_allow_heading", True))
+            )
+        if self._graph_agent_allow_full_text_cb is not None:
+            self._graph_agent_allow_full_text_cb.setChecked(
+                bool(getattr(self._base, "graph_agent_allow_full_text", True))
+            )
+        if self._graph_agent_allow_query_narrowing_cb is not None:
+            self._graph_agent_allow_query_narrowing_cb.setChecked(
+                bool(getattr(self._base, "graph_agent_allow_query_narrowing", True))
+            )
+        if self._graph_agent_allow_heading_summaries_cb is not None:
+            self._graph_agent_allow_heading_summaries_cb.setChecked(
+                bool(getattr(self._base, "graph_agent_allow_heading_summaries", True))
+            )
+        if self._graph_agent_max_regex_calls_spin is not None:
+            self._graph_agent_max_regex_calls_spin.setValue(
+                int(getattr(self._base, "graph_agent_max_regex_calls", 4) or 4)
+            )
+        self._sync_map_pro_controls()
+
     def _set_row_values(self, workflow_key: str, *, enabled: bool, profile_id: str) -> None:
         checkbox = self._workflow_enabled.get(str(workflow_key))
         combo = self._workflow_profiles.get(str(workflow_key))
@@ -275,6 +757,57 @@ class AgenticSettingsDialog(QDialog):
         if checkbox is None or combo is None:
             return
         combo.setEnabled(bool(checkbox.isChecked()))
+
+    def _sync_map_pro_controls(self) -> None:
+        mm_is_agent = False
+        if self._mindmap_retrieval_combo is not None:
+            mm_is_agent = str(self._mindmap_retrieval_combo.currentData() or "").strip().casefold() == "agent"
+        if self._mindmap_agent_iter_spin is not None:
+            self._mindmap_agent_iter_spin.setEnabled(mm_is_agent)
+        mm_heading_enabled = bool(
+            self._mindmap_agent_allow_heading_cb.isChecked()
+            if self._mindmap_agent_allow_heading_cb is not None
+            else True
+        )
+        if self._mindmap_agent_allow_rag_cb is not None:
+            self._mindmap_agent_allow_rag_cb.setEnabled(mm_is_agent)
+        if self._mindmap_agent_allow_regex_cb is not None:
+            self._mindmap_agent_allow_regex_cb.setEnabled(mm_is_agent)
+        if self._mindmap_agent_allow_heading_cb is not None:
+            self._mindmap_agent_allow_heading_cb.setEnabled(mm_is_agent)
+        if self._mindmap_agent_allow_full_text_cb is not None:
+            self._mindmap_agent_allow_full_text_cb.setEnabled(mm_is_agent)
+        if self._mindmap_agent_allow_query_narrowing_cb is not None:
+            self._mindmap_agent_allow_query_narrowing_cb.setEnabled(mm_is_agent)
+        if self._mindmap_agent_allow_heading_summaries_cb is not None:
+            self._mindmap_agent_allow_heading_summaries_cb.setEnabled(mm_is_agent and mm_heading_enabled)
+        if self._mindmap_agent_max_regex_calls_spin is not None:
+            self._mindmap_agent_max_regex_calls_spin.setEnabled(mm_is_agent)
+
+        g_is_agent = False
+        if self._graph_retrieval_combo is not None:
+            g_is_agent = str(self._graph_retrieval_combo.currentData() or "").strip().casefold() == "agent"
+        if self._graph_agent_iter_spin is not None:
+            self._graph_agent_iter_spin.setEnabled(g_is_agent)
+        g_heading_enabled = bool(
+            self._graph_agent_allow_heading_cb.isChecked()
+            if self._graph_agent_allow_heading_cb is not None
+            else True
+        )
+        if self._graph_agent_allow_rag_cb is not None:
+            self._graph_agent_allow_rag_cb.setEnabled(g_is_agent)
+        if self._graph_agent_allow_regex_cb is not None:
+            self._graph_agent_allow_regex_cb.setEnabled(g_is_agent)
+        if self._graph_agent_allow_heading_cb is not None:
+            self._graph_agent_allow_heading_cb.setEnabled(g_is_agent)
+        if self._graph_agent_allow_full_text_cb is not None:
+            self._graph_agent_allow_full_text_cb.setEnabled(g_is_agent)
+        if self._graph_agent_allow_query_narrowing_cb is not None:
+            self._graph_agent_allow_query_narrowing_cb.setEnabled(g_is_agent)
+        if self._graph_agent_allow_heading_summaries_cb is not None:
+            self._graph_agent_allow_heading_summaries_cb.setEnabled(g_is_agent and g_heading_enabled)
+        if self._graph_agent_max_regex_calls_spin is not None:
+            self._graph_agent_max_regex_calls_spin.setEnabled(g_is_agent)
 
     def _apply_labels(self) -> None:
         self.setWindowTitle(
@@ -482,5 +1015,110 @@ class AgenticSettingsDialog(QDialog):
                 if self._overlay_profiles_edit
                 else ""
             ).strip(),
+            "mindmap_retrieval_strategy": str(
+                self._mindmap_retrieval_combo.currentData()
+                if self._mindmap_retrieval_combo is not None
+                else "agent"
+            ).strip()
+            or "agent",
+            "mindmap_budget_seconds": float(
+                self._mindmap_agent_iter_spin.value() if self._mindmap_agent_iter_spin else 45
+            ),
+            "mindmap_agent_max_iterations": int(
+                self._mindmap_agent_iter_spin.value() if self._mindmap_agent_iter_spin else 45
+            ),
+            "mindmap_use_full_context": bool(
+                self._mindmap_use_full_context_cb.isChecked() if self._mindmap_use_full_context_cb else False
+            ),
+            "mindmap_context_max_chars": int(
+                self._mindmap_context_max_chars_spin.value() if self._mindmap_context_max_chars_spin else 50_000
+            ),
+            "mindmap_agent_allow_rag": bool(
+                self._mindmap_agent_allow_rag_cb.isChecked() if self._mindmap_agent_allow_rag_cb else True
+            ),
+            "mindmap_agent_allow_regex": bool(
+                self._mindmap_agent_allow_regex_cb.isChecked() if self._mindmap_agent_allow_regex_cb else True
+            ),
+            "mindmap_agent_allow_heading": bool(
+                self._mindmap_agent_allow_heading_cb.isChecked() if self._mindmap_agent_allow_heading_cb else True
+            ),
+            "mindmap_agent_allow_full_text": bool(
+                self._mindmap_agent_allow_full_text_cb.isChecked() if self._mindmap_agent_allow_full_text_cb else True
+            ),
+            "mindmap_agent_allow_query_narrowing": bool(
+                self._mindmap_agent_allow_query_narrowing_cb.isChecked()
+                if self._mindmap_agent_allow_query_narrowing_cb
+                else True
+            ),
+            "mindmap_agent_allow_heading_summaries": bool(
+                self._mindmap_agent_allow_heading_summaries_cb.isChecked()
+                if self._mindmap_agent_allow_heading_summaries_cb
+                else True
+            ),
+            "mindmap_agent_max_regex_calls": int(
+                self._mindmap_agent_max_regex_calls_spin.value()
+                if self._mindmap_agent_max_regex_calls_spin
+                else 4
+            ),
+            "mindmap_factcheck": bool(
+                self._mindmap_factcheck_cb.isChecked() if self._mindmap_factcheck_cb else True
+            ),
+            "mindmap_max_nodes": int(
+                self._mindmap_max_nodes_spin.value() if self._mindmap_max_nodes_spin else 32
+            ),
+            "mindmap_max_refinement_rounds": int(
+                self._mindmap_max_refinements_spin.value() if self._mindmap_max_refinements_spin else 1
+            ),
+            "graph_retrieval_strategy": str(
+                self._graph_retrieval_combo.currentData()
+                if self._graph_retrieval_combo is not None
+                else "agent"
+            ).strip()
+            or "agent",
+            "graph_budget_seconds": float(
+                self._graph_agent_iter_spin.value() if self._graph_agent_iter_spin else 40
+            ),
+            "graph_agent_max_iterations": int(
+                self._graph_agent_iter_spin.value() if self._graph_agent_iter_spin else 40
+            ),
+            "graph_use_full_context": bool(
+                self._graph_use_full_context_cb.isChecked() if self._graph_use_full_context_cb else False
+            ),
+            "graph_context_max_chars": int(
+                self._graph_context_max_chars_spin.value() if self._graph_context_max_chars_spin else 50_000
+            ),
+            "graph_agent_allow_rag": bool(
+                self._graph_agent_allow_rag_cb.isChecked() if self._graph_agent_allow_rag_cb else True
+            ),
+            "graph_agent_allow_regex": bool(
+                self._graph_agent_allow_regex_cb.isChecked() if self._graph_agent_allow_regex_cb else True
+            ),
+            "graph_agent_allow_heading": bool(
+                self._graph_agent_allow_heading_cb.isChecked() if self._graph_agent_allow_heading_cb else True
+            ),
+            "graph_agent_allow_full_text": bool(
+                self._graph_agent_allow_full_text_cb.isChecked() if self._graph_agent_allow_full_text_cb else True
+            ),
+            "graph_agent_allow_query_narrowing": bool(
+                self._graph_agent_allow_query_narrowing_cb.isChecked()
+                if self._graph_agent_allow_query_narrowing_cb
+                else True
+            ),
+            "graph_agent_allow_heading_summaries": bool(
+                self._graph_agent_allow_heading_summaries_cb.isChecked()
+                if self._graph_agent_allow_heading_summaries_cb
+                else True
+            ),
+            "graph_agent_max_regex_calls": int(
+                self._graph_agent_max_regex_calls_spin.value()
+                if self._graph_agent_max_regex_calls_spin
+                else 4
+            ),
+            "graph_factcheck": bool(
+                self._graph_factcheck_cb.isChecked() if self._graph_factcheck_cb else True
+            ),
+            "graph_max_nodes": int(
+                self._graph_max_nodes_spin.value() if self._graph_max_nodes_spin else 32
+            ),
         }
         return AgenticRuntimeSettings.from_dict(data)

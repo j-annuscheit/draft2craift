@@ -1,20 +1,15 @@
 """LLM side-task controller — glossary and mindmap generation."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import datetime
+import json
+from pathlib import Path
+import tempfile
+from uuid import uuid4
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal
-from PySide6.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
-    QInputDialog,
-    QLabel,
-    QMessageBox,
-    QSlider,
-    QVBoxLayout,
-)
-
-from shared.domain.user_mode import resolve_feature_label
+from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtWidgets import QMessageBox
 from shared.services.agentic.settings import AgenticRuntimeSettings
 from shared.services.highlights.store import get_highlight_store
 from shared.services.llm.manager import LLMManager
@@ -52,6 +47,23 @@ class MindmapTaskRequest:
     chunk_size: int = 900
     chunk_overlap: int = 160
     map_depth: int = 0
+    override_retrieval_strategy: str = ""
+    override_agent_max_iterations: int = 0
+    override_factcheck: bool | None = None
+    override_max_nodes: int = 0
+    override_max_refinement_rounds: int = -1
+    override_use_full_context: bool | None = None
+    override_context_max_chars: int = 0
+    override_allow_rag_search: bool | None = None
+    override_allow_regex_search: bool | None = None
+    override_allow_heading_search: bool | None = None
+    override_allow_full_text_search: bool | None = None
+    override_allow_query_narrowing: bool | None = None
+    override_allow_heading_summaries: bool | None = None
+    override_agent_max_regex_calls: int = -1
+    override_agent_budget_points: float = 0.0
+    override_budget_seconds: float = 0.0
+    override_log_draft_markdown: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -73,51 +85,245 @@ class MindmapTaskResult:
 TaskRequest = GlossaryTaskRequest | MindmapTaskRequest
 TaskResult = GlossaryTaskResult | MindmapTaskResult
 
+_RAW_DRAFT_ARTIFACT_MAX_CHARS = 200_000
+_RAW_DRAFT_META_MAX_CHARS = 60_000
+_ARTIFACT_DEBUG_ROW_MAX_CHARS = 2_000
 
-def _agentic_map_meta(run_result, *, mode: str) -> dict[str, object]:  # noqa: ANN001
+
+def _clip_text(value: object, *, max_chars: int = 280) -> str:
+    text = str(value or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return text[: max(0, max_chars - 3)].rstrip() + "..."
+
+
+def _clip_raw_draft_text(value: object, *, max_chars: int) -> str:
+    text = str(value or "")
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    if max_chars <= 16:
+        return text[:max_chars]
+    return text[: max_chars - 16] + "\n...[truncated]"
+
+
+def _sanitize_for_json(value: object, *, max_chars: int = 280, _depth: int = 0) -> object:
+    if _depth >= 4:
+        return _clip_text(value, max_chars=max_chars)
+    if isinstance(value, dict):
+        out: dict[str, object] = {}
+        for idx, (k, v) in enumerate(dict(value).items()):
+            if idx >= 64:
+                out["..."] = "truncated"
+                break
+            out[str(k)] = _sanitize_for_json(v, max_chars=max_chars, _depth=_depth + 1)
+        return out
+    if isinstance(value, list):
+        out_list: list[object] = []
+        for idx, row in enumerate(list(value)):
+            if idx >= 64:
+                out_list.append("truncated")
+                break
+            out_list.append(_sanitize_for_json(row, max_chars=max_chars, _depth=_depth + 1))
+        return out_list
+    if isinstance(value, tuple):
+        return _sanitize_for_json(list(value), max_chars=max_chars, _depth=_depth)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        if isinstance(value, str):
+            return _clip_text(value, max_chars=max_chars)
+        return value
+    return _clip_text(repr(value), max_chars=max_chars)
+
+
+def _collect_trace_rows(run_result) -> list[dict[str, object]]:  # noqa: ANN001
+    out: list[dict[str, object]] = []
+    for row in list(getattr(run_result, "trace", []) or []):
+        try:
+            payload = asdict(row)
+        except Exception:
+            payload = {
+                "step_id": str(getattr(row, "step_id", "") or ""),
+                "status": str(getattr(row, "status", "") or ""),
+                "duration_ms": float(getattr(row, "duration_ms", 0.0) or 0.0),
+                "reason": str(getattr(row, "reason", "") or ""),
+                "input": dict(getattr(row, "input", {}) or {}),
+                "output": dict(getattr(row, "output", {}) or {}),
+            }
+        out.append(
+            {
+                "step_id": str(payload.get("step_id", "") or ""),
+                "status": str(payload.get("status", "") or ""),
+                "duration_ms": float(payload.get("duration_ms", 0.0) or 0.0),
+                "reason": str(payload.get("reason", "") or ""),
+                "input": _sanitize_for_json(payload.get("input", {}), max_chars=220),
+                "output": _sanitize_for_json(payload.get("output", {}), max_chars=280),
+            }
+        )
+    return out
+
+
+def _write_agentic_run_artifact(
+    *,
+    mode: str,
+    query: str,
+    context_text: str,
+    request_payload: dict[str, object],
+    run_result,  # noqa: ANN001
+) -> str:
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    token = uuid4().hex[:8]
+    mode_slug = str(mode or "mindmap").strip().casefold() or "mindmap"
+    root = Path.cwd() / "runs" / "agentic"
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        root = Path(tempfile.gettempdir()) / "d2c_runs" / "agentic"
+        root.mkdir(parents=True, exist_ok=True)
+    path = root / f"{mode_slug}_{stamp}_{token}.json"
+
+    state = dict(getattr(run_result, "state", {}) or {})
+    markdown = str(dict(getattr(run_result, "result", {}) or {}).get("markdown", "") or "")
+    raw_draft_logged = bool(state.get("draft_markdown_logged", False))
+    raw_draft = str(state.get("draft_markdown_raw", "") or "") if raw_draft_logged else ""
+    state_payload = {
+        "concepts": [str(x or "") for x in list(state.get("concepts", []) or [])[:128]],
+        "search_queries": [str(x or "") for x in list(state.get("search_queries", []) or [])[:128]],
+        "retrieval_agent_steps": [
+            _sanitize_for_json(row, max_chars=_ARTIFACT_DEBUG_ROW_MAX_CHARS)
+            for row in list(state.get("retrieval_agent_steps", []) or [])[:512]
+        ],
+        "retrieval_observations": [
+            _clip_text(row, max_chars=_ARTIFACT_DEBUG_ROW_MAX_CHARS)
+            for row in list(state.get("retrieval_observations", []) or [])[:512]
+        ],
+        "retrieval_policy": _sanitize_for_json(dict(state.get("retrieval_policy", {}) or {}), max_chars=1_200),
+        "rag_snippets": [
+            _clip_text(row, max_chars=_ARTIFACT_DEBUG_ROW_MAX_CHARS)
+            for row in list(state.get("rag_snippets", []) or [])[:128]
+        ],
+        "fact_issues": [
+            str(x or "")
+            for x in list(state.get("fact_issues_list", state.get("fact_issues", [])) or [])[:128]
+        ],
+        "fact_verified": bool(state.get("fact_verified", False)),
+        "structure_check": _sanitize_for_json(dict(state.get("structure_check", {}) or {}), max_chars=1_200),
+        "structure_validation": _sanitize_for_json(dict(state.get("structure_validation", {}) or {}), max_chars=1_200),
+        "grounding_validation": _sanitize_for_json(dict(state.get("grounding_validation", {}) or {}), max_chars=1_200),
+        "grounding_issues": [str(x or "") for x in list(state.get("grounding_issues", []) or [])[:128]],
+        "required_main_nodes": [str(x or "") for x in list(state.get("required_main_nodes", []) or [])[:64]],
+        "missing_required_main_nodes": [
+            str(x or "") for x in list(state.get("missing_required_main_nodes", []) or [])[:64]
+        ],
+        "draft_progress": [
+            _sanitize_for_json(row, max_chars=_ARTIFACT_DEBUG_ROW_MAX_CHARS)
+            for row in list(state.get("draft_progress", []) or [])[:128]
+        ],
+        "draft_markdown_logged": raw_draft_logged,
+    }
+    if raw_draft_logged and raw_draft:
+        state_payload["draft_markdown_raw"] = _clip_raw_draft_text(
+            raw_draft,
+            max_chars=_RAW_DRAFT_ARTIFACT_MAX_CHARS,
+        )
+    payload = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "mode": str(mode or ""),
+        "query": str(query or ""),
+        "request": _sanitize_for_json(request_payload, max_chars=260),
+        "workflow_id": str(getattr(run_result, "workflow_id", "") or ""),
+        "profile_id": str(getattr(run_result, "profile_id", "") or ""),
+        "ok": bool(getattr(run_result, "ok", False)),
+        "errors": [str(x or "") for x in list(getattr(run_result, "errors", []) or [])],
+        "metrics": _sanitize_for_json(dict(getattr(run_result, "metrics", {}) or {}), max_chars=280),
+        "trace": _collect_trace_rows(run_result),
+        "state": state_payload,
+        "context_preview": _clip_text(context_text, max_chars=8000),
+        "markdown_preview": _clip_text(markdown, max_chars=8000),
+    }
+    try:
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return str(path)
+    except Exception:
+        return ""
+
+
+def _agentic_map_meta(run_result, *, mode: str, run_artifact_path: str = "") -> dict[str, object]:  # noqa: ANN001
     state = dict(getattr(run_result, "state", {}) or {})
     metrics = dict(getattr(run_result, "metrics", {}) or {})
-    map_result = dict(state.get("map_result", {}) or {})
-    map_metrics = dict(state.get("map_metrics", {}) or {})
-    map_coverage = dict(state.get("map_coverage", {}) or {})
-
-    # v1 workflow: stats in map_validation.stats
-    validation = dict(state.get("map_validation", {}) or {})
-    v1_stats = dict(validation.get("stats", {}) or {})
-
-    # v2 workflow: stats in structure_check (node_count, edge_count, component_count)
     structure_check = dict(state.get("structure_check", {}) or {})
+    structure_validation = dict(state.get("structure_validation", {}) or {})
+    nodes = int(structure_check.get("node_count", 0) or 0)
+    edges = int(structure_check.get("edge_count", 0) or 0)
+    components = int(structure_check.get("component_count", 0) or 0)
+    trace_rows = _collect_trace_rows(run_result)
+    retrieval_steps = list(state.get("retrieval_agent_steps", []) or [])
+    retrieval_observations = list(state.get("retrieval_observations", []) or [])
+    retrieval_policy = dict(state.get("retrieval_policy", {}) or {})
+    rag_snippets = [str(x or "") for x in list(state.get("rag_snippets", []) or [])]
+    fact_issues = [str(x or "") for x in list(state.get("fact_issues_list", state.get("fact_issues", [])) or [])]
+    grounding_validation = dict(state.get("grounding_validation", {}) or {})
+    grounding_issues = [str(x or "") for x in list(state.get("grounding_issues", []) or [])]
+    required_main_nodes = list(
+        state.get("required_main_nodes", metrics.get("required_main_nodes", [])) or []
+    )
+    missing_required_main_nodes = list(
+        state.get(
+            "missing_required_main_nodes",
+            grounding_validation.get("missing_required_main_nodes", metrics.get("missing_required_main_nodes", [])),
+        )
+        or []
+    )
+    tool_calls = dict(metrics.get("tool_calls", {}) or {})
+    retrieval_strategy = str(metrics.get("retrieval_strategy", state.get("retrieval_strategy", "")) or "")
+    raw_draft_logged = bool(state.get("draft_markdown_logged", metrics.get("log_draft_markdown", False)))
+    raw_draft = str(state.get("draft_markdown_raw", "") or "") if raw_draft_logged else ""
 
-    fallback_stats = dict(map_result.get("stats", {}) or {})
-    nodes = int(v1_stats.get("nodes", fallback_stats.get("nodes", structure_check.get("node_count", 0))) or 0)
-    edges = int(v1_stats.get("edges", fallback_stats.get("edges", structure_check.get("edge_count", 0))) or 0)
-    components = int(v1_stats.get("components", fallback_stats.get("components", structure_check.get("component_count", 0))) or 0)
-
-    return {
-        "kind": str(validation.get("kind", mode) or mode),
+    meta = {
+        "kind": str(mode or "mindmap"),
         "variant": str(mode or ""),
         "reason": "agentic",
         "nodes": nodes,
         "edges": edges,
-        "roots": int(v1_stats.get("roots", 0) or 0),
-        "isolated_nodes": int(v1_stats.get("isolated_nodes", 0) or 0),
+        "roots": 0,
+        "isolated_nodes": 0,
         "components": components,
-        "max_depth": int(v1_stats.get("max_depth", 0) or 0),
-        "root_label": str(map_result.get("root_label", "") or ""),
-        "cleanup": dict(validation.get("cleanup", {}) or {}),
-        "candidate_review": dict(validation.get("candidate_review", {}) or {}),
+        "max_depth": int(state.get("depth", 0) or 0),
+        "root_label": str(state.get("root_label", "") or ""),
+        "cleanup": {},
+        "candidate_review": {},
         "workflow_id": str(getattr(run_result, "workflow_id", "") or ""),
         "profile_id": str(getattr(run_result, "profile_id", "") or ""),
         "errors": list(getattr(run_result, "errors", []) or []),
         "metrics": metrics,
         "trace_path": str(metrics.get("trace_path", "") or ""),
-        "graph_closure_round": int(state.get("graph_closure_round", 0) or 0),
-        "refine_round": int(state.get("refine_round", 0) or 0),
-        "expand_round": int(state.get("expand_round", 0) or 0),
-        "expansion_round": int(state.get("expansion_round", map_metrics.get("expansion_round", 0)) or 0),
-        "gap_round": int(map_metrics.get("gap_round", 0) or 0),
-        "coverage_ratio": float(map_coverage.get("coverage_ratio", 0.0) or 0.0),
+        "run_artifact_path": str(run_artifact_path or ""),
+        "retrieval_strategy": retrieval_strategy,
+        "agent_budget_controlled": bool(metrics.get("agent_budget_controlled", False)),
+        "log_draft_markdown": raw_draft_logged,
+        "tool_calls": tool_calls,
+        "retrieval_agent_steps": _sanitize_for_json(retrieval_steps[:40], max_chars=240),
+        "retrieval_observations": _sanitize_for_json(retrieval_observations[:40], max_chars=240),
+        "retrieval_policy": _sanitize_for_json(retrieval_policy, max_chars=240),
+        "rag_snippets_preview": [_clip_text(x, max_chars=260) for x in rag_snippets[:12]],
+        "fact_issues_list": fact_issues[:20],
+        "structure_validation": _sanitize_for_json(structure_validation, max_chars=240),
+        "grounding_validation": _sanitize_for_json(grounding_validation, max_chars=240),
+        "grounding_issues": grounding_issues[:20],
+        "required_main_nodes": [str(x or "") for x in required_main_nodes[:12]],
+        "missing_required_main_nodes": [str(x or "") for x in missing_required_main_nodes[:12]],
+        "draft_progress": _sanitize_for_json(list(state.get("draft_progress", []) or [])[:64], max_chars=480),
+        "trace_steps": trace_rows[:48],
+        "trace_step_count": len(trace_rows),
+        "trace_has_errors": any(str(row.get("status", "") or "").casefold() in {"error", "failed", "empty"} for row in trace_rows),
+        "graph_closure_round": 0,
+        "refine_round": 0,
+        "expand_round": 0,
+        "expansion_round": 0,
+        "gap_round": 0,
+        "coverage_ratio": 0.0,
     }
+    if raw_draft_logged and raw_draft:
+        meta["draft_markdown_raw"] = _clip_raw_draft_text(raw_draft, max_chars=_RAW_DRAFT_META_MAX_CHARS)
+    return meta
 
 
 # ── Worker ─────────────────────────────────────────────────────────────────────
@@ -135,6 +341,7 @@ class _LLMSideTaskWorker(QObject):
         *,
         request: TaskRequest,
         agentic_settings: AgenticRuntimeSettings | None = None,
+        rag_system: object | None = None,
     ):
         super().__init__()
         self._llm_manager = llm_manager
@@ -144,6 +351,7 @@ class _LLMSideTaskWorker(QObject):
             if isinstance(agentic_settings, AgenticRuntimeSettings)
             else None
         )
+        self._rag_system = rag_system
 
     def run(self):
         try:
@@ -175,10 +383,6 @@ class _LLMSideTaskWorker(QObject):
                 context_text = str(self._request.context_text or "")
                 query = str(self._request.query or "")
                 mode = str(self._request.mode or "mindmap")
-                max_nodes = int(self._request.max_nodes or 32)
-                chunking_strategy = str(self._request.chunking_strategy or "sliding_window")
-                chunk_size = int(self._request.chunk_size or 900)
-                chunk_overlap = int(self._request.chunk_overlap or 160)
                 map_depth = max(0, min(12, int(self._request.map_depth or 0)))
                 mode_clean = str(mode or "").strip().casefold()
                 workflow_key = "graph" if mode_clean == "graph" else "mindmap"
@@ -188,139 +392,374 @@ class _LLMSideTaskWorker(QObject):
                     else {}
                 )
                 agentic_enabled = bool(agentic_opts.get("enabled", False))
-                if (
-                    mode_clean == "graph"
-                    and (not agentic_enabled)
-                    and self._agentic_settings is not None
-                ):
-                    fallback_opts = self._agentic_settings.run_options_for("mindmap")
-                    if bool(fallback_opts.get("enabled", False)):
-                        agentic_opts = dict(fallback_opts or {})
-                        agentic_enabled = True
-                if agentic_enabled:
-                    try:
-                        from shared.services.agentic import AgenticWorkflowService, build_tools
+                if not agentic_enabled:
+                    self.failed.emit(
+                        "Mindmap/Graph läuft ausschließlich über LangGraph v2. "
+                        "Bitte den Workflow in den Agentic-Einstellungen aktivieren."
+                    )
+                    return
+                try:
+                    from shared.services.agentic import AgenticWorkflowService, build_tools
 
-                        default_profile_id = (
-                            "graph_connected_component"
-                            if mode_clean == "graph"
-                            else "mindmap_grounded_graph"
-                        )
-                        profile_id = str(
-                            agentic_opts.get(
-                                "profile_id",
-                                default_profile_id,
-                            )
-                            or default_profile_id
-                        ).strip()
-                        policy_overrides = dict(agentic_opts.get("policy_overrides", {}) or {})
-                        policy_overrides["map_require_connected_graph"] = True
-                        policy_overrides.setdefault("map_cleanup_enabled", True)
-                        policy_overrides.setdefault("map_node_min_word_letters", 3)
-                        if mode_clean != "graph":
-                            policy_overrides.setdefault("map_max_expansion_rounds", max(4, map_depth * 3) if map_depth > 0 else 24)
-                        else:
-                            # graph workflow (v1-style) still uses expand_enabled / target_depth
-                            if map_depth > 0:
-                                policy_overrides["map_expand_enabled"] = True
-                                policy_overrides["map_expand_target_depth"] = map_depth
-                            else:
-                                policy_overrides.setdefault("map_expand_enabled", False)
-                                policy_overrides.setdefault("map_expand_target_depth", 0)
-                        run_kwargs = {
-                            "request": {
-                                "mode": mode,
-                                "scope": "selection",
-                                "query": query,
-                                "depth": map_depth,
-                                "context_text": context_text,
-                            },
-                            "profile_id": profile_id or default_profile_id,
-                            "enabled": agentic_enabled,
-                            "policy_overrides": policy_overrides,
-                            "overlay_profile_ids": list(
-                                agentic_opts.get("overlay_profile_ids", []) or []
-                            ),
-                            "env_name": str(agentic_opts.get("env_name", "") or ""),
-                            "tools": build_tools(
-                                llm_manager=self._llm_manager,
-                                source_texts=[("Kontext", context_text)],
-                            ),
-                        }
-                        svc = AgenticWorkflowService()
-                        run_result = (
-                            svc.run_graph(**run_kwargs)
-                            if mode_clean == "graph"
-                            else svc.run_mindmap(**run_kwargs)
-                        )
-                        if bool(run_result.ok):
-                            markdown = str(run_result.result.get("markdown", "") or "")
-                            self.finished.emit(
-                                MindmapTaskResult(
-                                    context_text=context_text,
-                                    query=query,
-                                    mode=mode,
-                                    markdown=markdown,
-                                    meta=_agentic_map_meta(run_result, mode=mode),
-                                )
-                            )
-                            return
-                        if mode_clean == "graph":
-                            errors = list(run_result.errors or [])
-                            self.finished.emit(
-                                MindmapTaskResult(
-                                    context_text=context_text,
-                                    query=query,
-                                    mode=mode,
-                                    markdown="",
-                                    meta={
-                                        "kind": "graph",
-                                        "variant": "graph",
-                                        "reason": "agentic_failed",
-                                        "error": "; ".join(
-                                            str(item or "").strip()
-                                            for item in errors[:4]
-                                            if str(item or "").strip()
-                                        ) or "Graph konnte nicht zu einer Komponente geschlossen werden.",
-                                        "workflow_id": str(run_result.workflow_id or ""),
-                                        "profile_id": str(run_result.profile_id or ""),
-                                        "errors": errors,
-                                        "metrics": dict(run_result.metrics or {}),
-                                    },
-                                )
-                            )
-                            return
-                    except Exception as exc:
-                        if mode_clean == "graph":
-                            self.failed.emit(f"Graph-Agentic fehlgeschlagen: {exc}")
-                            return
-                        pass
-                non_agentic_max_nodes = max_nodes
-                if mode_clean in {"mindmap", "graph"} and map_depth > 0:
-                    non_agentic_max_nodes = max(
-                        int(non_agentic_max_nodes or 0),
-                        min(128, 12 + (map_depth * 12)),
+                    default_profile_id = (
+                        "graph_v2_local"
+                        if mode_clean == "graph"
+                        else "mindmap_v2_local"
                     )
-                markdown, meta = self._llm_manager.generate_mindmap_sync(
-                    context_text=context_text,
-                    query=query,
-                    mode=mode,
-                    max_nodes=non_agentic_max_nodes,
-                    chunking_strategy=chunking_strategy,
-                    chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap,
-                )
-                safe_meta = dict(meta or {}) if isinstance(meta, dict) else {}
-                self.finished.emit(
-                    MindmapTaskResult(
-                        context_text=context_text,
+                    profile_id = str(
+                        agentic_opts.get(
+                            "profile_id",
+                            default_profile_id,
+                        )
+                        or default_profile_id
+                    ).strip()
+                    # Read pro settings from agentic_settings
+                    _s = self._agentic_settings
+                    if mode_clean == "graph" and _s is not None:
+                        _retrieval_strategy = str(
+                            getattr(_s, "graph_retrieval_strategy", "agent") or "agent"
+                        ).strip().casefold()
+                        if _retrieval_strategy not in {"agent", "rag", "none"}:
+                            _retrieval_strategy = "agent"
+                        _budget_seconds = float(getattr(_s, "graph_budget_seconds", 40.0) or 40.0)
+                        _factcheck = bool(getattr(_s, "graph_factcheck", True))
+                        _max_nodes = int(getattr(_s, "graph_max_nodes", 32) or 32)
+                        _use_full_context = bool(getattr(_s, "graph_use_full_context", False))
+                        _context_max_chars = int(getattr(_s, "graph_context_max_chars", 50_000) or 50_000)
+                        _allow_rag = bool(getattr(_s, "graph_agent_allow_rag", True))
+                        _allow_regex = bool(getattr(_s, "graph_agent_allow_regex", True))
+                        _allow_heading = bool(getattr(_s, "graph_agent_allow_heading", True))
+                        _allow_full_text = bool(getattr(_s, "graph_agent_allow_full_text", True))
+                        _allow_query_narrowing = bool(
+                            getattr(_s, "graph_agent_allow_query_narrowing", True)
+                        )
+                        _allow_heading_summaries = bool(
+                            getattr(_s, "graph_agent_allow_heading_summaries", True)
+                        )
+                        try:
+                            _agent_max_iter = int(getattr(_s, "graph_agent_max_iterations", 0))
+                        except (TypeError, ValueError):
+                            _agent_max_iter = 0
+                        try:
+                            _agent_max_regex_calls = int(getattr(_s, "graph_agent_max_regex_calls", 0))
+                        except (TypeError, ValueError):
+                            _agent_max_regex_calls = 0
+                    elif _s is not None:
+                        _retrieval_strategy = str(
+                            getattr(_s, "mindmap_retrieval_strategy", "agent") or "agent"
+                        ).strip().casefold()
+                        if _retrieval_strategy not in {"agent", "rag", "none"}:
+                            _retrieval_strategy = "agent"
+                        _budget_seconds = float(getattr(_s, "mindmap_budget_seconds", 45.0) or 45.0)
+                        _factcheck = bool(getattr(_s, "mindmap_factcheck", True))
+                        _max_nodes = int(getattr(_s, "mindmap_max_nodes", 32) or 32)
+                        _use_full_context = bool(getattr(_s, "mindmap_use_full_context", False))
+                        _context_max_chars = int(getattr(_s, "mindmap_context_max_chars", 50_000) or 50_000)
+                        _allow_rag = bool(getattr(_s, "mindmap_agent_allow_rag", True))
+                        _allow_regex = bool(getattr(_s, "mindmap_agent_allow_regex", True))
+                        _allow_heading = bool(getattr(_s, "mindmap_agent_allow_heading", True))
+                        _allow_full_text = bool(getattr(_s, "mindmap_agent_allow_full_text", True))
+                        _allow_query_narrowing = bool(
+                            getattr(_s, "mindmap_agent_allow_query_narrowing", True)
+                        )
+                        _allow_heading_summaries = bool(
+                            getattr(_s, "mindmap_agent_allow_heading_summaries", True)
+                        )
+                        try:
+                            _agent_max_iter = int(getattr(_s, "mindmap_agent_max_iterations", 0))
+                        except (TypeError, ValueError):
+                            _agent_max_iter = 0
+                        try:
+                            _agent_max_regex_calls = int(getattr(_s, "mindmap_agent_max_regex_calls", 0))
+                        except (TypeError, ValueError):
+                            _agent_max_regex_calls = 0
+                    else:
+                        _retrieval_strategy = "agent"
+                        _budget_seconds = 45.0 if mode_clean != "graph" else 40.0
+                        _factcheck, _max_nodes = True, 32
+                        _use_full_context, _context_max_chars = False, 50_000
+                        _allow_rag, _allow_regex, _allow_heading = True, True, True
+                        _allow_full_text = True
+                        _allow_query_narrowing = True
+                        _allow_heading_summaries = True
+                        _agent_max_iter = 0
+                        _agent_max_regex_calls = 0
+                    raw_max_ref = getattr(_s, "mindmap_max_refinement_rounds", 1) if _s else 1
+                    try:
+                        _max_ref = int(raw_max_ref if raw_max_ref is not None else 1)
+                    except (TypeError, ValueError):
+                        _max_ref = 1
+
+                    override_retrieval = str(
+                        getattr(self._request, "override_retrieval_strategy", "") or ""
+                    ).strip().casefold()
+                    if override_retrieval in {"agent", "rag", "none"}:
+                        _retrieval_strategy = override_retrieval
+                    # Produktanforderung: MindMap/Graph laufen standardmäßig
+                    # agentenbasiert (Toolwahl und Suchstrategie durch LLM).
+                    _retrieval_strategy = "agent"
+
+                    try:
+                        override_agent_iter = int(
+                            getattr(self._request, "override_agent_max_iterations", 0) or 0
+                        )
+                    except (TypeError, ValueError):
+                        override_agent_iter = 0
+                    if override_agent_iter > 0:
+                        _agent_max_iter = override_agent_iter
+
+                    override_factcheck = getattr(self._request, "override_factcheck", None)
+                    if override_factcheck is not None:
+                        _factcheck = bool(override_factcheck)
+
+                    try:
+                        override_max_nodes = int(
+                            getattr(self._request, "override_max_nodes", 0) or 0
+                        )
+                    except (TypeError, ValueError):
+                        override_max_nodes = 0
+                    if override_max_nodes > 0:
+                        _max_nodes = override_max_nodes
+
+                    try:
+                        override_max_ref = int(
+                            getattr(self._request, "override_max_refinement_rounds", -1) or -1
+                        )
+                    except (TypeError, ValueError):
+                        override_max_ref = -1
+                    if override_max_ref >= 0:
+                        _max_ref = override_max_ref
+
+                    override_use_full_context = getattr(self._request, "override_use_full_context", None)
+                    if override_use_full_context is not None:
+                        _use_full_context = bool(override_use_full_context)
+
+                    try:
+                        override_context_max_chars = int(
+                            getattr(self._request, "override_context_max_chars", 0) or 0
+                        )
+                    except (TypeError, ValueError):
+                        override_context_max_chars = 0
+                    if override_context_max_chars > 0:
+                        _context_max_chars = override_context_max_chars
+
+                    def _apply_bool_override(name: str, current: bool) -> bool:
+                        override_value = getattr(self._request, name, None)
+                        if override_value is None:
+                            return current
+                        return bool(override_value)
+
+                    _allow_rag = _apply_bool_override("override_allow_rag_search", _allow_rag)
+                    _allow_regex = _apply_bool_override("override_allow_regex_search", _allow_regex)
+                    _allow_heading = _apply_bool_override("override_allow_heading_search", _allow_heading)
+                    _allow_full_text = _apply_bool_override("override_allow_full_text_search", _allow_full_text)
+                    _allow_query_narrowing = _apply_bool_override(
+                        "override_allow_query_narrowing",
+                        _allow_query_narrowing,
+                    )
+                    _allow_heading_summaries = _apply_bool_override(
+                        "override_allow_heading_summaries",
+                        _allow_heading_summaries,
+                    )
+
+                    try:
+                        override_regex_calls = int(
+                            getattr(self._request, "override_agent_max_regex_calls", -1) or -1
+                        )
+                    except (TypeError, ValueError):
+                        override_regex_calls = -1
+                    if override_regex_calls >= 0:
+                        _agent_max_regex_calls = override_regex_calls
+                    # Budget-Override: override_agent_budget_points bleibt für
+                    # Abwärtskompatibilität (1 Punkt ≈ 3 Sekunden).
+                    try:
+                        override_budget_points = float(
+                            getattr(self._request, "override_agent_budget_points", 0.0) or 0.0
+                        )
+                    except (TypeError, ValueError):
+                        override_budget_points = 0.0
+                    if override_budget_points > 0.0:
+                        _budget_seconds = max(5.0, override_budget_points * 3.0)
+                    override_budget_seconds = float(
+                        getattr(self._request, "override_budget_seconds", 0.0) or 0.0
+                    )
+                    if override_budget_seconds > 0.0:
+                        _budget_seconds = override_budget_seconds
+                    override_log_draft_markdown = getattr(self._request, "override_log_draft_markdown", None)
+                    _log_draft_markdown = bool(override_log_draft_markdown) if override_log_draft_markdown is not None else False
+
+                    _max_ref = max(0, min(6, int(_max_ref or 0)))
+                    _max_nodes = max(4, min(512, int(_max_nodes or 32)))
+                    _context_max_chars = max(4_000, min(1_000_000, int(_context_max_chars or 50_000)))
+                    _agent_max_iter = max(0, min(50_000, int(_agent_max_iter or 0)))
+                    _agent_max_regex_calls = max(0, min(500, int(_agent_max_regex_calls or 0)))
+                    _budget_seconds = max(5.0, min(3600.0, float(_budget_seconds or 45.0)))
+                    run_kwargs = {
+                        "request": {
+                            "mode": mode,
+                            "scope": "selection",
+                            "query": query,
+                            "depth": map_depth,
+                            "context_text": context_text,
+                            "max_nodes": _max_nodes,
+                            # Pipeline-Settings
+                            "retrieval_strategy": _retrieval_strategy,
+                            "factcheck": _factcheck,
+                            "max_refinement_rounds": _max_ref,
+                            "use_full_context": _use_full_context,
+                            "context_max_chars": _context_max_chars,
+                            "allow_rag_search": _allow_rag,
+                            "allow_regex_search": _allow_regex,
+                            "allow_heading_search": _allow_heading,
+                            "allow_full_text_search": _allow_full_text,
+                            "allow_query_narrowing": _allow_query_narrowing,
+                            "allow_heading_summaries": _allow_heading_summaries,
+                            "agent_max_iterations": _agent_max_iter,
+                            "agent_max_regex_calls": _agent_max_regex_calls,
+                            "force_agent_retrieval": True,
+                            "budget_seconds": float(_budget_seconds),
+                            "log_draft_markdown": _log_draft_markdown,
+                        },
+                        "profile_id": profile_id or default_profile_id,
+                        "enabled": agentic_enabled,
+                        "tools": build_tools(
+                            llm_manager=self._llm_manager,
+                            rag_system=self._rag_system,
+                            source_texts=[("Kontext", context_text)],
+                        ),
+                    }
+                    svc = AgenticWorkflowService()
+                    run_result = (
+                        svc.run_graph(**run_kwargs)
+                        if mode_clean == "graph"
+                        else svc.run_mindmap(**run_kwargs)
+                    )
+                    run_artifact_path = _write_agentic_run_artifact(
+                        mode=mode_clean,
                         query=query,
-                        mode=mode,
-                        markdown=str(markdown or ""),
-                        meta=safe_meta,
+                        context_text=context_text,
+                        request_payload=dict(run_kwargs.get("request", {}) or {}),
+                        run_result=run_result,
                     )
-                )
-                return
+                    if bool(run_result.ok):
+                        markdown = str(run_result.result.get("markdown", "") or "")
+                        self.finished.emit(
+                            MindmapTaskResult(
+                                context_text=context_text,
+                                query=query,
+                                mode=mode,
+                                markdown=markdown,
+                                meta=_agentic_map_meta(
+                                    run_result,
+                                    mode=mode,
+                                    run_artifact_path=run_artifact_path,
+                                ),
+                            )
+                        )
+                        return
+                    errors = list(run_result.errors or [])
+                    state_payload = dict(getattr(run_result, "state", {}) or {})
+                    raw_draft_logged = bool(
+                        state_payload.get(
+                            "draft_markdown_logged",
+                            dict(run_result.metrics or {}).get("log_draft_markdown", False),
+                        )
+                    )
+                    raw_draft = str(state_payload.get("draft_markdown_raw", "") or "") if raw_draft_logged else ""
+                    failure_meta = {
+                        "kind": "graph" if mode_clean == "graph" else "mindmap",
+                        "variant": "graph" if mode_clean == "graph" else "mindmap",
+                        "reason": "agentic_failed",
+                        "error": "; ".join(
+                            str(item or "").strip()
+                            for item in errors[:4]
+                            if str(item or "").strip()
+                        ) or "LangGraph-Lauf fehlgeschlagen.",
+                        "workflow_id": str(run_result.workflow_id or ""),
+                        "profile_id": str(run_result.profile_id or ""),
+                        "errors": errors,
+                        "metrics": dict(run_result.metrics or {}),
+                        "run_artifact_path": str(run_artifact_path or ""),
+                        "log_draft_markdown": raw_draft_logged,
+                        "trace_steps": _collect_trace_rows(run_result)[:48],
+                        "trace_step_count": len(list(getattr(run_result, "trace", []) or [])),
+                        "retrieval_agent_steps": _sanitize_for_json(
+                            list(state_payload.get("retrieval_agent_steps", []) or [])[:40],
+                            max_chars=240,
+                        ),
+                        "rag_snippets_preview": [
+                            _clip_text(row, max_chars=260)
+                            for row in list(state_payload.get("rag_snippets", []) or [])[:12]
+                        ],
+                        "fact_issues_list": [
+                            str(x or "")
+                            for x in list(
+                                state_payload.get(
+                                    "fact_issues_list",
+                                    state_payload.get("fact_issues", []),
+                                )
+                                or []
+                            )[:20]
+                        ],
+                        "structure_validation": _sanitize_for_json(
+                            dict(state_payload.get("structure_validation", {}) or {}),
+                            max_chars=240,
+                        ),
+                        "retrieval_policy": _sanitize_for_json(
+                            dict(state_payload.get("retrieval_policy", {}) or {}),
+                            max_chars=240,
+                        ),
+                        "grounding_validation": _sanitize_for_json(
+                            dict(state_payload.get("grounding_validation", {}) or {}),
+                            max_chars=240,
+                        ),
+                        "grounding_issues": [
+                            str(x or "")
+                            for x in list(state_payload.get("grounding_issues", []) or [])[:20]
+                        ],
+                        "required_main_nodes": [
+                            str(x or "")
+                            for x in list(
+                                state_payload.get(
+                                    "required_main_nodes",
+                                    dict(run_result.metrics or {}).get("required_main_nodes", []),
+                                )
+                                or []
+                            )[:12]
+                        ],
+                        "missing_required_main_nodes": [
+                            str(x or "")
+                            for x in list(
+                                state_payload.get(
+                                    "missing_required_main_nodes",
+                                    dict(run_result.metrics or {}).get("missing_required_main_nodes", []),
+                                )
+                                or []
+                            )[:12]
+                        ],
+                        "draft_progress": _sanitize_for_json(
+                            list(state_payload.get("draft_progress", []) or [])[:64],
+                            max_chars=480,
+                        ),
+                    }
+                    if raw_draft_logged and raw_draft:
+                        failure_meta["draft_markdown_raw"] = _clip_raw_draft_text(
+                            raw_draft,
+                            max_chars=_RAW_DRAFT_META_MAX_CHARS,
+                        )
+                    self.finished.emit(
+                        MindmapTaskResult(
+                            context_text=context_text,
+                            query=query,
+                            mode=mode,
+                            markdown="",
+                            meta=failure_meta,
+                        )
+                    )
+                    return
+                except Exception as exc:
+                    self.failed.emit(f"Mindmap/Graph-Agent fehlgeschlagen: {exc}")
+                    return
 
             self.failed.emit(
                 "Unbekannter Hintergrundaufgabe-Typ: "
@@ -374,6 +813,7 @@ class LLMSideTaskController(QObject):
         self,
         ctx: dict,
         query_raw: str = "",
+        options: dict | None = None,
         done_cb=None,
     ) -> tuple[bool, str]:
         if not self._llm_manager.is_model_loaded():
@@ -391,14 +831,18 @@ class LLMSideTaskController(QObject):
         if not context_text:
             return self._empty_context_error(ctx)
         query = str(query_raw or "").strip()
-        if not query:
-            query = str(ctx.get("user_query", "") or "").strip()
+        raw_opts = dict(options or {}) if isinstance(options, dict) else {}
+        try:
+            max_terms = int(raw_opts.get("max_terms", 32) or 32)
+        except (TypeError, ValueError):
+            max_terms = 32
+        max_terms = max(8, min(256, max_terms))
 
         return self._start_task(
             task_kind="glossary",
             request=GlossaryTaskRequest(
                 context_text=context_text,
-                max_terms=32,
+                max_terms=max_terms,
                 query=query,
             ),
             status_message="Generiere Glossar aus Kontext…",
@@ -411,21 +855,20 @@ class LLMSideTaskController(QObject):
         query_raw: str = "",
         mode_hint: str = "auto",
         map_depth: int = 0,
+        map_options: dict | None = None,
         done_cb=None,
     ) -> tuple[bool, str]:
         resolved_query_raw = str(query_raw or "").strip()
-        if not resolved_query_raw:
-            resolved_query_raw = str(ctx.get("user_query", "") or "").strip()
         mode, query = self._resolve_mindmap_mode_and_query(
             resolved_query_raw,
             mode_hint=mode_hint,
         )
 
-        if mode != "chunkmap" and not self._llm_manager.is_model_loaded():
+        if not self._llm_manager.is_model_loaded():
             return False, "Kein Modell geladen. Bitte zuerst ein GGUF-Modell laden."
         if self.is_task_active():
             return (False, "Es läuft bereits eine Hintergrundaufgabe.")
-        if mode != "chunkmap" and self._llm_manager.worker.isRunning():
+        if self._llm_manager.worker.isRunning():
             return (
                 False,
                 "Das Modell ist gerade beschäftigt. Bitte erneut versuchen, "
@@ -439,6 +882,77 @@ class LLMSideTaskController(QObject):
             return self._empty_context_error(ctx)
 
         rag_cfg = self._rag_system.config
+        popup_opts = dict(map_options or {}) if isinstance(map_options, dict) else {}
+
+        raw_retrieval = str(popup_opts.get("retrieval_strategy", "") or "").strip().casefold()
+        retrieval_override = raw_retrieval if raw_retrieval in {"agent", "rag", "none"} else ""
+
+        try:
+            agent_iter_override = int(popup_opts.get("agent_max_iterations", 0) or 0)
+        except (TypeError, ValueError):
+            agent_iter_override = 0
+        agent_iter_override = max(0, min(300, agent_iter_override))
+
+        factcheck_override = None
+        if "factcheck" in popup_opts:
+            factcheck_override = bool(popup_opts.get("factcheck"))
+
+        try:
+            max_nodes_override = int(popup_opts.get("max_nodes", 0) or 0)
+        except (TypeError, ValueError):
+            max_nodes_override = 0
+        max_nodes_override = max(0, min(512, max_nodes_override))
+
+        try:
+            max_ref_override = int(popup_opts.get("max_refinement_rounds", -1) or -1)
+        except (TypeError, ValueError):
+            max_ref_override = -1
+        if max_ref_override > 6:
+            max_ref_override = 6
+
+        use_full_context_override = None
+        if "use_full_context" in popup_opts:
+            use_full_context_override = bool(popup_opts.get("use_full_context"))
+
+        try:
+            context_max_chars_override = int(popup_opts.get("context_max_chars", 0) or 0)
+        except (TypeError, ValueError):
+            context_max_chars_override = 0
+        context_max_chars_override = max(0, min(1_000_000, context_max_chars_override))
+
+        def _opt_bool(key: str) -> bool | None:
+            if key not in popup_opts:
+                return None
+            return bool(popup_opts.get(key))
+
+        allow_rag_override = _opt_bool("allow_rag_search")
+        allow_regex_override = _opt_bool("allow_regex_search")
+        allow_heading_override = _opt_bool("allow_heading_search")
+        allow_full_text_override = _opt_bool("allow_full_text_search")
+        allow_narrowing_override = _opt_bool("allow_query_narrowing")
+        allow_heading_summary_override = _opt_bool("allow_heading_summaries")
+        log_draft_markdown_override = _opt_bool("log_draft_markdown")
+        try:
+            max_regex_calls_override = int(popup_opts.get("agent_max_regex_calls", -1) or -1)
+        except (TypeError, ValueError):
+            max_regex_calls_override = -1
+        max_regex_calls_override = max(-1, min(12, max_regex_calls_override))
+        try:
+            budget_points_override = float(popup_opts.get("agent_budget_points", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            budget_points_override = 0.0
+        budget_points_override = max(0.0, min(500.0, budget_points_override))
+        try:
+            budget_seconds_override = float(popup_opts.get("budget_seconds", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            budget_seconds_override = 0.0
+        budget_seconds_override = max(0.0, min(7200.0, budget_seconds_override))
+        if budget_points_override > 0.0 and agent_iter_override <= 0:
+            # Popup no longer exposes explicit max iterations; derive a safe
+            # upper bound from budget so the budget is the primary limiter.
+            # Cheapest tool (heading_search) costs ~0.1 points.
+            auto_iter = int((budget_points_override / 0.1) + 2)
+            agent_iter_override = max(8, min(300, auto_iter))
 
         return self._start_task(
             task_kind="mindmap",
@@ -451,92 +965,27 @@ class LLMSideTaskController(QObject):
                 chunk_size=int(rag_cfg.chunking.chunk_size or 900),
                 chunk_overlap=int(rag_cfg.chunking.chunk_overlap or 160),
                 map_depth=max(0, min(12, int(map_depth or 0))),
+                override_retrieval_strategy=retrieval_override,
+                override_agent_max_iterations=agent_iter_override,
+                override_factcheck=factcheck_override,
+                override_max_nodes=max_nodes_override,
+                override_max_refinement_rounds=max_ref_override,
+                override_use_full_context=use_full_context_override,
+                override_context_max_chars=context_max_chars_override,
+                override_allow_rag_search=allow_rag_override,
+                override_allow_regex_search=allow_regex_override,
+                override_allow_heading_search=allow_heading_override,
+                override_allow_full_text_search=allow_full_text_override,
+                override_allow_query_narrowing=allow_narrowing_override,
+                override_allow_heading_summaries=allow_heading_summary_override,
+                override_agent_max_regex_calls=max_regex_calls_override,
+                override_agent_budget_points=budget_points_override,
+                override_budget_seconds=budget_seconds_override,
+                override_log_draft_markdown=log_draft_markdown_override,
             ),
             status_message="Generiere MindMap/Graph/Chunk-MindMap aus Kontext…",
             done_cb=done_cb,
         )
-
-    def _prompt_map_depth_for_mode(
-        self,
-        *,
-        parent,
-        user_mode: str,
-        mode_hint: str,
-    ) -> int | None:
-        mode = str(mode_hint or "").strip().casefold()
-        if mode not in {"mindmap", "graph"}:
-            return 0
-        title = resolve_feature_label(
-            user_mode,
-            "mindmap.generate.dialog.depth.title",
-            "Ausbautiefe festlegen",
-        )
-        intro = resolve_feature_label(
-            user_mode,
-            "mindmap.generate.dialog.depth.intro",
-            "Wie tief soll der Agent den Graph/Mindmap iterativ ausbauen? 0 = deaktiviert.",
-        )
-        value_prefix = resolve_feature_label(
-            user_mode,
-            "mindmap.generate.dialog.depth.value_prefix",
-            "Tiefe",
-        )
-        ok_text = resolve_feature_label(
-            user_mode,
-            "mindmap.generate.dialog.button.ok",
-            "OK",
-        )
-        cancel_text = resolve_feature_label(
-            user_mode,
-            "mindmap.generate.dialog.button.cancel",
-            "Cancel",
-        )
-
-        dialog = QDialog(parent)
-        dialog.setWindowTitle(title)
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
-
-        intro_lbl = QLabel(intro)
-        intro_lbl.setWordWrap(True)
-        layout.addWidget(intro_lbl)
-
-        slider = QSlider(Qt.Orientation.Horizontal, dialog)
-        slider.setRange(0, 6)
-        slider.setSingleStep(1)
-        slider.setPageStep(1)
-        slider.setTickInterval(1)
-        slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        slider.setValue(2)
-        layout.addWidget(slider)
-
-        value_lbl = QLabel("")
-        layout.addWidget(value_lbl)
-
-        def _sync_value(value: int) -> None:
-            value_lbl.setText(f"{value_prefix}: {int(value)}")
-
-        slider.valueChanged.connect(_sync_value)
-        _sync_value(int(slider.value()))
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
-            parent=dialog,
-        )
-        ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        if ok_btn is not None:
-            ok_btn.setText(ok_text)
-        cancel_btn = buttons.button(QDialogButtonBox.StandardButton.Cancel)
-        if cancel_btn is not None:
-            cancel_btn.setText(cancel_text)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return None
-        return int(slider.value())
 
     def toggle_glossary_overlays(self, checked: bool) -> None:
         get_highlight_store().set_glossary_enabled(bool(checked))
@@ -563,142 +1012,6 @@ class LLMSideTaskController(QObject):
         overlays_on = get_highlight_store().is_glossary_enabled()
         suffix = "" if overlays_on else " (Overlay aktuell AUS)."
         self._show_status(f"Glossar gespeichert: {int(count)} Begriffe{suffix}", 4500)
-
-    def generate_glossary_from_context(self) -> None:
-        parent = self.parent()
-        if parent is None:
-            return
-        _err = lambda ok, info: (not ok) and QMessageBox.information(parent, "Glossar", info)
-        ok, info = self.generate_glossary_from_llm_context(
-            self._build_llm_context_cb(),
-            done_cb=_err,
-        )
-        if not ok:
-            QMessageBox.information(parent, "Glossar", info)
-
-    def generate_mindmap_from_context(self) -> None:
-        parent = self.parent()
-        if parent is None:
-            return
-        ctx_payload = self._build_llm_context_cb()
-        query_hint = str(ctx_payload.get("user_query", "") or "").strip()
-        user_mode = self._get_user_mode()
-        title = resolve_feature_label(
-            user_mode,
-            "mindmap.generate.dialog.title",
-            "MindMap/Graph/Chunk-MindMap generieren",
-        )
-        output_label = resolve_feature_label(
-            user_mode,
-            "mindmap.generate.dialog.output_format",
-            "Ausgabeformat:",
-        )
-        ok_text = resolve_feature_label(
-            user_mode,
-            "mindmap.generate.dialog.button.ok",
-            "OK",
-        )
-        cancel_text = resolve_feature_label(
-            user_mode,
-            "mindmap.generate.dialog.button.cancel",
-            "Cancel",
-        )
-        mode_options = [
-            (
-                "chunkmap",
-                resolve_feature_label(
-                    user_mode,
-                    "mindmap.generate.dialog.option.chunkmap",
-                    "Chunk-MindMap",
-                ),
-            ),
-            (
-                "mindmap",
-                resolve_feature_label(
-                    user_mode,
-                    "mindmap.generate.dialog.option.mindmap",
-                    "MindMap",
-                ),
-            ),
-            (
-                "graph",
-                resolve_feature_label(
-                    user_mode,
-                    "mindmap.generate.dialog.option.graph",
-                    "Graph",
-                ),
-            ),
-        ]
-        mode_dialog = QInputDialog(parent)
-        mode_dialog.setWindowTitle(title)
-        mode_dialog.setLabelText(output_label)
-        mode_dialog.setComboBoxItems([label for _, label in mode_options])
-        mode_dialog.setTextValue(mode_options[0][1])
-        mode_dialog.setOkButtonText(ok_text)
-        mode_dialog.setCancelButtonText(cancel_text)
-        if mode_dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        selected_mode_label = str(mode_dialog.textValue() or "")
-        mode_hint = mode_options[0][0]
-        for mode_name, mode_label in mode_options:
-            if mode_label == selected_mode_label:
-                mode_hint = mode_name
-                break
-        query_defaults = {
-            "graph": resolve_feature_label(
-                user_mode,
-                "mindmap.generate.dialog.query_default.graph",
-                "Welche zentralen Entitäten und Beziehungen sind im Kontext belegt?",
-            ),
-            "chunkmap": resolve_feature_label(
-                user_mode,
-                "mindmap.generate.dialog.query_default.chunkmap",
-                "Wie ist der Kontext nach Überschriften und Chunks strukturiert?",
-            ),
-            "mindmap": resolve_feature_label(
-                user_mode,
-                "mindmap.generate.dialog.query_default.mindmap",
-                "Welche zentralen Konzepte beantworten die Fragestellung im Kontext?",
-            ),
-        }
-        query_label = resolve_feature_label(
-            user_mode,
-            "mindmap.generate.dialog.query_label",
-            "Fragestellung (optional):",
-        )
-        query_dialog = QInputDialog(parent)
-        query_dialog.setWindowTitle(title)
-        query_dialog.setInputMode(QInputDialog.InputMode.TextInput)
-        query_dialog.setOption(
-            QInputDialog.InputDialogOption.UsePlainTextEditForTextInput,
-            True,
-        )
-        query_dialog.setLabelText(query_label)
-        query_dialog.setTextValue(
-            query_hint or query_defaults.get(mode_hint, query_defaults["mindmap"])
-        )
-        query_dialog.setOkButtonText(ok_text)
-        query_dialog.setCancelButtonText(cancel_text)
-        if query_dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        query_raw = query_dialog.textValue()
-        map_depth = self._prompt_map_depth_for_mode(
-            parent=parent,
-            user_mode=user_mode,
-            mode_hint=mode_hint,
-        )
-        if map_depth is None:
-            return
-        _err2 = lambda ok2, info: (not ok2) and QMessageBox.information(parent, "MindMap/Graph", info)
-        ok, info = self.generate_mindmap_from_llm_context(
-            ctx_payload,
-            str(query_raw or ""),
-            mode_hint=mode_hint,
-            map_depth=int(map_depth or 0),
-            done_cb=_err2,
-        )
-        if not ok:
-            QMessageBox.information(parent, "MindMap/Graph", info)
 
     def edit_system_prompt(self) -> None:
         parent = self.parent()
@@ -746,6 +1059,7 @@ class LLMSideTaskController(QObject):
             self._llm_manager,
             request=request,
             agentic_settings=agentic_settings,
+            rag_system=self._rag_system,
         )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)

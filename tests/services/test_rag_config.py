@@ -11,6 +11,10 @@ def test_rag_config_defaults_are_stable():
     assert cfg.backend.lexical_mode == "tfidf"
     assert cfg.backend.bm25_k1 == 1.2
     assert cfg.backend.bm25_b == 0.75
+    assert cfg.routing.enabled is True
+    assert cfg.routing.mode == "hybrid"
+    assert cfg.routing.top_k == 8
+    assert cfg.routing.expand_query is True
 
 
 def test_rag_config_requires_structured_overrides():
@@ -20,6 +24,7 @@ def test_rag_config_requires_structured_overrides():
             "chunking": {"strategy": "section"},
             "selection": {"top_k": 9},
             "literal": {"max_llm_terms": 12},
+            "routing": {"mode": "heading", "strict_filter": True, "top_k": 3},
         }
     )
     assert cfg.backend.use_st is True
@@ -29,6 +34,9 @@ def test_rag_config_requires_structured_overrides():
     assert cfg.chunking.strategy == "section"
     assert cfg.selection.top_k == 9
     assert cfg.literal.max_llm_terms == 12
+    assert cfg.routing.mode == "heading"
+    assert cfg.routing.strict_filter is True
+    assert cfg.routing.top_k == 3
 
 
 def test_rag_config_allows_dotted_overrides():
@@ -37,8 +45,10 @@ def test_rag_config_allows_dotted_overrides():
             "backend.use_regex_search": False,
             "selection.mode": "threshold",
             "selection.score_threshold": 0.4,
+            "routing.expand_query": False,
         }
     )
     assert cfg.backend.use_regex_search is False
     assert cfg.selection.mode == "threshold"
     assert cfg.selection.score_threshold == 0.4
+    assert cfg.routing.expand_query is False

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from shared.services.importer.models import PDFImportSettings
 from .pdf_settings_groups import (
+    build_docling_group,
     build_general_group,
     build_heading_group,
     build_hf_group,
@@ -64,6 +65,12 @@ class PDFSettingsPanel(QScrollArea):
         self._mode_heading_custom = False
         self._mode_para_smart_visible = True
         self._mode_para_fill_visible = False
+        self._mode_docling_images_scale = True
+        self._mode_docling_code = True
+        self._mode_docling_table = True
+        self._mode_docling_ocr = True
+        self._mode_docling_ocr_advanced = False
+        self._mode_docling_performance = False
         self._last_font_result: Optional[dict] = None
         self._detect_debug_info: str = ""
         self._font_debug_info: str = ""
@@ -83,11 +90,13 @@ class PDFSettingsPanel(QScrollArea):
         root.setSpacing(8)
 
         self._group_general = build_general_group(self)
+        self._group_docling = build_docling_group(self)
         self._group_tbl_img = build_tbl_img_group(self)
         self._group_hf = build_hf_group(self)
         self._group_heading = build_heading_group(self)
         self._group_para = build_para_group(self)
         root.addWidget(self._group_general)
+        root.addWidget(self._group_docling)
         root.addWidget(self._group_tbl_img)
         root.addWidget(self._group_hf)
         root.addWidget(self._group_heading)
@@ -102,6 +111,7 @@ class PDFSettingsPanel(QScrollArea):
         root.addStretch()
         self.setWidget(content)
         self._connect_all()
+        self._sync_backend_groups()
         self.set_user_mode(self._user_mode)
 
     # ── Internal state sync ───────────────────────────────────────────────
@@ -142,8 +152,59 @@ class PDFSettingsPanel(QScrollArea):
 
     # ── Slot connections ──────────────────────────────────────────────────
 
+    def _sync_docling_groups(self):
+        """Show/hide sub-sections within the Docling options group."""
+        images_on = self._docling_images.isChecked()
+        ocr_on = self._docling_ocr.isChecked()
+        self._docling_scale_widget.setVisible(
+            images_on and self._mode_docling_images_scale
+        )
+        self._docling_code.setVisible(self._mode_docling_code)
+        self._docling_table_widget.setVisible(self._mode_docling_table)
+        self._docling_ocr_widget.setVisible(self._mode_docling_ocr)
+        self._docling_ocr_advanced_widget.setVisible(
+            self._mode_docling_ocr_advanced and ocr_on
+        )
+        self._docling_perf_widget.setVisible(self._mode_docling_performance)
+
+    def _sync_backend_groups(self):
+        """Show/hide setting groups depending on the active backend."""
+        is_docling = self._backend.currentIndex() == 1
+        # Docling handles HF, headings, tables and reflow automatically
+        self._group_docling.setVisible(is_docling)
+        self._group_tbl_img.setVisible(not is_docling)
+        self._group_hf.setVisible(not is_docling)
+        self._group_heading.setVisible(not is_docling)
+        self._group_para.setVisible(not is_docling)
+        if is_docling:
+            self._sync_docling_groups()
+
+    def _on_backend_changed(self, _):
+        self._sync_backend_groups()
+        self._emit()
+
+    def _on_docling_images_toggled(self, _):
+        self._sync_docling_groups()
+        self._emit()
+
+    def _on_docling_ocr_toggled(self, _):
+        self._sync_docling_groups()
+        self._emit()
+
     def _connect_all(self):
         pairs = [
+            (self._backend.currentIndexChanged, self._on_backend_changed),
+            (self._docling_images.toggled, self._on_docling_images_toggled),
+            (self._docling_images_scale.valueChanged, self._emit),
+            (self._docling_formulas.toggled, self._emit),
+            (self._docling_code.toggled, self._emit),
+            (self._docling_table_mode.currentIndexChanged, self._emit),
+            (self._docling_ocr.toggled, self._on_docling_ocr_toggled),
+            (self._docling_ocr_force_full_page.toggled, self._emit),
+            (self._docling_ocr_lang.textChanged, self._emit),
+            (self._docling_force_backend_text.toggled, self._emit),
+            (self._docling_timeout.valueChanged, self._emit),
+            (self._docling_num_threads.valueChanged, self._emit),
             (self._page_range.textChanged, self._emit),
             (self._show_markers.toggled, self._emit),
             (self._table_strategy.currentTextChanged, self._emit),
@@ -192,6 +253,20 @@ class PDFSettingsPanel(QScrollArea):
 
     def get_settings(self) -> PDFImportSettings:
         s = PDFImportSettings()
+        s.backend = "docling" if self._backend.currentIndex() == 1 else "pymupdf"
+        s.docling_images = self._docling_images.isChecked()
+        s.docling_images_scale = self._docling_images_scale.value()
+        s.docling_formulas = self._docling_formulas.isChecked()
+        s.docling_code = self._docling_code.isChecked()
+        s.docling_table_mode = (
+            "fast" if self._docling_table_mode.currentIndex() == 1 else "accurate"
+        )
+        s.docling_ocr = self._docling_ocr.isChecked()
+        s.docling_ocr_force_full_page = self._docling_ocr_force_full_page.isChecked()
+        s.docling_ocr_lang = self._docling_ocr_lang.text().strip()
+        s.docling_force_backend_text = self._docling_force_backend_text.isChecked()
+        s.docling_timeout = self._docling_timeout.value()
+        s.docling_num_threads = self._docling_num_threads.value()
         s.page_range = self._page_range.text().strip() or "all"
         s.show_page_markers = self._show_markers.isChecked()
         s.table_strategy = self._table_strategy.currentText()
@@ -223,6 +298,20 @@ class PDFSettingsPanel(QScrollArea):
 
     def set_settings(self, s: PDFImportSettings):
         self._block = True
+        self._backend.setCurrentIndex(1 if getattr(s, "backend", "pymupdf") == "docling" else 0)
+        self._docling_images.setChecked(bool(getattr(s, "docling_images", True)))
+        self._docling_images_scale.setValue(float(getattr(s, "docling_images_scale", 2.0) or 2.0))
+        self._docling_formulas.setChecked(bool(getattr(s, "docling_formulas", False)))
+        self._docling_code.setChecked(bool(getattr(s, "docling_code", False)))
+        self._docling_table_mode.setCurrentIndex(
+            1 if str(getattr(s, "docling_table_mode", "accurate")).lower() == "fast" else 0
+        )
+        self._docling_ocr.setChecked(bool(getattr(s, "docling_ocr", True)))
+        self._docling_ocr_force_full_page.setChecked(bool(getattr(s, "docling_ocr_force_full_page", False)))
+        self._docling_ocr_lang.setText(str(getattr(s, "docling_ocr_lang", "") or ""))
+        self._docling_force_backend_text.setChecked(bool(getattr(s, "docling_force_backend_text", False)))
+        self._docling_timeout.setValue(float(getattr(s, "docling_timeout", 0.0) or 0.0))
+        self._docling_num_threads.setValue(int(getattr(s, "docling_num_threads", 0) or 0))
         self._page_range.setText(s.page_range)
         self._show_markers.setChecked(s.show_page_markers)
         set_combo_value(self._table_strategy, s.table_strategy)
@@ -260,6 +349,7 @@ class PDFSettingsPanel(QScrollArea):
         self._last_font_result = None
 
         self._block = False
+        self._sync_backend_groups()
         self._sync_heading_mode()
         self._sync_para_mode()
         self._sync_hf_widgets()
@@ -412,6 +502,25 @@ class PDFSettingsPanel(QScrollArea):
             )
         )
 
+        self._mode_docling_images_scale = bool(
+            is_feature_visible(self._user_mode, "importer.pdf.docling.images_scale", default=True)
+        )
+        self._mode_docling_code = bool(
+            is_feature_visible(self._user_mode, "importer.pdf.docling.code", default=True)
+        )
+        self._mode_docling_table = bool(
+            is_feature_visible(self._user_mode, "importer.pdf.docling.table_mode", default=True)
+        )
+        self._mode_docling_ocr = bool(
+            is_feature_visible(self._user_mode, "importer.pdf.docling.ocr", default=True)
+        )
+        self._mode_docling_ocr_advanced = bool(
+            is_feature_visible(self._user_mode, "importer.pdf.docling.ocr_advanced", default=False)
+        )
+        self._mode_docling_performance = bool(
+            is_feature_visible(self._user_mode, "importer.pdf.docling.performance", default=False)
+        )
+
         self._group_tbl_img.setVisible(show_tbl_img)
         self._group_hf.setVisible(show_hf)
         self._group_heading.setVisible(show_heading)
@@ -432,6 +541,8 @@ class PDFSettingsPanel(QScrollArea):
 
         self._mode_para_smart_visible = show_para_smart
         self._mode_para_fill_visible = show_para_fill
+
+        self._sync_docling_groups()
 
         self._btn_preview.setText(
             resolve_feature_label(

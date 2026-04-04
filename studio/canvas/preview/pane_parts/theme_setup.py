@@ -60,6 +60,9 @@ def __init__(
     self._restoring_view_scroll = False
     self._pending_wheel_scroll_delta_px = 0
     self._render_cycle_id = 0
+    self._resource_search_paths: list[str] = []
+    self._image_rotation_map: dict[str, int] = {}
+    self._open_image_viewers: list[QWidget] = []
     self._table_insert_btn: QPushButton | None = None
     self._format_buttons: dict[str, QPushButton] = {}
     self._table_insert_menu: QMenu | None = None
@@ -209,6 +212,7 @@ def _build_format_bar(self) -> QWidget:
         ("bold", "B", "Fett", self._toggle_bold),
         ("italic", "I", "Kursiv", self._toggle_italic),
         ("quote", '"', "Zitat", self._toggle_block_quote),
+        ("formula", "∑", "LaTeX-Formel einfügen", self._insert_formula),
         ("bullet_list", "•", "Aufzählung", self._toggle_bullet_list),
         ("numbered_list", "1.", "Nummerierte Liste", self._toggle_numbered_list),
         ("table", "Tab", "Tabelle einfügen", self._show_table_insert_menu),
@@ -360,6 +364,7 @@ def set_user_mode(self, mode: str):
         "bold": ("B", "Fett"),
         "italic": ("I", "Kursiv"),
         "quote": ('"', "Zitat"),
+        "formula": ("∑", "LaTeX-Formel einfügen"),
         "bullet_list": ("•", "Aufzählung"),
         "numbered_list": ("1.", "Nummerierte Liste"),
         "table": ("Tab", "Tabelle einfügen"),

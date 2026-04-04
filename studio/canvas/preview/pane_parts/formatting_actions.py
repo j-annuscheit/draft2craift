@@ -220,6 +220,23 @@ def _toggle_block_quote(self):
         self._view.setTextCursor(cursor)
 
     self._apply_preview_format_change(apply)
+def _insert_formula(self):
+    """Open formula dialog and insert resulting LaTeX into preview selection."""
+    from studio.canvas.formula_editor import FormulaEditorDialog
+
+    dlg = FormulaEditorDialog(parent=self)
+    if dlg.exec() != dlg.DialogCode.Accepted:
+        return
+    latex = str(dlg.result_latex() or "").strip()
+    if not latex:
+        return
+
+    def apply():
+        cursor = self._view.textCursor()
+        cursor.insertText(latex)
+        self._view.setTextCursor(cursor)
+
+    self._apply_preview_format_change(apply)
 def _toggle_bullet_list(self):
     self._toggle_list_style(QTextListFormat.Style.ListDisc)
 def _toggle_numbered_list(self):
@@ -361,6 +378,7 @@ __all__ = [
     "_toggle_bold",
     "_toggle_italic",
     "_toggle_block_quote",
+    "_insert_formula",
     "_toggle_bullet_list",
     "_toggle_numbered_list",
     "_build_markdown_table",

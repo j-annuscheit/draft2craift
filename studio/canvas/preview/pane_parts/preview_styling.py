@@ -352,6 +352,10 @@ def _apply_view_document_style(self):
         "_hr_color",
         str(resolved.get("hr_color", "") or ""),
     )
+    self._view.setProperty(
+        "_formula_text_color",
+        str(resolved.get("formula_text_color", "") or ""),
+    )
 
 
 def _spacing_px(self, em: object) -> float:

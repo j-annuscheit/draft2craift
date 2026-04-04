@@ -141,12 +141,22 @@ def _parse_payload(text: str, *, tag_hint: str) -> dict[str, Any] | None:
     raw = str(text or "").strip()
     if not raw:
         return None
-    try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict):
-            return parsed
-    except Exception:
-        pass
+    for candidate in _json_parse_candidates(raw):
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, str):
+                nested = str(parsed or "").strip()
+                if nested:
+                    try:
+                        parsed_nested = json.loads(nested)
+                        if isinstance(parsed_nested, dict):
+                            return parsed_nested
+                    except Exception:
+                        pass
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
     yaml_like = _parse_yaml_like_payload(raw, tag_hint=tag_hint)
     if yaml_like is not None:
         return yaml_like
@@ -187,6 +197,19 @@ def _parse_simple_text_payload(text: str, *, tag_hint: str) -> dict[str, Any] | 
     if mindmap_payload is not None:
         return mindmap_payload
     return _parse_simple_graph_payload(text)
+
+
+def _json_parse_candidates(raw: str) -> list[str]:
+    text = str(raw or "")
+    out: list[str] = [text]
+    # Some small models emit JSON with line-continuation backslashes at EOL:
+    # {\  "type":"mindmap",\ ... }\
+    decontinued = re.sub(r"\\\s*(\r?\n)", r"\1", text)
+    # Also handle trailing continuation slash at EOF (after strip()).
+    decontinued = re.sub(r"\\\s*$", "", decontinued)
+    if decontinued != text:
+        out.append(decontinued)
+    return out
 
 
 def _unquote_yaml_scalar(value: str) -> str:
@@ -545,7 +568,8 @@ def _payload_to_spec(payload: dict[str, Any], *, tag_hint: str) -> GraphSpec | N
         if isinstance(node_data, dict):
             children = node_data.get("children", [])
             if isinstance(children, list):
-                for child in children:
+                repaired_children = _repair_flat_tree_children(children)
+                for child in repaired_children:
                     if isinstance(child, str):
                         child_id = ensure_node(child)
                         if child_id:
@@ -555,6 +579,8 @@ def _payload_to_spec(payload: dict[str, Any], *, tag_hint: str) -> GraphSpec | N
         return node_id
 
     raw_nodes = payload.get("nodes", [])
+    if isinstance(raw_nodes, list):
+        raw_nodes = _repair_flat_tree_children(raw_nodes)
     for row in (raw_nodes if isinstance(raw_nodes, list) else [raw_nodes]):
         walk_node(row)
 
@@ -610,6 +636,91 @@ def _payload_to_spec(payload: dict[str, Any], *, tag_hint: str) -> GraphSpec | N
         edges=edges,
         default_collapsed_ids=collapsed_ids,
     )
+
+
+def _split_tree_marker_label(raw_label: object) -> tuple[int, str]:
+    text = str(raw_label or "").replace("\t", "    ").strip()
+    if not text:
+        return 0, ""
+    work = text
+    depth = 0
+    while True:
+        if work.startswith("│   ") or work.startswith("|   "):
+            depth += 1
+            work = work[4:]
+            continue
+        if work.startswith("    "):
+            depth += 1
+            work = work[4:]
+            continue
+        break
+    branch_tokens = (
+        "├──",
+        "└──",
+        "├─",
+        "└─",
+        "|--",
+        "+--",
+        "`--",
+        "|-",
+        "+-",
+    )
+    for token in branch_tokens:
+        if work.startswith(token):
+            cleaned = work[len(token):].strip()
+            return depth + 1, cleaned
+    return 0, text
+
+
+def _repair_flat_tree_children(children: list[Any]) -> list[Any]:
+    rows: list[tuple[dict[str, Any], int, str]] = []
+    marker_count = 0
+    max_depth = 0
+    for child in list(children or []):
+        if isinstance(child, dict):
+            node = dict(child)
+            label = str(
+                node.get("label")
+                or node.get("title")
+                or node.get("name")
+                or node.get("id")
+                or ""
+            )
+        elif isinstance(child, str):
+            node = {"label": str(child)}
+            label = str(child)
+        else:
+            return children
+        depth, cleaned = _split_tree_marker_label(label)
+        if depth > 0:
+            marker_count += 1
+            max_depth = max(max_depth, depth)
+        rows.append((node, depth, cleaned))
+
+    if len(rows) < 2:
+        return children
+    if marker_count < 2 or marker_count < max(2, len(rows) // 2) or max_depth < 2:
+        return children
+
+    rebuilt_roots: list[dict[str, Any]] = []
+    stack: list[tuple[int, dict[str, Any]]] = []
+    for node, depth, cleaned in rows:
+        normalized = dict(node)
+        if cleaned:
+            normalized["label"] = _clip_text(cleaned, max_chars=_MAX_LABEL_CHARS)
+        existing_children = normalized.get("children", [])
+        normalized["children"] = list(existing_children) if isinstance(existing_children, list) else []
+        level = max(1, int(depth or 1))
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        if stack:
+            parent_children = stack[-1][1].setdefault("children", [])
+            if isinstance(parent_children, list):
+                parent_children.append(normalized)
+        else:
+            rebuilt_roots.append(normalized)
+        stack.append((level, normalized))
+    return rebuilt_roots
 
 
 def _clip_text(value: object, *, max_chars: int) -> str:

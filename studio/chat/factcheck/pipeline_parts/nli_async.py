@@ -134,7 +134,7 @@ def _run_nli_verify_tick(self):
             or reason_low.startswith("nli_model_missing")
         ):
             runtime_error = (
-                "Das geladene NLI-Transformers-Modell konnte nicht inferieren. "
+                "Das geladene NLI-Modell konnte nicht inferieren. "
                 f"Quelle: {source_name}. Detail: {reason or 'n/a'}"
             )
             self._fact_log_info(

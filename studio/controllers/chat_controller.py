@@ -109,18 +109,10 @@ class ChatController:
         set_model_label_text: Callable[[str], None],
         set_model_status_success: Callable[[bool], None],
         apply_status_label_styles: Callable[[], None],
-        rag_system: object,
-        llm_manager: object,
     ) -> None:
         set_model_label_text(str(message or ""))
         set_model_status_success(bool(success))
         apply_status_label_styles()
-        if not success:
-            return
-        rag_system.set_tfidf_query_expander(llm_manager.expand_query_tfidf_sync)
-        rag_system.set_st_query_expander(llm_manager.expand_query_st_sync)
-        rag_system.set_literal_query_expander(llm_manager.expand_query_literal_terms_sync)
-        rag_system.set_rag_reranker(llm_manager.rerank_rag_results_sync)
 
     def focus_model_panel(self, *, sync_toggle_action: Callable[[], None]) -> None:
         self._chat_dock.show()

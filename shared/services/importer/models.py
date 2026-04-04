@@ -27,6 +27,42 @@ class PDFImportSettings:
     Stored per file in ``ImportEntry.pdf_settings`` (managed by FileImportDialog).
     """
 
+    # ── Backend ──────────────────────────────────────────────────────────────
+    # "pymupdf"  – custom pipeline via pymupdf4llm (full manual control)
+    # "docling"  – AI-based pipeline via Docling (automatic layout analysis)
+    backend: str = "pymupdf"
+
+    # ── Docling-specific options (only used when backend == "docling") ─────────
+    # Extract and embed images as base64 in the HTML preview.
+    docling_images: bool = True
+    # Scale factor for extracted images (1.0 = draft, 2.0 = standard, 3.0 = high-res).
+    docling_images_scale: float = 2.0
+    # Recognise formulas and render them as LaTeX → PNG (requires the
+    # CodeFormulaV2 model, ~1 GB download on first use).
+    docling_formulas: bool = False
+    # Recognise code blocks with a specialized enrichment model (~0.5 GB).
+    docling_code: bool = False
+
+    # ── Docling OCR ──────────────────────────────────────────────────────────
+    # Apply OCR on pages that contain bitmap/scanned content.
+    docling_ocr: bool = True
+    # Force full-page OCR even on pages with native text.
+    docling_ocr_force_full_page: bool = False
+    # Comma-separated OCR language codes, e.g. "de,en"  (empty = auto-detect).
+    docling_ocr_lang: str = ""
+
+    # ── Docling table structure ───────────────────────────────────────────────
+    # "accurate" uses TableFormerMode.ACCURATE (default), "fast" uses FAST.
+    docling_table_mode: str = "accurate"
+
+    # ── Docling performance / advanced ───────────────────────────────────────
+    # Max. processing time in seconds per document (0 = no limit).
+    docling_timeout: float = 0.0
+    # CPU threads for the Docling pipeline (0 = auto).
+    docling_num_threads: int = 0
+    # When True, use native PDF text instead of the layout-model predictions.
+    docling_force_backend_text: bool = False
+
     # ── General ─────────────────────────────────────────────────────────────
     page_range: str = "all"               # "all"  or  "1-5,7,9-"
     show_page_markers: bool = True

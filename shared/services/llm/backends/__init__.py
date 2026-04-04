@@ -1,20 +1,16 @@
 """Pluggable inference backends for the LLM runtime."""
-from .base import BaseLLMBackend
 from .factory import (
     BACKEND_AUTO,
     BACKEND_LLAMA_CPP,
-    BACKEND_TRANSFORMERS,
-    create_backend,
+    BACKEND_LITELLM,
     infer_backend_choice,
     normalize_backend_choice,
 )
 
 __all__ = [
-    "BaseLLMBackend",
     "BACKEND_AUTO",
     "BACKEND_LLAMA_CPP",
-    "BACKEND_TRANSFORMERS",
+    "BACKEND_LITELLM",
     "normalize_backend_choice",
     "infer_backend_choice",
-    "create_backend",
 ]

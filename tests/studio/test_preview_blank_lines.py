@@ -422,6 +422,7 @@ class PreviewBlankLineTests(unittest.TestCase):
             style = pane.preview_style_settings()
             style["body_background_color"] = "#123456"
             style["body_text_color"] = "#F0E0D0"
+            style["formula_text_color"] = "#CC33AA"
             style["quote_border_color"] = "#13579B"
             style["hr_color"] = "#B97531"
             pane.set_preview_style_settings(style, force=True)
@@ -437,6 +438,10 @@ class PreviewBlankLineTests(unittest.TestCase):
             self.assertEqual(
                 str(pane._view.property("_hr_color") or "").upper(),
                 "#B97531",
+            )
+            self.assertEqual(
+                str(pane._view.property("_formula_text_color") or "").upper(),
+                "#CC33AA",
             )
         finally:
             pane.deleteLater()

@@ -549,6 +549,12 @@ class PreviewLayoutSettingsDialog(QDialog):
         )
         self._add_color_row(
             colors_form,
+            "formula_text_color",
+            "Formel-Text:",
+            allow_auto=True,
+        )
+        self._add_color_row(
+            colors_form,
             "code_text_color",
             "Code-Text:",
             allow_auto=True,
@@ -729,6 +735,7 @@ class PreviewLayoutSettingsDialog(QDialog):
             "link_color": "link_color",
             "body_background_color": "body_background_color",
             "body_text_color": "body_text_color",
+            "formula_text_color": "formula_text_color",
             "code_text_color": "code_text_color",
             "table_border_color": "table_border_color",
             "quote_border_color": "quote_border_color",

@@ -1,10 +1,13 @@
-"""Prompt template persistence helpers."""
+"""Prompt template persistence helpers backed by Jinja2."""
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
+
+from jinja2 import Environment, StrictUndefined, TemplateError
 
 from shared.config.setting_keys import PromptTemplateKeys
 from shared.domain.prompt import PROMPT_SCHEMA_VERSION
@@ -20,6 +23,7 @@ def runtime_app_root() -> Path:
 
 
 DEFAULT_PROMPTS_FILE = runtime_app_root() / "data" / "prompts" / "defaults.json"
+_LEGACY_SLOT_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 
 
 def load_prompt_templates(path: Path) -> dict[str, str]:
@@ -41,14 +45,20 @@ def dump_prompt_templates(path: Path, templates: dict[str, str]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-class PromptTemplateRegistry:
-    """Holds default/custom prompt templates."""
+class PromptTemplateStore:
+    """Holds and renders prompt templates with Jinja2."""
 
     def __init__(self, logger: Any = None, defaults_file: Path = DEFAULT_PROMPTS_FILE):
         self._log = logger
         self._defaults_file = Path(defaults_file)
         self._defaults = self._load_prompt_defaults()
         self._prompts = dict(self._defaults)
+        self._jinja = Environment(
+            autoescape=False,
+            trim_blocks=False,
+            lstrip_blocks=False,
+            undefined=StrictUndefined,
+        )
 
     @property
     def prompts(self) -> dict[str, str]:
@@ -88,10 +98,26 @@ class PromptTemplateRegistry:
         replacements: dict[str, str] | None = None,
     ) -> str:
         text = str(self._prompts.get(key, self._defaults.get(key, "")) or "")
-        out = text
-        for name, value in (replacements or {}).items():
-            out = out.replace("{" + str(name) + "}", str(value))
-        return out
+        payload = {
+            str(name): str(value)
+            for name, value in dict(replacements or {}).items()
+        }
+        # Backward-compatible mode: legacy placeholders used "{name}".
+        legacy_normalized = _LEGACY_SLOT_RE.sub(r"{{ \1 }}", text)
+        try:
+            template = self._jinja.from_string(legacy_normalized)
+            return str(template.render(**payload))
+        except TemplateError:
+            try:
+                template = self._jinja.from_string(text)
+                return str(template.render(**payload))
+            except TemplateError as exc:
+                if self._log:
+                    self._log.warning(
+                        "LLM",
+                        f"Prompt render failed for key '{key}': {exc}",
+                    )
+                return text
 
     def _load_prompt_defaults(self) -> dict[str, str]:
         defaults: dict[str, str] = {}

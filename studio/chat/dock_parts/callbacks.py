@@ -289,6 +289,9 @@ def _apply_busy_state(self):
     self.send_btn.setVisible(send_feature_visible and (not llm_active))
     self.stop_btn.setVisible(stop_feature_visible and llm_active)
     self.send_btn.setEnabled(not busy_any)
+    generate_btn = getattr(self, "generate_btn", None)
+    if generate_btn is not None:
+        generate_btn.setEnabled(not busy_any)
     self.fact_btn.setEnabled(not busy_any)
     self.claim_precompute_btn.setEnabled(not busy_any)
     self.glossary_btn.setEnabled(not busy_any)

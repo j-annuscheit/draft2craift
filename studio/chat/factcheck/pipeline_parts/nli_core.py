@@ -165,7 +165,7 @@ def _verify_fact_against_nli_units(
                 f"source={source_name} reason={reason}"
             )
             return (
-                "Das geladene NLI-Transformers-Modell konnte nicht inferieren. "
+                "Das geladene NLI-Modell konnte nicht inferieren. "
                 f"Quelle: {source_name}. Detail: {reason or 'n/a'}"
             )
         self._fact_log_debug(

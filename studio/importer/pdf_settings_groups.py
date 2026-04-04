@@ -7,8 +7,10 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPushButton,
     QSpinBox,
@@ -24,6 +26,16 @@ def build_general_group(panel: "PDFSettingsPanel") -> QGroupBox:
     group = QGroupBox("General")
     panel._general_form = QFormLayout(group)
     panel._general_form.setSpacing(6)
+
+    panel._backend = QComboBox()
+    panel._backend.addItems(["PyMuPDF  (manuell konfigurierbar)", "Docling  (KI-basiert)"])
+    panel._backend.setToolTip(
+        "PyMuPDF   Klassische Pipeline mit vollständiger manueller Kontrolle über\n"
+        "          Header/Footer-Erkennung, Überschriften, Tabellen und Reflow.\n\n"
+        "Docling   KI-basierte Pipeline (IBM). Erkennt Layout, Tabellen und\n"
+        "          Überschriften automatisch — keine manuelle Konfiguration nötig."
+    )
+    panel._general_form.addRow("Backend:", panel._backend)
 
     panel._page_range = QLineEdit("all")
     panel._page_range.setPlaceholderText("all   or   1-5,7,10-")
@@ -79,6 +91,167 @@ def build_tbl_img_group(panel: "PDFSettingsPanel") -> QGroupBox:
     panel._graphics_limit.setSpecialValueText("unlimited")
     panel._graphics_limit.setToolTip("Max graphics per page  (0 = unlimited)")
     panel._tbl_img_form.addRow("Graphics limit:", panel._graphics_limit)
+    return group
+
+
+def _make_separator() -> QFrame:
+    sep = QFrame()
+    sep.setFrameShape(QFrame.Shape.HLine)
+    sep.setFrameShadow(QFrame.Shadow.Sunken)
+    return sep
+
+
+def build_docling_group(panel: "PDFSettingsPanel") -> QGroupBox:
+    """Options shown only when the Docling backend is selected."""
+    group = QGroupBox("Docling-Optionen")
+    layout = QVBoxLayout(group)
+    layout.setSpacing(6)
+
+    # ── Content extraction ────────────────────────────────────────────────
+    panel._docling_images = QCheckBox("Bilder extrahieren")
+    panel._docling_images.setChecked(True)
+    panel._docling_images.setToolTip(
+        "Extrahierte Bilder werden als Dateien gespeichert und im Markdown\n"
+        "über Dateipfade referenziert (keine base64-Blöcke im Markdown)."
+    )
+    layout.addWidget(panel._docling_images)
+
+    # Image scale (only shown when images are active + user mode allows)
+    panel._docling_scale_widget = QWidget()
+    scale_form = QFormLayout(panel._docling_scale_widget)
+    scale_form.setContentsMargins(16, 0, 0, 0)
+    scale_form.setSpacing(4)
+    panel._docling_images_scale = QDoubleSpinBox()
+    panel._docling_images_scale.setRange(0.5, 4.0)
+    panel._docling_images_scale.setSingleStep(0.5)
+    panel._docling_images_scale.setDecimals(1)
+    panel._docling_images_scale.setValue(2.0)
+    panel._docling_images_scale.setToolTip(
+        "Skalierungsfaktor für extrahierte Bilder.\n"
+        "1.0 × = Entwurfsqualität  |  2.0 × = Standard  |  3.0 × = Hohe Auflösung\n"
+        "Höhere Werte erhöhen die Dateigröße und Konvertierungszeit."
+    )
+    scale_form.addRow("Bildqualität:", panel._docling_images_scale)
+    layout.addWidget(panel._docling_scale_widget)
+
+    panel._docling_formulas = QCheckBox("Formelerkennung (LaTeX)  ⚠ ~1 GB Modell-Download")
+    panel._docling_formulas.setChecked(False)
+    panel._docling_formulas.setToolTip(
+        "Aktiviert Doclings CodeFormulaV2-Modell:\n"
+        "Formeln werden als LaTeX erkannt und als gerenderte Bilder angezeigt.\n\n"
+        "Beim ersten Start wird das Modell (~1 GB) von HuggingFace heruntergeladen.\n"
+        "Erhöht die Konvertierungszeit deutlich."
+    )
+    layout.addWidget(panel._docling_formulas)
+
+    panel._docling_code = QCheckBox("Code-Blöcke erkennen  ⚠ ~0.5 GB Modell-Download")
+    panel._docling_code.setChecked(False)
+    panel._docling_code.setToolTip(
+        "Aktiviert Doclings Code-Enrichment-Modell:\n"
+        "Code-Fragmente im Dokument werden als Blöcke erkannt und formatiert.\n\n"
+        "Nützlich für technische Dokumente und wissenschaftliche Arbeiten."
+    )
+    layout.addWidget(panel._docling_code)
+
+    # ── Table structure ───────────────────────────────────────────────────
+    layout.addWidget(_make_separator())
+
+    panel._docling_table_widget = QWidget()
+    table_form = QFormLayout(panel._docling_table_widget)
+    table_form.setContentsMargins(0, 0, 0, 0)
+    table_form.setSpacing(5)
+    panel._docling_table_mode = QComboBox()
+    panel._docling_table_mode.addItems(["Genau (Standard)", "Schnell"])
+    panel._docling_table_mode.setToolTip(
+        "Genau   TableFormerMode.ACCURATE — höhere Qualität, langsamer.\n"
+        "          Empfohlen für komplexe Tabellen mit Zell-Spans.\n\n"
+        "Schnell  TableFormerMode.FAST — schneller, für einfache Tabellen."
+    )
+    table_form.addRow("Tabellen-Modus:", panel._docling_table_mode)
+    layout.addWidget(panel._docling_table_widget)
+
+    # ── OCR ───────────────────────────────────────────────────────────────
+    layout.addWidget(_make_separator())
+
+    panel._docling_ocr_widget = QWidget()
+    ocr_outer = QVBoxLayout(panel._docling_ocr_widget)
+    ocr_outer.setContentsMargins(0, 0, 0, 0)
+    ocr_outer.setSpacing(4)
+
+    panel._docling_ocr = QCheckBox("OCR aktivieren (für gescannte PDFs)")
+    panel._docling_ocr.setChecked(True)
+    panel._docling_ocr.setToolTip(
+        "Wendet OCR auf Seiten an, die Bitmap-Inhalte enthalten.\n"
+        "Für native PDF-Textdokumente kann OCR deaktiviert werden,\n"
+        "um die Konvertierung zu beschleunigen."
+    )
+    ocr_outer.addWidget(panel._docling_ocr)
+
+    panel._docling_ocr_advanced_widget = QWidget()
+    ocr_adv_form = QFormLayout(panel._docling_ocr_advanced_widget)
+    ocr_adv_form.setContentsMargins(16, 0, 0, 0)
+    ocr_adv_form.setSpacing(4)
+
+    panel._docling_ocr_force_full_page = QCheckBox("Ganzseitige OCR erzwingen")
+    panel._docling_ocr_force_full_page.setChecked(False)
+    panel._docling_ocr_force_full_page.setToolTip(
+        "OCR auf jede Seite anwenden, auch wenn native PDF-Texte vorhanden sind.\n"
+        "Nützlich wenn der extrahierte Text fehlerhaft/leer erscheint."
+    )
+    ocr_adv_form.addRow("", panel._docling_ocr_force_full_page)
+
+    panel._docling_ocr_lang = QLineEdit()
+    panel._docling_ocr_lang.setPlaceholderText("leer = automatisch")
+    panel._docling_ocr_lang.setToolTip(
+        "Kommagetrennte OCR-Sprachcodes, z. B.: de,en\n"
+        "Leer lassen für automatische Spracherkennung.\n"
+        "Unterstützte Codes: de, en, fr, es, it, ja, zh, ar, ..."
+    )
+    ocr_adv_form.addRow("Sprachen:", panel._docling_ocr_lang)
+    ocr_outer.addWidget(panel._docling_ocr_advanced_widget)
+    layout.addWidget(panel._docling_ocr_widget)
+
+    # ── Performance / Erweitert ───────────────────────────────────────────
+    layout.addWidget(_make_separator())
+
+    panel._docling_perf_widget = QWidget()
+    perf_form = QFormLayout(panel._docling_perf_widget)
+    perf_form.setContentsMargins(0, 0, 0, 0)
+    perf_form.setSpacing(5)
+
+    panel._docling_force_backend_text = QCheckBox("PDF-Nativtext bevorzugen")
+    panel._docling_force_backend_text.setChecked(False)
+    panel._docling_force_backend_text.setToolTip(
+        "Verwendet den nativen PDF-Text anstelle der Layout-Modell-Vorhersagen.\n"
+        "Schneller und zuverlässiger für gut strukturierte, native PDF-Dokumente.\n"
+        "Deaktiviert Layout-Analyse für Text-Elemente."
+    )
+    perf_form.addRow("", panel._docling_force_backend_text)
+
+    panel._docling_timeout = QDoubleSpinBox()
+    panel._docling_timeout.setRange(0.0, 3600.0)
+    panel._docling_timeout.setSingleStep(30.0)
+    panel._docling_timeout.setDecimals(0)
+    panel._docling_timeout.setValue(0.0)
+    panel._docling_timeout.setSpecialValueText("unbegrenzt")
+    panel._docling_timeout.setSuffix(" s")
+    panel._docling_timeout.setToolTip(
+        "Maximale Verarbeitungszeit pro Dokument in Sekunden.\n"
+        "0 = kein Limit. Nützlich für sehr große PDFs um Hänger zu verhindern."
+    )
+    perf_form.addRow("Timeout:", panel._docling_timeout)
+
+    panel._docling_num_threads = QSpinBox()
+    panel._docling_num_threads.setRange(0, 64)
+    panel._docling_num_threads.setValue(0)
+    panel._docling_num_threads.setSpecialValueText("auto")
+    panel._docling_num_threads.setToolTip(
+        "Anzahl CPU-Threads für die Docling-Pipeline.\n"
+        "0 = automatisch (alle verfügbaren Kerne)."
+    )
+    perf_form.addRow("CPU-Threads:", panel._docling_num_threads)
+    layout.addWidget(panel._docling_perf_widget)
+
     return group
 
 

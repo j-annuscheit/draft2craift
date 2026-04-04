@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -37,9 +38,11 @@ class EditorPanel(QWidget):
         super().__init__(parent)
         self.editor = MarkdownEditor(read_only=read_only)
         self.lock_btn: QPushButton | None = None
+        self.paste_image_btn: QPushButton | None = None
         self.status_label: QLabel | None = None
         self._user_mode = default_user_mode()
         self._setup_ui(show_toolbar)
+        self.editor.read_only_changed.connect(lambda _value: self._sync_toolbar_labels())
         self.set_user_mode(self._user_mode)
 
     def _setup_ui(self, show_toolbar: bool):
@@ -60,11 +63,12 @@ class EditorPanel(QWidget):
         hbox.setContentsMargins(4, 0, 4, 0)
         hbox.setSpacing(2)
 
-        self.lock_btn = QPushButton()
-        self.lock_btn.setCheckable(True)
-        self._sync_lock_btn()
-        self.lock_btn.clicked.connect(self._toggle_lock)
-        hbox.addWidget(self.lock_btn)
+        self.paste_image_btn = QPushButton("🖼 Zwischenablage-Bild")
+        self.paste_image_btn.setToolTip(
+            "Fügt ein Bild aus der Zwischenablage ein und speichert es als Datei."
+        )
+        self.paste_image_btn.clicked.connect(self._paste_image_from_clipboard)
+        hbox.addWidget(self.paste_image_btn)
 
         hbox.addStretch()
 
@@ -116,10 +120,61 @@ class EditorPanel(QWidget):
         if callable(editor_mode_setter):
             editor_mode_setter(self._user_mode)
         self._sync_lock_btn()
+        self._sync_toolbar_labels()
+
+    def _sync_toolbar_labels(self) -> None:
+        btn = self.paste_image_btn
+        if btn is None:
+            return
+        btn.setText(
+            resolve_feature_label(
+                self._user_mode,
+                "editor.toolbar.paste_image",
+                "🖼 Zwischenablage-Bild",
+            )
+        )
+        btn.setToolTip(
+            resolve_feature_label(
+                self._user_mode,
+                "editor.toolbar.paste_image.tooltip",
+                "Fügt ein Bild aus der Zwischenablage ein und speichert es als Datei.",
+            )
+        )
+        btn.setEnabled(not self.editor.isReadOnly())
 
     def _toggle_lock(self):
         self.editor.toggle_read_only()
         self._sync_lock_btn()
+        self._sync_toolbar_labels()
+
+    def _insert_blockquote(self):
+        """Insert a Markdown blockquote at the current cursor position."""
+        cursor = self.editor.textCursor()
+        if cursor.hasSelection():
+            selected = cursor.selectedText()
+            # Prefix every line with "> "
+            lines = selected.replace("\u2029", "\n").split("\n")
+            quoted = "\n".join(f"> {line}" for line in lines)
+            cursor.insertText(quoted)
+        else:
+            # Insert a blank blockquote line
+            cursor.insertText("\n> ")
+        self.editor.setTextCursor(cursor)
+        self.editor.setFocus()
+
+    def _insert_formula(self):
+        """Open the formula editor dialog and insert the resulting LaTeX."""
+        from studio.canvas.formula_editor import FormulaEditorDialog
+        dlg = FormulaEditorDialog(parent=self)
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        latex = dlg.result_latex()
+        if not latex:
+            return
+        cursor = self.editor.textCursor()
+        cursor.insertText(latex)
+        self.editor.setTextCursor(cursor)
+        self.editor.setFocus()
 
     def _update_status(self):
         text = self.editor.toPlainText()
@@ -127,3 +182,23 @@ class EditorPanel(QWidget):
         lines = text.count("\n") + 1
         if self.status_label:
             self.status_label.setText(f"{words} w  {lines} L")
+
+    def _paste_image_from_clipboard(self) -> None:
+        if self.editor.isReadOnly():
+            return
+        inserted = False
+        handler = getattr(self.editor, "paste_image_from_clipboard", None)
+        if callable(handler):
+            try:
+                inserted = bool(handler())
+            except Exception:
+                inserted = False
+        if inserted:
+            return
+        clipboard = QApplication.clipboard()
+        if clipboard is None:
+            return
+        mime = clipboard.mimeData()
+        if mime is None:
+            return
+        self.editor.insertFromMimeData(mime)

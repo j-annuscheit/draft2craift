@@ -19,8 +19,8 @@ class ChatDockActionPorts:
 
     apply_selection_rewrite: Callable[[str, str, tuple[int, int] | None], tuple[bool, str]]
     open_fact_result: Callable[[str, str], tuple[bool, str]]
-    generate_glossary: Callable[[dict, str, Callable[[bool, str], None]], tuple[bool, str]]
+    generate_glossary: Callable[[dict, str, dict | None, Callable[[bool, str], None]], tuple[bool, str]]
     generate_mindmap: Callable[
-        [dict, str, str, int, Callable[[bool, str], None]],
+        [dict, str, str, int, dict | None, Callable[[bool, str], None]],
         tuple[bool, str],
     ]

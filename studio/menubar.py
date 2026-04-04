@@ -302,13 +302,6 @@ def build_menubar(inputs: MenuBuildInputs) -> MenuBuildResult:
         "menu.ai.generate_mindmap",
     )
     ai_menu.addSeparator()
-    _add_action(
-        ai_menu,
-        "Enable sentence-transformers RAG",
-        "",
-        _require_handler("try_sentence_transformers"),
-        "menu.ai.enable_st_rag",
-    )
     _add_action(ai_menu, "RAG Settings…", "", _require_handler("open_rag_settings"), "menu.ai.rag_settings")
     _add_action(ai_menu, "Speech Settings…", "", _require_handler("open_speech_settings"), "menu.ai.speech_settings")
     _add_action(

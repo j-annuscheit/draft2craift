@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QObject
 
-from studio.controllers.llm_tasks import LLMSideTaskController, GlossaryTaskRequest
+from studio.controllers.llm_tasks import LLMSideTaskController, GlossaryTaskRequest, MindmapTaskRequest
 
 
 class LLMSideTaskControllerTests(unittest.TestCase):
@@ -62,8 +62,8 @@ class LLMSideTaskControllerTests(unittest.TestCase):
         self.assertIn("This is a test", request_arg.context_text)
         self.assertEqual(request_arg.query, "")
 
-    def test_generate_glossary_uses_user_query_fallback(self):
-        """If no explicit query is passed, context user_query is used."""
+    def test_generate_glossary_ignores_context_user_query_without_explicit_override(self):
+        """Glossary query must come from explicit dialog input, not hidden context user_query."""
         self.ctx.llm_manager.is_model_loaded.return_value = True
         self.ctx.llm_manager.worker.isRunning.return_value = False
         self.controller._start_task = Mock(return_value=(True, ""))
@@ -79,7 +79,23 @@ class LLMSideTaskControllerTests(unittest.TestCase):
         call_args = self.controller._start_task.call_args
         request_arg = call_args[1]["request"]
         self.assertIsInstance(request_arg, GlossaryTaskRequest)
-        self.assertEqual(request_arg.query, "focus on technical risks")
+        self.assertEqual(request_arg.query, "")
+
+    def test_generate_glossary_supports_max_terms_override(self):
+        self.ctx.llm_manager.is_model_loaded.return_value = True
+        self.ctx.llm_manager.worker.isRunning.return_value = False
+        self.controller._start_task = Mock(return_value=(True, ""))
+
+        ok, _info = self.controller.generate_glossary_from_llm_context(
+            {"selected_text": "This is a test."},
+            options={"max_terms": 77},
+        )
+
+        self.assertTrue(ok)
+        call_args = self.controller._start_task.call_args
+        request_arg = call_args[1]["request"]
+        self.assertIsInstance(request_arg, GlossaryTaskRequest)
+        self.assertEqual(int(request_arg.max_terms), 77)
 
     def test_generate_glossary_passes_full_context_without_default_truncation(self):
         self.ctx.llm_manager.is_model_loaded.return_value = True
@@ -126,8 +142,8 @@ class LLMSideTaskControllerTests(unittest.TestCase):
         self.assertEqual(request_arg.mode, "mindmap")
         self.assertEqual(request_arg.query, "just a query")
 
-    def test_generate_graph_uses_user_query_fallback(self):
-        """Graph generation uses user_query when query_raw is empty."""
+    def test_generate_graph_does_not_use_context_user_query_fallback(self):
+        """Graph generation must not take hidden prompt from context user_query."""
         self.ctx.llm_manager.is_model_loaded.return_value = True
         self.ctx.llm_manager.worker.isRunning.return_value = False
         self.controller._start_task = Mock(return_value=(True, ""))
@@ -140,7 +156,7 @@ class LLMSideTaskControllerTests(unittest.TestCase):
         call_args = self.controller._start_task.call_args
         request_arg = call_args[1]["request"]
         self.assertEqual(request_arg.mode, "graph")
-        self.assertEqual(request_arg.query, "focus on risks")
+        self.assertNotEqual(request_arg.query, "focus on risks")
 
     def test_generate_mindmap_passes_requested_map_depth(self):
         self.ctx.llm_manager.is_model_loaded.return_value = True
@@ -156,6 +172,57 @@ class LLMSideTaskControllerTests(unittest.TestCase):
         request_arg = call_args[1]["request"]
         self.assertEqual(request_arg.mode, "mindmap")
         self.assertEqual(int(request_arg.map_depth), 4)
+
+    def test_generate_chunkmap_requires_loaded_model(self):
+        self.ctx.llm_manager.is_model_loaded.return_value = False
+        self.ctx.llm_manager.worker.isRunning.return_value = False
+
+        ok, info = self.controller.generate_mindmap_from_llm_context(
+            {"selected_text": "test"},
+            mode_hint="chunkmap",
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("Kein Modell geladen", info)
+
+    def test_generate_mindmap_ignores_removed_expand_options(self):
+        self.ctx.llm_manager.is_model_loaded.return_value = True
+        self.ctx.llm_manager.worker.isRunning.return_value = False
+        self.controller._start_task = Mock(return_value=(True, ""))
+
+        ok, _info = self.controller.generate_mindmap_from_llm_context(
+            {"selected_text": "test"},
+            "mindmap: Vertiefe Details",
+            map_options={
+                "expand_existing_map": True,
+                "expand_target_node": "Attention",
+            },
+        )
+
+        self.assertTrue(ok)
+        call_args = self.controller._start_task.call_args
+        request_arg = call_args[1]["request"]
+        self.assertIsInstance(request_arg, MindmapTaskRequest)
+        self.assertFalse(hasattr(request_arg, "expand_existing_map"))
+        self.assertFalse(hasattr(request_arg, "expand_target_node"))
+        self.assertEqual(request_arg.query, "Vertiefe Details")
+
+    def test_generate_mindmap_passes_log_draft_toggle(self):
+        self.ctx.llm_manager.is_model_loaded.return_value = True
+        self.ctx.llm_manager.worker.isRunning.return_value = False
+        self.controller._start_task = Mock(return_value=(True, ""))
+
+        ok, _info = self.controller.generate_mindmap_from_llm_context(
+            {"selected_text": "test"},
+            "mindmap: Überblick",
+            map_options={"log_draft_markdown": True},
+        )
+
+        self.assertTrue(ok)
+        call_args = self.controller._start_task.call_args
+        request_arg = call_args[1]["request"]
+        self.assertIsInstance(request_arg, MindmapTaskRequest)
+        self.assertIs(request_arg.override_log_draft_markdown, True)
 
 if __name__ == "__main__":
     unittest.main()

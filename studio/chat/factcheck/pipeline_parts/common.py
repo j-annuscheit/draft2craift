@@ -52,14 +52,14 @@ def _nli_prompt_workflow_preview(self) -> str:
             user_block = ""
     if not system_block:
         system_block = (
-            "Transformers NLI Workflow: tokenize(premise,hypothesis) -> "
+            "NLI Workflow: vergleiche premise/hypothesis -> "
             "logits -> softmax -> label entailment|neutral|contradiction."
         )
     if not user_block:
         user_block = "premise=<Chunk-Text>\nhypothesis=<Fakt/Claim>"
     return (
         "ℹ NLI-Workflow (Debug-Template):\n"
-        "[backend=transformers-cross-encoder]\n"
+        "[backend=nli]\n"
         "<|workflow|>\n"
         f"{system_block}\n"
         "<|input|>\n"

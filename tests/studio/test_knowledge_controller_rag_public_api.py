@@ -144,7 +144,7 @@ class _AcceptedDialogStub:
 
 
 class KnowledgeControllerRagPublicApiTests(unittest.TestCase):
-    def test_settings_dialog_uses_public_st_model_loaded_flag(self):
+    def test_settings_dialog_reindexes_without_st_runtime_path(self):
         rag_system = _RAGSystemPublicStub()
         knowledge_dock = _KnowledgeDockStub()
         context = _AppContextStub()
@@ -164,7 +164,7 @@ class KnowledgeControllerRagPublicApiTests(unittest.TestCase):
         ):
             controller.open_rag_settings_dialog()
 
-        self.assertEqual(len(knowledge_dock.rag_worker.enqueued_models), 1)
+        self.assertEqual(len(knowledge_dock.rag_worker.enqueued_models), 0)
         self.assertEqual(knowledge_dock.reindex_calls, 1)
         self.assertEqual(context.autosave_delays, [350])
 
